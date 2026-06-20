@@ -1,0 +1,6 @@
+(block_bots) {
+    @ahrefsbot {
+        header User-Agent *AhrefsBot*
+    }
+    respond @ahrefsbot 403
+}
