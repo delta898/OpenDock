@@ -1,0 +1,16 @@
+# Default WordPress route for the home server stack.
+#
+# Set WORDPRESS_DOMAIN and WORDPRESS_UPSTREAM in gateway/.env.
+
+{$WORDPRESS_DOMAIN:localhost} {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    @blocked_wordpress_paths {
+        path /xmlrpc.php /wp-config.php /readme.html /license.txt
+    }
+    respond @blocked_wordpress_paths "" 404
+
+    reverse_proxy {$WORDPRESS_UPSTREAM:wordpress:80}
+}

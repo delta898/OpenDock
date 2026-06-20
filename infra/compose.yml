@@ -1,22 +1,22 @@
 networks:
   shared-net:
-    name: shared-net      # 외부에서 이 이름으로 참조
+    name: shared-net
     driver: bridge
 
 services:
   mariadb:
-    image: mariadb:11
+    image: mariadb:${MARIADB_VERSION}
     container_name: mariadb
     networks:
       - shared-net
     volumes:
       - mariadb_data:/var/lib/mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
     restart: unless-stopped
 
   redis:
-    image: redis:alpine
+    image: redis:${REDIS_VERSION}
     container_name: redis
     networks:
       - shared-net

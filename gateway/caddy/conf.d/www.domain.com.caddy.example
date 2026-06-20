@@ -1,0 +1,14 @@
+# Copy this file and remove the .example suffix for an additional public site.
+#
+# Example:
+#   cp gateway/caddy/conf.d/www.domain.com.caddy.example gateway/caddy/conf.d/blog.example.com.caddy
+#
+# Caddyfile imports conf.d/*.caddy, so *.caddy.example files are not loaded.
+
+www.domain.com {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy app-container-name:80
+}

@@ -53,7 +53,10 @@ run_compose() { \
 		*) dir="$(ROOT)/services/$$target" ;; \
 	esac; \
 	test -f "$$dir/compose.yml" || { echo "Unknown target or missing compose.yml: $$target"; exit 1; }; \
-	docker compose --project-directory "$$dir" -f "$$dir/compose.yml" -p "$$target" "$$@"; \
+	test -f "$(ROOT)/common.env" || { echo "Missing common.env. Copy common.env.example to common.env."; exit 1; }; \
+	env_files="--env-file $(ROOT)/common.env"; \
+	if [ -f "$$dir/.env" ]; then env_files="$$env_files --env-file $$dir/.env"; fi; \
+	docker compose --project-directory "$$dir" $$env_files -f "$$dir/compose.yml" -p "$$target" "$$@"; \
 }; run_compose
 endef
 
@@ -101,12 +104,8 @@ sync sync-dry-run:
 	rsync -azih --delete $$dry_run \
 		--exclude=".git/" \
 		--exclude=".sync.env" \
-		--include=".env.example" \
-		--include="**/.env.example" \
-		--exclude=".env" \
-		--exclude=".env.*" \
-		--exclude="**/.env" \
-		--exclude="**/.env.*" \
+		--exclude="common.env" \
+		--include="common.env.example" \
 		--exclude=".DS_Store" \
 		"$(ROOT)/" "$$remote:$$path/"; \
 	echo "Done."

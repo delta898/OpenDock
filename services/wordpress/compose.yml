@@ -1,0 +1,46 @@
+services:
+  wordpress-db-init:
+    image: mariadb:${MARIADB_CLIENT_VERSION}
+    networks:
+      - shared-net
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+    command: >
+      sh -c '
+        until mariadb-admin ping -h mariadb -u root -p"$${MARIADB_ROOT_PASSWORD}" --silent; do
+          echo "Waiting for MariaDB...";
+          sleep 2;
+        done;
+        mariadb -h mariadb -u root -p"$${MARIADB_ROOT_PASSWORD}" -e "
+          CREATE DATABASE IF NOT EXISTS \`$${WORDPRESS_DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+          CREATE USER IF NOT EXISTS '\''$${WORDPRESS_DB_USER}'\''@'\''%'\'' IDENTIFIED BY '\''$${WORDPRESS_DB_PASSWORD}'\'';
+          GRANT ALL PRIVILEGES ON \`$${WORDPRESS_DB_NAME}\`.* TO '\''$${WORDPRESS_DB_USER}'\''@'\''%'\'';
+          FLUSH PRIVILEGES;
+        ";
+      '
+    restart: "no"
+
+  wordpress:
+    image: wordpress:${WORDPRESS_VERSION}
+    container_name: ${WORDPRESS_CONTAINER_NAME}
+    depends_on:
+      wordpress-db-init:
+        condition: service_completed_successfully
+    networks:
+      - shared-net
+    volumes:
+      - ./data/webroot:/var/www/html
+    environment:
+      WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
+      WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}
+      WORDPRESS_DB_USER: ${WORDPRESS_DB_USER}
+      WORDPRESS_DB_PASSWORD: ${WORDPRESS_DB_PASSWORD}
+      WORDPRESS_TABLE_PREFIX: ${WORDPRESS_TABLE_PREFIX}
+    restart: unless-stopped
+
+networks:
+  shared-net:
+    external: true

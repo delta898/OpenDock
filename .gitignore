@@ -1,12 +1,7 @@
-.env
-.env.*
-!.env.example
-
-**/.env
-**/.env.*
-!**/.env.example
-
 .DS_Store
 
+common.env
 .sync.env
 *.swp
+
+services/*/data/

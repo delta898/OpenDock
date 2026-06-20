@@ -19,6 +19,8 @@ Personal Docker Compose workspace for shared infrastructure, gateway services, a
 ```sh
 make list
 make up infra
+make up gateway
+make up wordpress
 make ps infra
 make logs infra
 make down infra
@@ -37,6 +39,14 @@ make up wordpress
 make logs wordpress
 make down wordpress
 ```
+
+Gateway route files follow this convention:
+
+```text
+gateway/caddy/conf.d/<domain>.caddy
+```
+
+Default services committed to this repository should have their active gateway routes in `gateway/caddy/conf.d/`. Reference-only snippets belong under `gateway/caddy/examples/`.
 
 ## Sync To Test Machine
 
@@ -69,10 +79,13 @@ The real `.sync.env` file is intentionally ignored by Git.
 
 ## Environment
 
-Copy the example file before running infra services:
+Copy the common env file before running services:
 
 ```sh
-cp infra/.env.example infra/.env
+cp common.env.example common.env
 ```
 
-Then edit `infra/.env` locally. Real `.env` files are intentionally ignored by Git.
+Then edit `common.env` locally. It contains shared or sensitive values and is intentionally ignored by Git.
+
+- `common.env` contains shared or sensitive values.
+- Each directory `.env` is committed with non-sensitive defaults for that compose project.

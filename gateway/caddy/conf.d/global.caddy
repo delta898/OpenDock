@@ -2,5 +2,17 @@
     @ahrefsbot {
         header User-Agent *AhrefsBot*
     }
-    respond @ahrefsbot 403
+    respond @ahrefsbot "" 403
+}
+
+(security_headers) {
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options SAMEORIGIN
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}
+
+(common_proxy) {
+    encode zstd gzip
 }
