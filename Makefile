@@ -1,8 +1,11 @@
 ROOT := $(CURDIR)
-COMMANDS := up down restart stop start ps logs pull build config
+COMMANDS := up down restart stop start ps logs pull build config sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
 
-.PHONY: help list $(COMMANDS) infra gateway all
+-include .sync.env
+.EXPORT_ALL_VARIABLES:
+
+.PHONY: help list $(COMMANDS) infra gateway all test
 
 help:
 	@echo "Usage:"
@@ -10,6 +13,7 @@ help:
 	@echo
 	@echo "Commands:"
 	@echo "  up down restart stop start ps logs pull build config"
+	@echo "  sync sync-dry-run"
 	@echo
 	@echo "Targets:"
 	@echo "  infra, gateway, all, or any directory under services/"
@@ -19,11 +23,14 @@ help:
 	@echo "  make up wordpress"
 	@echo "  make logs wordpress"
 	@echo "  make ps all"
+	@echo "  make sync-dry-run test"
+	@echo "  make sync test"
 
 list:
 	@echo "infra"
 	@if [ -f "$(ROOT)/gateway/compose.yml" ]; then echo "gateway"; fi
-	@find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml -exec dirname {} \; 2>/dev/null | xargs -n 1 basename | sort
+	@find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml \
+		-exec sh -c 'basename "$$(dirname "$$1")"' _ {} \; 2>/dev/null | sort
 
 define target_dir
 $(if $(filter infra gateway,$(1)),$(ROOT)/$(1),$(ROOT)/services/$(1))
@@ -51,7 +58,7 @@ run_compose() { \
 endef
 
 define all_targets
-infra $(if $(wildcard $(ROOT)/gateway/compose.yml),gateway) $(shell find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml -exec dirname {} \; 2>/dev/null | xargs -n 1 basename)
+infra $(if $(wildcard $(ROOT)/gateway/compose.yml),gateway) $(shell find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml -exec sh -c 'basename "$$(dirname "$$1")"' _ {} \; 2>/dev/null)
 endef
 
 up down restart stop start ps pull build config:
@@ -76,8 +83,36 @@ logs:
 		$(call compose_cmd) "$(TARGET)" logs -f; \
 	fi
 
+sync sync-dry-run:
+	@$(call require_target,$@)
+	@upper=$$(printf '%s' "$(TARGET)" | tr '[:lower:]' '[:upper:]' | tr '-' '_'); \
+	eval "remote=\$${SYNC_$${upper}_REMOTE}"; \
+	eval "path=\$${SYNC_$${upper}_PATH}"; \
+	eval "port=\$${SYNC_$${upper}_SSH_PORT}"; \
+	test -n "$$remote" || { echo "Missing SYNC_$${upper}_REMOTE in .sync.env"; exit 1; }; \
+	test -n "$$path" || { echo "Missing SYNC_$${upper}_PATH in .sync.env"; exit 1; }; \
+	if [ -n "$$port" ]; then export RSYNC_RSH="ssh -p $$port"; fi; \
+	dry_run=""; \
+	if [ "$@" = "sync-dry-run" ]; then dry_run="--dry-run"; fi; \
+	echo "Sync target: $(TARGET)"; \
+	echo "Source: $(ROOT)/"; \
+	echo "Destination: $$remote:$$path/"; \
+	if [ "$@" = "sync-dry-run" ]; then echo "Mode: dry-run"; fi; \
+	rsync -azih --delete $$dry_run \
+		--exclude=".git/" \
+		--exclude=".sync.env" \
+		--include=".env.example" \
+		--include="**/.env.example" \
+		--exclude=".env" \
+		--exclude=".env.*" \
+		--exclude="**/.env" \
+		--exclude="**/.env.*" \
+		--exclude=".DS_Store" \
+		"$(ROOT)/" "$$remote:$$path/"; \
+	echo "Done."
+
 %:
 	@:
 
-infra gateway all:
+infra gateway all test:
 	@:
