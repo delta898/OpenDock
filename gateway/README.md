@@ -33,7 +33,7 @@ caddy/
 The repository includes `caddy/conf.d/wordpress.caddy` as the active WordPress route:
 
 ```caddy
-{$WORDPRESS_DOMAIN:localhost} {
+(wordpress_proxy) {
     import common_proxy
     import security_headers
     import block_bots
@@ -44,6 +44,14 @@ The repository includes `caddy/conf.d/wordpress.caddy` as the active WordPress r
     respond @blocked_wordpress_paths "" 404
 
     reverse_proxy {$WORDPRESS_UPSTREAM:wordpress:80}
+}
+
+http://{$WORDPRESS_DOMAIN:localhost} {
+    import wordpress_proxy
+}
+
+https://{$WORDPRESS_DOMAIN:localhost} {
+    import wordpress_proxy
 }
 ```
 
@@ -56,19 +64,47 @@ WORDPRESS_UPSTREAM=wordpress:80
 
 The upstream container must be connected to `shared-net`.
 
+The route supports both common home-server exposure styles:
+
+- Cloudflare Tunnel forwards to Caddy over HTTP and uses the `http://...` block.
+- Direct port forwarding lets Caddy serve HTTPS itself and uses the `https://...` block.
+
 The default domain is `localhost`, so the stack can be tested on the same machine after cloning:
 
 ```text
 http://localhost
 ```
 
-Set `WORDPRESS_DOMAIN` to a real domain you control before exposing the server publicly.
-
-For LAN-only testing from another machine, temporarily set:
+For a headless Ubuntu Server, set `WORDPRESS_DOMAIN` to the server's internal IP first:
 
 ```sh
-WORDPRESS_DOMAIN=:80
+hostname -I
 ```
+
+Example:
+
+```sh
+WORDPRESS_DOMAIN=192.168.0.22
+```
+
+Then open `http://192.168.0.22` from another device on the same network.
+
+Set `WORDPRESS_DOMAIN` to a real domain you control before exposing the server publicly.
+
+When changing values in `gateway/.env`, recreate the gateway container so Docker Compose applies the updated environment:
+
+```sh
+make down gateway
+make up gateway
+```
+
+For Cloudflare Tunnel, set the tunnel Service URL to:
+
+```text
+http://localhost:80
+```
+
+For direct port forwarding, forward both ports 80 and 443 to this server.
 
 ## Image Policy
 

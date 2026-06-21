@@ -5,7 +5,7 @@ TARGET := $(word 2,$(MAKECMDGOALS))
 -include .sync.env
 .EXPORT_ALL_VARIABLES:
 
-.PHONY: help list $(COMMANDS) infra gateway all test
+.PHONY: help list services $(COMMANDS) infra gateway all test
 
 help:
 	@echo "Usage:"
@@ -23,6 +23,8 @@ help:
 	@echo "  make up wordpress"
 	@echo "  make logs wordpress"
 	@echo "  make ps all"
+	@echo "  make services"
+	@echo "  make up services"
 	@echo "  make sync-dry-run test"
 	@echo "  make sync test"
 
@@ -61,7 +63,11 @@ run_compose() { \
 endef
 
 define all_targets
-infra $(if $(wildcard $(ROOT)/gateway/compose.yml),gateway) $(shell find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml -exec sh -c 'basename "$$(dirname "$$1")"' _ {} \; 2>/dev/null)
+infra $(if $(wildcard $(ROOT)/gateway/compose.yml),gateway) $(call service_targets)
+endef
+
+define service_targets
+$(shell find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml -exec sh -c 'basename "$$(dirname "$$1")"' _ {} \; 2>/dev/null)
 endef
 
 up down restart stop start ps pull build config:
@@ -71,9 +77,27 @@ up down restart stop start ps pull build config:
 			echo "==> $$target: docker compose $@"; \
 			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
 		done; \
+	elif [ "$(TARGET)" = "services" ]; then \
+		for target in $(call service_targets); do \
+			echo "==> $$target: docker compose $@"; \
+			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
+		done; \
 	else \
 		$(call require_compose,$(TARGET)); \
 		$(call compose_cmd) "$(TARGET)" $@ $(if $(filter up,$@),-d); \
+	fi
+
+services:
+	@if [ "$(firstword $(MAKECMDGOALS))" != "services" ]; then \
+		:; \
+	elif [ -z "$(strip $(call service_targets))" ]; then \
+		echo "No services found under services/*/compose.yml"; \
+		exit 1; \
+	else \
+		for target in $(call service_targets); do \
+			echo "==> $$target: docker compose up"; \
+			$(call compose_cmd) "$$target" up -d || exit $$?; \
+		done; \
 	fi
 
 logs:
@@ -106,6 +130,8 @@ sync sync-dry-run:
 		--exclude=".sync.env" \
 		--exclude="common.env" \
 		--include="common.env.example" \
+		--exclude="services/*/data/" \
+		--exclude="**/data/" \
 		--exclude=".DS_Store" \
 		"$(ROOT)/" "$$remote:$$path/"; \
 	echo "Done."

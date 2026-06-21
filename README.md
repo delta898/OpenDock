@@ -46,7 +46,62 @@ Gateway route files follow this convention:
 gateway/caddy/conf.d/<domain>.caddy
 ```
 
-Default services committed to this repository should have their active gateway routes in `gateway/caddy/conf.d/`. Reference-only snippets belong under `gateway/caddy/examples/`.
+Default services committed to this repository should have their active gateway routes in `gateway/caddy/conf.d/`. Reference-only snippets use the `.caddy.example` suffix.
+
+## First Run On Ubuntu Server
+
+If you installed a headless Ubuntu Server, check its internal IP:
+
+```sh
+hostname -I
+```
+
+Then edit `gateway/.env`:
+
+```sh
+WORDPRESS_DOMAIN=<your-server-internal-ip>
+```
+
+Example:
+
+```sh
+WORDPRESS_DOMAIN=192.168.0.22
+```
+
+Start the stack:
+
+```sh
+make up infra
+make up wordpress
+make up gateway
+```
+
+Then open WordPress from another device on the same network:
+
+```text
+http://<your-server-internal-ip>
+```
+
+Later, when you connect a real domain, replace the internal IP with that domain:
+
+```sh
+WORDPRESS_DOMAIN=blog.example.com
+```
+
+If you use Cloudflare Tunnel, route the public hostname to:
+
+```text
+http://localhost:80
+```
+
+If you use direct port forwarding instead, forward both ports 80 and 443 to the server. The same WordPress Caddy route supports both Cloudflare Tunnel HTTP origin traffic and direct HTTPS traffic.
+
+After changing `gateway/.env`, recreate the gateway container:
+
+```sh
+make down gateway
+make up gateway
+```
 
 ## Sync To Test Machine
 
@@ -75,7 +130,7 @@ Then sync:
 make sync test
 ```
 
-The real `.sync.env` file is intentionally ignored by Git.
+The real `.sync.env` file is intentionally ignored by Git. Sync excludes local runtime data such as `services/*/data/`, including the WordPress webroot.
 
 ## Environment
 

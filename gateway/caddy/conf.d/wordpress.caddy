@@ -2,7 +2,7 @@
 #
 # Set WORDPRESS_DOMAIN and WORDPRESS_UPSTREAM in gateway/.env.
 
-{$WORDPRESS_DOMAIN:localhost} {
+(wordpress_proxy) {
     import common_proxy
     import security_headers
     import block_bots
@@ -13,4 +13,14 @@
     respond @blocked_wordpress_paths "" 404
 
     reverse_proxy {$WORDPRESS_UPSTREAM:wordpress:80}
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://{$WORDPRESS_DOMAIN:localhost} {
+    import wordpress_proxy
+}
+
+# Direct HTTPS when exposing Caddy with port forwarding.
+https://{$WORDPRESS_DOMAIN:localhost} {
+    import wordpress_proxy
 }
