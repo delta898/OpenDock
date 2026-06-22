@@ -1,5 +1,5 @@
 ROOT := $(CURDIR)
-COMMANDS := list up down restart stop start ps logs pull build config sync sync-dry-run
+COMMANDS := list up down restart stop start ps logs pull build config publish launch sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
 
 -include .sync.env
@@ -14,6 +14,7 @@ help:
 	@echo "Commands:"
 	@echo "  list"
 	@echo "  up down restart stop start ps logs pull build config"
+	@echo "  publish launch"
 	@echo "  sync sync-dry-run"
 	@echo
 	@echo "Targets:"
@@ -26,6 +27,9 @@ help:
 	@echo "  make up wordpress"
 	@echo "  make logs wordpress"
 	@echo "  make ps all"
+	@echo "  make publish"
+	@echo "  make publish services"
+	@echo "  make launch"
 	@echo "  make services"
 	@echo "  make up services"
 	@echo "  make sync-dry-run test"
@@ -130,6 +134,17 @@ logs:
 		$(call compose_cmd) "$(TARGET)" logs -f; \
 	fi
 
+publish:
+	@target="$(TARGET)"; \
+	if [ -z "$$target" ]; then target="all"; fi; \
+	"$(ROOT)/scripts/publish-cloudflare.sh" "$$target"
+
+launch:
+	@target="$(TARGET)"; \
+	if [ -z "$$target" ]; then target="all"; fi; \
+	$(MAKE) up "$$target"; \
+	$(MAKE) publish "$$target"
+
 sync sync-dry-run:
 	@$(call require_target,$@)
 	@upper=$$(printf '%s' "$(TARGET)" | tr '[:lower:]' '[:upper:]' | tr '-' '_'); \
@@ -150,6 +165,8 @@ sync sync-dry-run:
 		--exclude=".sync.env" \
 		--exclude="common.env" \
 		--include="common.env.example" \
+		--exclude="cloudflare.env" \
+		--include="cloudflare.env.example" \
 		--exclude="services/*/data/" \
 		--exclude="**/data/" \
 		--exclude=".DS_Store" \

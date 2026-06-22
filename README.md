@@ -31,6 +31,8 @@ make up homepage
 make ps infra
 make logs infra
 make down infra
+make publish
+make launch
 ```
 
 Service compose files follow this convention:
@@ -131,6 +133,54 @@ home.<your-domain> -> http://localhost:80
 ```
 
 If you use direct port forwarding instead, forward both ports 80 and 443 to the server. The same Caddy routes support both Cloudflare Tunnel HTTP origin traffic and direct HTTPS traffic.
+
+## Publishing
+
+`make up` only manages local Docker Compose services.
+
+```sh
+make up services
+```
+
+`make publish` prepares public routes for services that have both a compose file and a matching Caddy route:
+
+```text
+services/<service-name>/compose.yml
+gateway/caddy/conf.d/<service-name>.caddy
+```
+
+Without Cloudflare credentials, it prints the route plan:
+
+```sh
+make publish
+make publish services
+make publish homepage
+```
+
+With `cloudflare.env`, it syncs Cloudflare Tunnel public hostnames and missing DNS CNAME records:
+
+```sh
+cp cloudflare.env.example cloudflare.env
+```
+
+Required Cloudflare values:
+
+```env
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_TUNNEL_ID=
+```
+
+`make publish` uses `STACK_DOMAIN` to look up the Cloudflare zone and account automatically.
+
+`make publish` preserves existing tunnel rules, adds or updates matching service hostnames, and keeps the final fallback rule. If a DNS record already exists with a different value, it stops and asks you to review the record in Cloudflare.
+
+`make launch` runs Docker services and then publishes their public routes:
+
+```sh
+make launch
+make launch services
+make launch n8n
+```
 
 After changing `common.env` or a Caddy route file, recreate the affected containers:
 
