@@ -1,5 +1,7 @@
 ROOT := $(CURDIR)
-COMMANDS := list up down restart stop start ps logs pull build config publish launch sync sync-dry-run
+CHECKED_COMMANDS := up restart start build config
+UNCHECKED_COMMANDS := down stop ps pull
+COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
 
 -include .sync.env
@@ -13,6 +15,7 @@ help:
 	@echo
 	@echo "Commands:"
 	@echo "  list"
+	@echo "  check-config"
 	@echo "  up down restart stop start ps logs pull build config"
 	@echo "  publish launch"
 	@echo "  sync sync-dry-run"
@@ -23,6 +26,8 @@ help:
 	@echo "Examples:"
 	@echo "  make list"
 	@echo "  make list services"
+	@echo "  make check-config"
+	@echo "  make check-config immich"
 	@echo "  make up infra"
 	@echo "  make up wordpress"
 	@echo "  make logs wordpress"
@@ -71,6 +76,14 @@ define require_compose
 		{ echo "Unknown target or missing compose.yml: $(1)"; exit 1; }
 endef
 
+define check_config
+	"$(ROOT)/scripts/check-config.sh" "$(1)"
+endef
+
+define check_config_quiet
+	CHECK_CONFIG_QUIET=1 "$(ROOT)/scripts/check-config.sh" "$(1)"
+endef
+
 define compose_cmd
 run_compose() { \
 	target="$$1"; shift; \
@@ -106,20 +119,47 @@ define reload_gateway
 	fi
 endef
 
-up down restart stop start ps pull build config:
+check-config:
+	@target="$(TARGET)"; \
+	if [ -z "$$target" ]; then target="all"; fi; \
+	$(call check_config,$$target)
+
+$(CHECKED_COMMANDS):
 	@$(call require_target,$@)
 	@if [ "$(TARGET)" = "all" ]; then \
 		for target in $(call all_targets); do \
+			$(call check_config_quiet,$$target) || exit $$?; \
 			echo "==> $$target: docker compose $@"; \
 			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
 		done; \
 	elif [ "$(TARGET)" = "services" ]; then \
 		for target in $(call service_targets); do \
+			$(call check_config_quiet,$$target) || exit $$?; \
 			echo "==> $$target: docker compose $@"; \
 			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
 		done; \
 	else \
 		$(call require_compose,$(TARGET)); \
+		$(call check_config_quiet,$(TARGET)) || exit $$?; \
+		echo "==> $(TARGET): docker compose $@"; \
+		$(call compose_cmd) "$(TARGET)" $@ $(if $(filter up,$@),-d); \
+	fi
+
+$(UNCHECKED_COMMANDS):
+	@$(call require_target,$@)
+	@if [ "$(TARGET)" = "all" ]; then \
+		for target in $(call all_targets); do \
+			echo "==> $$target: docker compose $@"; \
+			$(call compose_cmd) "$$target" $@ || exit $$?; \
+		done; \
+	elif [ "$(TARGET)" = "services" ]; then \
+		for target in $(call service_targets); do \
+			echo "==> $$target: docker compose $@"; \
+			$(call compose_cmd) "$$target" $@ || exit $$?; \
+		done; \
+	else \
+		$(call require_compose,$(TARGET)); \
+		echo "==> $(TARGET): docker compose $@"; \
 		$(call compose_cmd) "$(TARGET)" $@ $(if $(filter up,$@),-d); \
 	fi
 
@@ -131,6 +171,7 @@ services:
 		exit 1; \
 	else \
 		for target in $(call service_targets); do \
+			$(call check_config_quiet,$$target) || exit $$?; \
 			echo "==> $$target: docker compose up"; \
 			$(call compose_cmd) "$$target" up -d || exit $$?; \
 		done; \

@@ -97,6 +97,8 @@ make launch
 
 `make launch` starts the Docker services and then publishes public routes if `cloudflare.env` exists.
 
+Before starting services, DockerPackages checks `common.env` for required values. This helps catch missing passwords after `git pull` adds a new service.
+
 ## Cloudflare Publishing
 
 Cloudflare Tunnel is the default public entrypoint for this stack.
@@ -172,6 +174,24 @@ make list
 make list services
 ```
 
+Check local configuration:
+
+```sh
+make check-config
+make check-config immich
+```
+
+`check-config` runs automatically before commands that start or render services:
+
+```text
+up
+start
+restart
+build
+config
+launch
+```
+
 Start services:
 
 ```sh
@@ -225,6 +245,8 @@ infra/.env
 gateway/.env
 services/*/.env
 ```
+
+When you update the repository with `git pull`, compare new values in `common.env.example` with your local `common.env`. Missing optional subdomain values use sensible defaults, but missing required secrets stop service startup with a clear message.
 
 ## Directory Layout
 

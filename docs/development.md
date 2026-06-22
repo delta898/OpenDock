@@ -57,6 +57,42 @@ gateway   Caddy only
 <name>    one service under services/<name>/
 ```
 
+## Config Validation
+
+`scripts/check-config.py` validates local configuration before Docker Compose starts or renders services.
+
+Manual commands:
+
+```sh
+make check-config
+make check-config services
+make check-config immich
+```
+
+Automatic validation runs before:
+
+```text
+up
+start
+restart
+build
+config
+launch
+```
+
+`launch` calls `up`, so it reuses the same validation layer instead of running a duplicate check.
+
+Validation rules:
+
+- `common.env` must exist.
+- Compose variables without defaults, such as `${IMMICH_DB_PASSWORD}`, are required.
+- Compose variables with defaults, such as `${JELLYFIN_SUBDOMAIN:-media}`, are optional.
+- Required values that are empty fail validation.
+- Required secret-like values ending in `PASSWORD`, `SECRET`, `TOKEN`, or `KEY` fail validation if they still match the placeholder in `common.env.example`.
+- `STACK_DOMAIN=example.com` is treated as a placeholder.
+
+Automatic validation uses quiet mode and prints only failures. Manual `make check-config` also prints optional values that will use defaults.
+
 ## Domain Convention
 
 The stack assumes one main domain:
@@ -198,6 +234,7 @@ Then verify:
 
 ```sh
 make list services
+make check-config <service-name>
 make publish <service-name>
 docker compose --project-directory services/<service-name> --env-file common.env.example --env-file services/<service-name>/.env -f services/<service-name>/compose.yml config
 ```
