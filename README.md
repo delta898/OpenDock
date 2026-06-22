@@ -29,6 +29,22 @@ Caddy
 - A domain managed by Cloudflare, if you want automatic public publishing
 - A Cloudflare Tunnel already connected to this server, if you use Cloudflare Tunnel
 
+## Setup Overview
+
+For a typical Cloudflare Tunnel setup:
+
+1. Create or log in to a Cloudflare account.
+2. Add your domain to Cloudflare and update its nameservers.
+3. Create a Cloudflare Tunnel and connect it to your home server.
+4. Create a Cloudflare API token.
+5. Clone this repository.
+6. Copy example env files to real local env files.
+7. Edit required config: domain and passwords.
+8. Edit optional Cloudflare config: API token and tunnel ID.
+9. Run `make launch`.
+
+After that, Docker services are started, Cloudflare routes are synced, DNS records are prepared, and public URLs are printed.
+
 ## Quick Start
 
 Clone the repository:
