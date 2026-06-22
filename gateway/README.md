@@ -8,7 +8,7 @@ Caddy reverse proxy for the home server stack.
 make up gateway
 ```
 
-The default WordPress route is active under `caddy/conf.d/wordpress.caddy`.
+The default WordPress, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
 Reference snippets can live next to real route files with the `.caddy.example` suffix.
 
 ## Layout
@@ -19,12 +19,18 @@ caddy/
 └── conf.d/
     ├── www.domain.com.caddy.example
     ├── global.caddy
+    ├── homepage.caddy
+    ├── n8n.caddy
+    ├── uptime-kuma.caddy
     └── wordpress.caddy
 ```
 
 - `Caddyfile` loads all `conf.d/*.caddy` files.
 - `global.caddy` contains reusable snippets.
+- `conf.d/homepage.caddy` is the default Homepage route.
 - `conf.d/wordpress.caddy` is the default WordPress route.
+- `conf.d/n8n.caddy` is the default n8n route.
+- `conf.d/uptime-kuma.caddy` is the default Uptime Kuma route.
 - `*.caddy.example` files are reference snippets and are not loaded by Caddy.
 - Additional site-specific reverse proxy files can be added as `conf.d/<domain>.caddy`.
 
@@ -46,63 +52,145 @@ The repository includes `caddy/conf.d/wordpress.caddy` as the active WordPress r
     reverse_proxy wordpress:80
 }
 
-http://localhost {
+http://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
     import wordpress_proxy
 }
 
-https://localhost {
+https://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
     import wordpress_proxy
 }
 ```
 
-Edit `gateway/caddy/conf.d/wordpress.caddy` and replace `localhost` with your server IP or domain:
+By default, WordPress is published as:
 
-```caddy
-http://blog.example.com {
-    import wordpress_proxy
-}
+```text
+https://blog.<STACK_DOMAIN>
+```
 
-https://blog.example.com {
-    import wordpress_proxy
-}
+Set the domain and subdomain in `common.env`:
+
+```sh
+STACK_DOMAIN=example.com
+WORDPRESS_SUBDOMAIN=blog
 ```
 
 The upstream container must be connected to `shared-net`.
 
-The route supports both common home-server exposure styles:
+## Homepage Route
+
+The repository includes `caddy/conf.d/homepage.caddy` as the active Homepage route:
+
+```caddy
+(homepage_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy homepage:3000
+}
+
+http://{$HOMEPAGE_SUBDOMAIN:home}.{$STACK_DOMAIN:localhost} {
+    import homepage_proxy
+}
+
+https://{$HOMEPAGE_SUBDOMAIN:home}.{$STACK_DOMAIN:localhost} {
+    import homepage_proxy
+}
+```
+
+By default, Homepage is published as:
+
+```text
+https://home.<STACK_DOMAIN>
+```
+
+Set the domain and subdomain in `common.env`:
+
+```sh
+STACK_DOMAIN=example.com
+HOMEPAGE_SUBDOMAIN=home
+```
+
+## n8n Route
+
+The repository includes `caddy/conf.d/n8n.caddy` as the active n8n route:
+
+```caddy
+(n8n_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy n8n:5678
+}
+
+http://{$N8N_SUBDOMAIN:n8n}.{$STACK_DOMAIN:localhost} {
+    import n8n_proxy
+}
+
+https://{$N8N_SUBDOMAIN:n8n}.{$STACK_DOMAIN:localhost} {
+    import n8n_proxy
+}
+```
+
+By default, n8n is published as:
+
+```text
+https://n8n.<STACK_DOMAIN>
+```
+
+Set the domain and subdomain in `common.env`:
+
+```sh
+STACK_DOMAIN=example.com
+N8N_SUBDOMAIN=n8n
+```
+
+n8n uses those values to generate `WEBHOOK_URL` automatically.
+
+## Uptime Kuma Route
+
+The repository includes `caddy/conf.d/uptime-kuma.caddy` as the active Uptime Kuma route:
+
+```caddy
+(uptime_kuma_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy uptime-kuma:3001
+}
+
+http://{$UPTIME_KUMA_SUBDOMAIN:uptime}.{$STACK_DOMAIN:localhost} {
+    import uptime_kuma_proxy
+}
+
+https://{$UPTIME_KUMA_SUBDOMAIN:uptime}.{$STACK_DOMAIN:localhost} {
+    import uptime_kuma_proxy
+}
+```
+
+By default, Uptime Kuma is published as:
+
+```text
+https://uptime.<STACK_DOMAIN>
+```
+
+Set the domain and subdomain in `common.env`:
+
+```sh
+STACK_DOMAIN=example.com
+UPTIME_KUMA_SUBDOMAIN=uptime
+```
+
+## Exposure
+
+The routes support both common home-server exposure styles:
 
 - Cloudflare Tunnel forwards to Caddy over HTTP and uses the `http://...` block.
 - Direct port forwarding lets Caddy serve HTTPS itself and uses the `https://...` block.
 
-The default domain is `localhost`, so the stack can be tested on the same machine after cloning:
-
-```text
-http://localhost
-```
-
-For a headless Ubuntu Server, replace `localhost` with the server's internal IP first:
-
-```sh
-hostname -I
-```
-
-Example:
-
-```caddy
-http://192.168.0.22 {
-    import wordpress_proxy
-}
-
-https://192.168.0.22 {
-    import wordpress_proxy
-}
-```
-
-Then open `http://192.168.0.22` from another device on the same network.
-
-Set the route domain to a real domain you control before exposing the server publicly.
-
-When changing Caddy route files, reload or recreate the gateway container:
+When changing `common.env` or Caddy route files, reload or recreate the gateway container:
 
 ```sh
 make down gateway

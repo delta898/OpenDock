@@ -1,0 +1,14 @@
+---
+- Home Server:
+    - WordPress:
+        icon: wordpress.png
+        href: https://{{HOMEPAGE_VAR_WORDPRESS_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
+        description: Blog and website publishing
+    - n8n:
+        icon: n8n.png
+        href: https://{{HOMEPAGE_VAR_N8N_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
+        description: Workflow automation
+    - Uptime Kuma:
+        icon: uptime-kuma.png
+        href: https://{{HOMEPAGE_VAR_UPTIME_KUMA_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
+        description: Service monitoring

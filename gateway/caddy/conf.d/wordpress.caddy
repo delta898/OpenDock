@@ -1,6 +1,7 @@
 # Default WordPress route for the home server stack.
 #
-# Replace localhost with your server's internal IP or public domain.
+# The default route is:
+#   {$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost}
 
 (wordpress_proxy) {
     import common_proxy
@@ -16,11 +17,11 @@
 }
 
 # Cloudflare Tunnel origin or local HTTP testing.
-http://localhost {
+http://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
     import wordpress_proxy
 }
 
 # Direct HTTPS when exposing Caddy with port forwarding.
-https://localhost {
+https://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
     import wordpress_proxy
 }

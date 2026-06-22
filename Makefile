@@ -1,5 +1,5 @@
 ROOT := $(CURDIR)
-COMMANDS := up down restart stop start ps logs pull build config sync sync-dry-run
+COMMANDS := list up down restart stop start ps logs pull build config sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
 
 -include .sync.env
@@ -12,13 +12,16 @@ help:
 	@echo "  make <command> <target>"
 	@echo
 	@echo "Commands:"
+	@echo "  list"
 	@echo "  up down restart stop start ps logs pull build config"
 	@echo "  sync sync-dry-run"
 	@echo
 	@echo "Targets:"
-	@echo "  infra, gateway, all, or any directory under services/"
+	@echo "  infra, gateway, services, all, or any directory under services/"
 	@echo
 	@echo "Examples:"
+	@echo "  make list"
+	@echo "  make list services"
 	@echo "  make up infra"
 	@echo "  make up wordpress"
 	@echo "  make logs wordpress"
@@ -29,10 +32,27 @@ help:
 	@echo "  make sync test"
 
 list:
-	@echo "infra"
-	@if [ -f "$(ROOT)/gateway/compose.yml" ]; then echo "gateway"; fi
-	@find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml \
-		-exec sh -c 'basename "$$(dirname "$$1")"' _ {} \; 2>/dev/null | sort
+	@if [ "$(TARGET)" = "services" ]; then \
+		if [ -z "$(strip $(call service_targets))" ]; then \
+			echo "No services found under services/*/compose.yml"; \
+			exit 1; \
+		fi; \
+		printf '%s\n' $(call service_targets) | sort; \
+	elif [ -n "$(TARGET)" ]; then \
+		echo "Usage: make list [services]"; \
+		exit 1; \
+	else \
+		echo "Core:"; \
+		echo "  infra"; \
+		if [ -f "$(ROOT)/gateway/compose.yml" ]; then echo "  gateway"; fi; \
+		echo; \
+		echo "Services:"; \
+		if [ -z "$(strip $(call service_targets))" ]; then \
+			echo "  (none)"; \
+		else \
+			printf '  %s\n' $(call service_targets) | sort; \
+		fi; \
+	fi
 
 define target_dir
 $(if $(filter infra gateway,$(1)),$(ROOT)/$(1),$(ROOT)/services/$(1))

@@ -1,0 +1,22 @@
+# Default Uptime Kuma route for the home server stack.
+#
+# The default route is:
+#   {$UPTIME_KUMA_SUBDOMAIN:uptime}.{$STACK_DOMAIN:localhost}
+
+(uptime_kuma_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy uptime-kuma:3001
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://{$UPTIME_KUMA_SUBDOMAIN:uptime}.{$STACK_DOMAIN:localhost} {
+    import uptime_kuma_proxy
+}
+
+# Direct HTTPS when exposing Caddy with port forwarding.
+https://{$UPTIME_KUMA_SUBDOMAIN:uptime}.{$STACK_DOMAIN:localhost} {
+    import uptime_kuma_proxy
+}

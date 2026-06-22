@@ -1,0 +1,20 @@
+services:
+  homepage:
+    image: ghcr.io/gethomepage/homepage:${HOMEPAGE_VERSION}
+    container_name: ${HOMEPAGE_CONTAINER_NAME}
+    networks:
+      - shared-net
+    volumes:
+      - ./config:/app/config
+    environment:
+      HOMEPAGE_ALLOWED_HOSTS: ${HOMEPAGE_SUBDOMAIN:-home}.${STACK_DOMAIN:-localhost}
+      HOMEPAGE_VAR_STACK_DOMAIN: ${STACK_DOMAIN:-localhost}
+      HOMEPAGE_VAR_WORDPRESS_SUBDOMAIN: ${WORDPRESS_SUBDOMAIN:-blog}
+      HOMEPAGE_VAR_N8N_SUBDOMAIN: ${N8N_SUBDOMAIN:-n8n}
+      HOMEPAGE_VAR_UPTIME_KUMA_SUBDOMAIN: ${UPTIME_KUMA_SUBDOMAIN:-uptime}
+      HOMEPAGE_VAR_HOMEPAGE_SUBDOMAIN: ${HOMEPAGE_SUBDOMAIN:-home}
+    restart: unless-stopped
+
+networks:
+  shared-net:
+    external: true
