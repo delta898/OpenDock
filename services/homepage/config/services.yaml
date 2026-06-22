@@ -20,3 +20,7 @@
         icon: immich.png
         href: https://{{HOMEPAGE_VAR_IMMICH_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
         description: Photo and video backup
+    - Jellyfin:
+        icon: jellyfin.png
+        href: https://{{HOMEPAGE_VAR_JELLYFIN_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
+        description: Movies, shows, and music

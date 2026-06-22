@@ -34,6 +34,7 @@ services/n8n/compose.yml
 services/homepage/compose.yml
 services/nextcloud/compose.yml
 services/immich/compose.yml
+services/jellyfin/compose.yml
 ```
 
 ## Makefile Target Discovery
@@ -73,6 +74,7 @@ UPTIME_KUMA_SUBDOMAIN=uptime
 HOMEPAGE_SUBDOMAIN=home
 NEXTCLOUD_SUBDOMAIN=cloud
 IMMICH_SUBDOMAIN=photos
+JELLYFIN_SUBDOMAIN=media
 ```
 
 The variable name is derived from the service directory name:
@@ -80,6 +82,7 @@ The variable name is derived from the service directory name:
 ```text
 homepage    -> HOMEPAGE_SUBDOMAIN
 immich      -> IMMICH_SUBDOMAIN
+jellyfin    -> JELLYFIN_SUBDOMAIN
 n8n         -> N8N_SUBDOMAIN
 nextcloud   -> NEXTCLOUD_SUBDOMAIN
 uptime-kuma -> UPTIME_KUMA_SUBDOMAIN
@@ -217,6 +220,7 @@ Example:
 
 ```text
 immich/data/library
+jellyfin/media
 wordpress/data/webroot
 ```
 

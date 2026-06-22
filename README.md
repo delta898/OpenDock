@@ -13,6 +13,7 @@ home.<your-domain>    -> Homepage
 blog.<your-domain>    -> WordPress
 cloud.<your-domain>   -> Nextcloud
 photos.<your-domain>  -> Immich
+media.<your-domain>   -> Jellyfin
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
 ```
@@ -83,6 +84,7 @@ HOMEPAGE_SUBDOMAIN=home
 WORDPRESS_SUBDOMAIN=blog
 NEXTCLOUD_SUBDOMAIN=cloud
 IMMICH_SUBDOMAIN=photos
+JELLYFIN_SUBDOMAIN=media
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
@@ -142,6 +144,7 @@ home.<your-domain>    -> http://localhost:80
 blog.<your-domain>    -> http://localhost:80
 cloud.<your-domain>   -> http://localhost:80
 photos.<your-domain>  -> http://localhost:80
+media.<your-domain>   -> http://localhost:80
 n8n.<your-domain>     -> http://localhost:80
 uptime.<your-domain>  -> http://localhost:80
 ```
@@ -237,6 +240,7 @@ services/*/.env
 └── services/
     ├── homepage/
     ├── immich/
+    ├── jellyfin/
     ├── n8n/
     ├── nextcloud/
     ├── uptime-kuma/

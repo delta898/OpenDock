@@ -10,7 +10,7 @@ This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudf
 make up gateway
 ```
 
-The default WordPress, Nextcloud, Immich, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
+The default WordPress, Nextcloud, Immich, Jellyfin, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
 Reference snippets can live next to real route files with the `.caddy.example` suffix.
 
 ## Layout
@@ -23,6 +23,7 @@ caddy/
     ├── global.caddy
     ├── homepage.caddy
     ├── immich.caddy
+    ├── jellyfin.caddy
     ├── n8n.caddy
     ├── nextcloud.caddy
     ├── uptime-kuma.caddy
@@ -34,6 +35,7 @@ caddy/
 - `global.caddy` contains reusable snippets.
 - `conf.d/homepage.caddy` is the default Homepage route.
 - `conf.d/immich.caddy` is the default Immich route.
+- `conf.d/jellyfin.caddy` is the default Jellyfin route.
 - `conf.d/wordpress.caddy` is the default WordPress route.
 - `conf.d/nextcloud.caddy` is the default Nextcloud route.
 - `conf.d/n8n.caddy` is the default n8n route.
@@ -190,6 +192,25 @@ Set the domain and subdomain in `common.env`:
 STACK_DOMAIN=example.com
 IMMICH_SUBDOMAIN=photos
 ```
+
+## Jellyfin Route
+
+The repository includes `caddy/conf.d/jellyfin.caddy` as the active Jellyfin route.
+
+By default, Jellyfin is published as:
+
+```text
+https://media.<STACK_DOMAIN>
+```
+
+Set the domain and subdomain in `common.env`:
+
+```sh
+STACK_DOMAIN=example.com
+JELLYFIN_SUBDOMAIN=media
+```
+
+Use Jellyfin for movies, shows, music, and music videos. Use Immich for photo backup and photo library management.
 
 ## Uptime Kuma Route
 

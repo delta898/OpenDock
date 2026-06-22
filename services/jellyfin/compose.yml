@@ -1,0 +1,22 @@
+services:
+  jellyfin:
+    image: jellyfin/jellyfin:${JELLYFIN_VERSION}
+    container_name: ${JELLYFIN_CONTAINER_NAME}
+    networks:
+      - shared-net
+    volumes:
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - ./media:/media
+    environment:
+      TZ: ${JELLYFIN_TIMEZONE}
+      JELLYFIN_PublishedServerUrl: https://${JELLYFIN_SUBDOMAIN:-media}.${STACK_DOMAIN:-localhost}
+    restart: unless-stopped
+
+networks:
+  shared-net:
+    external: true
+
+volumes:
+  jellyfin_config:
+  jellyfin_cache:
