@@ -1,15 +1,196 @@
 # DockerPackages
 
-Personal Docker Compose workspace for shared infrastructure, gateway services, and application services.
+A Docker Compose based home server stack with sensible defaults, Caddy routing, and optional Cloudflare Tunnel publishing.
 
-## Structure
+The goal is simple: set one main domain, fill in a few secrets, run one command, and get a small but useful home server online.
+
+## Included Services
+
+```text
+home.<your-domain>    -> Homepage
+blog.<your-domain>    -> WordPress
+n8n.<your-domain>     -> n8n
+uptime.<your-domain>  -> Uptime Kuma
+```
+
+Shared infrastructure:
+
+```text
+MariaDB
+Redis
+Caddy
+```
+
+## Requirements
+
+- Ubuntu Server or another Linux host
+- Docker with the Compose plugin
+- `make`
+- A domain managed by Cloudflare, if you want automatic public publishing
+- A Cloudflare Tunnel already connected to this server, if you use Cloudflare Tunnel
+
+## Quick Start
+
+Clone the repository:
+
+```sh
+git clone https://github.com/delta898/DockerPackages.git
+cd DockerPackages
+```
+
+Create the required local env file:
+
+```sh
+cp common.env.example common.env
+```
+
+Edit `common.env`:
+
+```env
+STACK_DOMAIN=example.com
+
+MARIADB_ROOT_PASSWORD=change-root-password
+WORDPRESS_DB_PASSWORD=change-wordpress-db-password
+```
+
+The default subdomains are already defined in `common.env.example`:
+
+```env
+HOMEPAGE_SUBDOMAIN=home
+WORDPRESS_SUBDOMAIN=blog
+N8N_SUBDOMAIN=n8n
+UPTIME_KUMA_SUBDOMAIN=uptime
+```
+
+Start the stack:
+
+```sh
+make launch
+```
+
+`make launch` starts the Docker services and then publishes public routes if `cloudflare.env` exists.
+
+## Cloudflare Publishing
+
+Cloudflare automation is optional. Without `cloudflare.env`, `make publish` only prints the routes it would publish.
+
+To enable Cloudflare sync:
+
+```sh
+cp cloudflare.env.example cloudflare.env
+```
+
+Edit `cloudflare.env`:
+
+```env
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_TUNNEL_ID=
+```
+
+Create the API token with permissions that can read the zone, edit DNS records, and edit Cloudflare Tunnel configuration. In Cloudflare's token UI, this usually means:
+
+```text
+Zone / Zone / Read
+Zone / DNS / Edit
+Account / Cloudflare Tunnel / Edit
+```
+
+Then run:
+
+```sh
+make publish
+```
+
+`make publish` uses `STACK_DOMAIN` to find the Cloudflare zone and account automatically. It then:
+
+- adds or updates Cloudflare Tunnel public hostnames
+- creates missing DNS CNAME records
+- preserves existing tunnel rules
+- stops on DNS conflicts instead of overwriting unrelated records
+
+All public hostnames point to the same local Caddy gateway:
+
+```text
+home.<your-domain>    -> http://localhost:80
+blog.<your-domain>    -> http://localhost:80
+n8n.<your-domain>     -> http://localhost:80
+uptime.<your-domain>  -> http://localhost:80
+```
+
+## Common Commands
+
+List available targets:
+
+```sh
+make list
+make list services
+```
+
+Start services:
+
+```sh
+make up infra
+make up gateway
+make up services
+make up wordpress
+```
+
+Publish routes:
+
+```sh
+make publish
+make publish services
+make publish n8n
+```
+
+Start and publish:
+
+```sh
+make launch
+make launch services
+make launch homepage
+```
+
+Inspect or stop:
+
+```sh
+make ps all
+make logs n8n
+make down services
+make down gateway
+```
+
+## Configuration Files
+
+Local files ignored by Git:
+
+```text
+common.env       required local stack settings and secrets
+cloudflare.env   optional Cloudflare API settings
+.sync.env        optional rsync test-machine settings
+```
+
+Committed defaults:
+
+```text
+common.env.example
+cloudflare.env.example
+infra/.env
+gateway/.env
+services/*/.env
+```
+
+## Directory Layout
 
 ```text
 .
 ├── infra/
 │   └── compose.yml
 ├── gateway/
+│   ├── compose.yml
 │   └── caddy/
+│       ├── Caddyfile
+│       └── conf.d/
 └── services/
     ├── homepage/
     ├── n8n/
@@ -17,181 +198,7 @@ Personal Docker Compose workspace for shared infrastructure, gateway services, a
     └── wordpress/
 ```
 
-## Usage
-
-```sh
-make list
-make list services
-make up infra
-make up gateway
-make up wordpress
-make up n8n
-make up uptime-kuma
-make up homepage
-make ps infra
-make logs infra
-make down infra
-make publish
-make launch
-```
-
-Service compose files follow this convention:
-
-```text
-services/<service-name>/compose.yml
-```
-
-Then they can be controlled from the project root:
-
-```sh
-make up wordpress
-make logs wordpress
-make down wordpress
-make up n8n
-make logs n8n
-make up uptime-kuma
-make logs uptime-kuma
-make up homepage
-make logs homepage
-```
-
-Gateway route files follow this convention:
-
-```text
-gateway/caddy/conf.d/<service-name>.caddy
-```
-
-Default services committed to this repository should have their active gateway routes in `gateway/caddy/conf.d/`. Reference-only snippets use the `.caddy.example` suffix.
-
-## Stack Domain
-
-This stack assumes one main domain and publishes default services as subdomains:
-
-```text
-STACK_DOMAIN=example.com
-
-blog.example.com -> WordPress
-n8n.example.com  -> n8n
-uptime.example.com -> Uptime Kuma
-home.example.com -> Homepage
-```
-
-Copy and edit the common env file before running services:
-
-```sh
-cp common.env.example common.env
-```
-
-Set your main domain and passwords:
-
-```sh
-STACK_DOMAIN=gongzza.com
-MARIADB_ROOT_PASSWORD=change-root-password
-WORDPRESS_DB_PASSWORD=change-wordpress-db-password
-```
-
-The default service subdomains are also in `common.env`:
-
-```sh
-WORDPRESS_SUBDOMAIN=blog
-N8N_SUBDOMAIN=n8n
-UPTIME_KUMA_SUBDOMAIN=uptime
-HOMEPAGE_SUBDOMAIN=home
-```
-
-You usually only need to change `STACK_DOMAIN`.
-
-## First Run
-
-Start the stack:
-
-```sh
-make up infra
-make up wordpress
-make up n8n
-make up uptime-kuma
-make up homepage
-make up gateway
-```
-
-Then open the default services:
-
-```text
-https://blog.<your-domain>
-https://n8n.<your-domain>
-https://uptime.<your-domain>
-https://home.<your-domain>
-```
-
-If you use Cloudflare Tunnel, route each public hostname to the same local gateway:
-
-```text
-blog.<your-domain> -> http://localhost:80
-n8n.<your-domain>  -> http://localhost:80
-uptime.<your-domain> -> http://localhost:80
-home.<your-domain> -> http://localhost:80
-```
-
-If you use direct port forwarding instead, forward both ports 80 and 443 to the server. The same Caddy routes support both Cloudflare Tunnel HTTP origin traffic and direct HTTPS traffic.
-
-## Publishing
-
-`make up` only manages local Docker Compose services.
-
-```sh
-make up services
-```
-
-`make publish` prepares public routes for services that have both a compose file and a matching Caddy route:
-
-```text
-services/<service-name>/compose.yml
-gateway/caddy/conf.d/<service-name>.caddy
-```
-
-Without Cloudflare credentials, it prints the route plan:
-
-```sh
-make publish
-make publish services
-make publish homepage
-```
-
-With `cloudflare.env`, it syncs Cloudflare Tunnel public hostnames and missing DNS CNAME records:
-
-```sh
-cp cloudflare.env.example cloudflare.env
-```
-
-Required Cloudflare values:
-
-```env
-CLOUDFLARE_API_TOKEN=
-CLOUDFLARE_TUNNEL_ID=
-```
-
-`make publish` uses `STACK_DOMAIN` to look up the Cloudflare zone and account automatically.
-
-`make publish` preserves existing tunnel rules, adds or updates matching service hostnames, and keeps the final fallback rule. If a DNS record already exists with a different value, it stops and asks you to review the record in Cloudflare.
-
-`make launch` runs Docker services and then publishes their public routes:
-
-```sh
-make launch
-make launch services
-make launch n8n
-```
-
-After changing `common.env` or a Caddy route file, recreate the affected containers:
-
-```sh
-make down n8n
-make down gateway
-make up n8n
-make up gateway
-```
-
-## Sync To Test Machine
+## Sync To A Test Machine
 
 Copy the example sync config and edit it locally:
 
@@ -201,12 +208,12 @@ cp .sync.env.example .sync.env
 
 Then set your test machine connection:
 
-```sh
+```env
 SYNC_TEST_REMOTE=user@test-host
 SYNC_TEST_PATH=/home/user/DockerPackages
 ```
 
-Preview the rsync changes first:
+Preview first:
 
 ```sh
 make sync-dry-run test
@@ -218,11 +225,8 @@ Then sync:
 make sync test
 ```
 
-The real `.sync.env` file is intentionally ignored by Git. Sync excludes local runtime data such as `services/*/data/`, including the WordPress webroot.
+Runtime data such as `services/*/data/`, `common.env`, `cloudflare.env`, and `.sync.env` is excluded.
 
-## Environment
+## Development
 
-Edit `common.env` locally. It contains the stack domain, shared defaults, and sensitive values, so it is intentionally ignored by Git.
-
-- `common.env` contains shared or sensitive values.
-- Each directory `.env` is committed with non-sensitive defaults for that compose project.
+For service conventions, publish automation details, and contribution notes, see [docs/development.md](docs/development.md).
