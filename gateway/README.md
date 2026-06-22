@@ -10,7 +10,7 @@ This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudf
 make up gateway
 ```
 
-The default WordPress, Nextcloud, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
+The default WordPress, Nextcloud, Immich, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
 Reference snippets can live next to real route files with the `.caddy.example` suffix.
 
 ## Layout
@@ -22,6 +22,7 @@ caddy/
     ├── www.domain.com.caddy.example
     ├── global.caddy
     ├── homepage.caddy
+    ├── immich.caddy
     ├── n8n.caddy
     ├── nextcloud.caddy
     ├── uptime-kuma.caddy
@@ -32,6 +33,7 @@ caddy/
 - Automatic HTTP-to-HTTPS redirects are disabled globally so Cloudflare Tunnel can use `http://localhost:80` as the origin without redirect loops.
 - `global.caddy` contains reusable snippets.
 - `conf.d/homepage.caddy` is the default Homepage route.
+- `conf.d/immich.caddy` is the default Immich route.
 - `conf.d/wordpress.caddy` is the default WordPress route.
 - `conf.d/nextcloud.caddy` is the default Nextcloud route.
 - `conf.d/n8n.caddy` is the default n8n route.
@@ -171,6 +173,23 @@ NEXTCLOUD_SUBDOMAIN=cloud
 ```
 
 Nextcloud also uses those values for trusted domains and reverse proxy overwrite settings.
+
+## Immich Route
+
+The repository includes `caddy/conf.d/immich.caddy` as the active Immich route.
+
+By default, Immich is published as:
+
+```text
+https://photos.<STACK_DOMAIN>
+```
+
+Set the domain and subdomain in `common.env`:
+
+```sh
+STACK_DOMAIN=example.com
+IMMICH_SUBDOMAIN=photos
+```
 
 ## Uptime Kuma Route
 

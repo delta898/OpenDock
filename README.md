@@ -12,6 +12,7 @@ DockerPackages assumes Cloudflare Tunnel as the default public exposure layer. C
 home.<your-domain>    -> Homepage
 blog.<your-domain>    -> WordPress
 cloud.<your-domain>   -> Nextcloud
+photos.<your-domain>  -> Immich
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
 ```
@@ -72,6 +73,7 @@ MARIADB_ROOT_PASSWORD=change-root-password
 WORDPRESS_DB_PASSWORD=change-wordpress-db-password
 NEXTCLOUD_DB_PASSWORD=change-nextcloud-db-password
 NEXTCLOUD_ADMIN_PASSWORD=change-nextcloud-admin-password
+IMMICH_DB_PASSWORD=changeImmichDbPassword
 ```
 
 The default subdomains are already defined in `common.env.example`:
@@ -80,6 +82,7 @@ The default subdomains are already defined in `common.env.example`:
 HOMEPAGE_SUBDOMAIN=home
 WORDPRESS_SUBDOMAIN=blog
 NEXTCLOUD_SUBDOMAIN=cloud
+IMMICH_SUBDOMAIN=photos
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
@@ -138,6 +141,7 @@ All public hostnames point to the same local Caddy gateway:
 home.<your-domain>    -> http://localhost:80
 blog.<your-domain>    -> http://localhost:80
 cloud.<your-domain>   -> http://localhost:80
+photos.<your-domain>  -> http://localhost:80
 n8n.<your-domain>     -> http://localhost:80
 uptime.<your-domain>  -> http://localhost:80
 ```
@@ -232,6 +236,7 @@ services/*/.env
 │       └── conf.d/
 └── services/
     ├── homepage/
+    ├── immich/
     ├── n8n/
     ├── nextcloud/
     ├── uptime-kuma/

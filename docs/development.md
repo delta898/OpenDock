@@ -33,6 +33,7 @@ services/wordpress/compose.yml
 services/n8n/compose.yml
 services/homepage/compose.yml
 services/nextcloud/compose.yml
+services/immich/compose.yml
 ```
 
 ## Makefile Target Discovery
@@ -71,12 +72,14 @@ N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 HOMEPAGE_SUBDOMAIN=home
 NEXTCLOUD_SUBDOMAIN=cloud
+IMMICH_SUBDOMAIN=photos
 ```
 
 The variable name is derived from the service directory name:
 
 ```text
 homepage    -> HOMEPAGE_SUBDOMAIN
+immich      -> IMMICH_SUBDOMAIN
 n8n         -> N8N_SUBDOMAIN
 nextcloud   -> NEXTCLOUD_SUBDOMAIN
 uptime-kuma -> UPTIME_KUMA_SUBDOMAIN
@@ -213,8 +216,11 @@ Use bind mounts when users are expected to inspect, upload, backup, or modify fi
 Example:
 
 ```text
+immich/data/library
 wordpress/data/webroot
 ```
+
+Some services require app-specific infrastructure instead of shared infrastructure. For example, Immich uses the shared Redis service, but runs its own PostgreSQL image because Immich requires vector extensions that are not part of a generic PostgreSQL service.
 
 ## Image Policy
 

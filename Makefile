@@ -94,6 +94,18 @@ define service_targets
 $(shell find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml -exec sh -c 'basename "$$(dirname "$$1")"' _ {} \; 2>/dev/null)
 endef
 
+define reload_gateway
+	if [ -f "$(ROOT)/gateway/compose.yml" ]; then \
+		if docker ps --format '{{.Names}}' | grep -qx caddy; then \
+			echo "==> gateway: caddy reload"; \
+			docker exec caddy caddy reload --config /etc/caddy/Caddyfile; \
+		else \
+			echo "==> gateway: docker compose up"; \
+			$(call compose_cmd) "gateway" up -d; \
+		fi; \
+	fi
+endef
+
 up down restart stop start ps pull build config:
 	@$(call require_target,$@)
 	@if [ "$(TARGET)" = "all" ]; then \
@@ -143,6 +155,9 @@ launch:
 	@target="$(TARGET)"; \
 	if [ -z "$$target" ]; then target="all"; fi; \
 	$(MAKE) --no-print-directory up "$$target"; \
+	if [ "$$target" != "infra" ]; then \
+		$(call reload_gateway); \
+	fi; \
 	$(MAKE) --no-print-directory publish "$$target"
 
 sync sync-dry-run:

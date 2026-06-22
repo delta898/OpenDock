@@ -1,0 +1,22 @@
+# Default Immich route for the home server stack.
+#
+# The default route is:
+#   {$IMMICH_SUBDOMAIN:photos}.{$STACK_DOMAIN:localhost}
+
+(immich_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy immich-server:2283
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://{$IMMICH_SUBDOMAIN:photos}.{$STACK_DOMAIN:localhost} {
+    import immich_proxy
+}
+
+# Direct HTTPS when exposing Caddy manually.
+https://{$IMMICH_SUBDOMAIN:photos}.{$STACK_DOMAIN:localhost} {
+    import immich_proxy
+}
