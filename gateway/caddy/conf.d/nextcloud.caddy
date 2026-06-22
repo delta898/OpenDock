@@ -1,0 +1,32 @@
+# Default Nextcloud route for the home server stack.
+#
+# The default route is:
+#   {$NEXTCLOUD_SUBDOMAIN:cloud}.{$STACK_DOMAIN:localhost}
+
+(nextcloud_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    @nextcloud_dav {
+        path /.well-known/carddav /.well-known/caldav
+    }
+    redir @nextcloud_dav /remote.php/dav/ 301
+
+    @nextcloud_wellknown {
+        path /.well-known/webfinger /.well-known/nodeinfo
+    }
+    redir @nextcloud_wellknown /index.php{uri} 301
+
+    reverse_proxy nextcloud:80
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://{$NEXTCLOUD_SUBDOMAIN:cloud}.{$STACK_DOMAIN:localhost} {
+    import nextcloud_proxy
+}
+
+# Direct HTTPS when exposing Caddy with port forwarding.
+https://{$NEXTCLOUD_SUBDOMAIN:cloud}.{$STACK_DOMAIN:localhost} {
+    import nextcloud_proxy
+}

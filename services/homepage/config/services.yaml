@@ -12,3 +12,7 @@
         icon: uptime-kuma.png
         href: https://{{HOMEPAGE_VAR_UPTIME_KUMA_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
         description: Service monitoring
+    - Nextcloud:
+        icon: nextcloud.png
+        href: https://{{HOMEPAGE_VAR_NEXTCLOUD_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
+        description: Private file sync and sharing

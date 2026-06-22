@@ -8,6 +8,7 @@ This document describes the conventions used by DockerPackages. It is intended f
 - Adding a service should not require editing the Makefile.
 - A single `STACK_DOMAIN` should produce predictable service hostnames.
 - Public routes should be discoverable from repository structure.
+- Cloudflare Tunnel is the default public exposure layer.
 - Beginner-facing setup should stay small: `common.env`, optional `cloudflare.env`, then `make launch`.
 
 ## Directory Conventions
@@ -31,6 +32,7 @@ Examples:
 services/wordpress/compose.yml
 services/n8n/compose.yml
 services/homepage/compose.yml
+services/nextcloud/compose.yml
 ```
 
 ## Makefile Target Discovery
@@ -68,6 +70,7 @@ WORDPRESS_SUBDOMAIN=blog
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 HOMEPAGE_SUBDOMAIN=home
+NEXTCLOUD_SUBDOMAIN=cloud
 ```
 
 The variable name is derived from the service directory name:
@@ -75,6 +78,7 @@ The variable name is derived from the service directory name:
 ```text
 homepage    -> HOMEPAGE_SUBDOMAIN
 n8n         -> N8N_SUBDOMAIN
+nextcloud   -> NEXTCLOUD_SUBDOMAIN
 uptime-kuma -> UPTIME_KUMA_SUBDOMAIN
 wordpress   -> WORDPRESS_SUBDOMAIN
 ```
@@ -118,7 +122,11 @@ https://{$SERVICE_SUBDOMAIN:service}.{$STACK_DOMAIN:localhost} {
 }
 ```
 
-The HTTP block supports Cloudflare Tunnel origin traffic. The HTTPS block supports direct port forwarding where Caddy handles TLS.
+The HTTP block supports Cloudflare Tunnel origin traffic. The HTTPS block keeps direct TLS routing possible for advanced manual setups.
+
+Caddy globally disables automatic HTTP-to-HTTPS redirects. Cloudflare Tunnel uses `http://localhost:80` as its origin, and origin-side HTTPS redirects can create redirect loops. Public browser HTTP-to-HTTPS redirects are expected to happen at Cloudflare.
+
+For direct Caddy exposure without Cloudflare Tunnel, remove the `auto_https disable_redirects` block from `gateway/caddy/Caddyfile` and forward both port 80 and 443 to the server. This restores Caddy's default HTTP-to-HTTPS redirect behavior.
 
 ## Publish Discovery
 
@@ -196,6 +204,7 @@ Examples:
 
 ```text
 n8n
+nextcloud
 uptime-kuma
 ```
 

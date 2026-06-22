@@ -7,6 +7,7 @@ services:
   mariadb:
     image: mariadb:${MARIADB_VERSION}
     container_name: mariadb
+    command: --transaction-isolation=READ-COMMITTED
     networks:
       - shared-net
     volumes:

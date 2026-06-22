@@ -2,13 +2,15 @@
 
 Caddy reverse proxy for the home server stack.
 
+This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy handles internal service routing from the Tunnel origin to Docker containers.
+
 ## Setup
 
 ```sh
 make up gateway
 ```
 
-The default WordPress, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
+The default WordPress, Nextcloud, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
 Reference snippets can live next to real route files with the `.caddy.example` suffix.
 
 ## Layout
@@ -21,14 +23,17 @@ caddy/
     ├── global.caddy
     ├── homepage.caddy
     ├── n8n.caddy
+    ├── nextcloud.caddy
     ├── uptime-kuma.caddy
     └── wordpress.caddy
 ```
 
 - `Caddyfile` loads all `conf.d/*.caddy` files.
+- Automatic HTTP-to-HTTPS redirects are disabled globally so Cloudflare Tunnel can use `http://localhost:80` as the origin without redirect loops.
 - `global.caddy` contains reusable snippets.
 - `conf.d/homepage.caddy` is the default Homepage route.
 - `conf.d/wordpress.caddy` is the default WordPress route.
+- `conf.d/nextcloud.caddy` is the default Nextcloud route.
 - `conf.d/n8n.caddy` is the default n8n route.
 - `conf.d/uptime-kuma.caddy` is the default Uptime Kuma route.
 - `*.caddy.example` files are reference snippets and are not loaded by Caddy.
@@ -148,6 +153,25 @@ N8N_SUBDOMAIN=n8n
 
 n8n uses those values to generate `WEBHOOK_URL` automatically.
 
+## Nextcloud Route
+
+The repository includes `caddy/conf.d/nextcloud.caddy` as the active Nextcloud route.
+
+By default, Nextcloud is published as:
+
+```text
+https://cloud.<STACK_DOMAIN>
+```
+
+Set the domain and subdomain in `common.env`:
+
+```sh
+STACK_DOMAIN=example.com
+NEXTCLOUD_SUBDOMAIN=cloud
+```
+
+Nextcloud also uses those values for trusted domains and reverse proxy overwrite settings.
+
 ## Uptime Kuma Route
 
 The repository includes `caddy/conf.d/uptime-kuma.caddy` as the active Uptime Kuma route:
@@ -183,12 +207,27 @@ STACK_DOMAIN=example.com
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
 
-## Exposure
+## Exposure Model
 
-The routes support both common home-server exposure styles:
+The primary supported exposure model is:
 
-- Cloudflare Tunnel forwards to Caddy over HTTP and uses the `http://...` block.
-- Direct port forwarding lets Caddy serve HTTPS itself and uses the `https://...` block.
+```text
+Browser
+  -> Cloudflare DNS and HTTPS
+  -> Cloudflare Tunnel
+  -> http://localhost:80
+  -> Caddy
+  -> Docker service
+```
+
+The route files include both `http://...` and `https://...` site blocks:
+
+- `http://...` is used by Cloudflare Tunnel origin traffic.
+- `https://...` keeps direct HTTPS routing possible for advanced manual setups.
+
+Caddy's automatic HTTP-to-HTTPS redirect is intentionally disabled. If Caddy redirects Tunnel origin traffic from HTTP to HTTPS, Cloudflare Tunnel can enter a redirect loop.
+
+Use `https://<service>.<domain>` for public access. Browser HTTP-to-HTTPS redirection is expected to happen at Cloudflare, not at Caddy.
 
 When changing `common.env` or Caddy route files, reload or recreate the gateway container:
 
@@ -203,7 +242,17 @@ For Cloudflare Tunnel, set the tunnel Service URL to:
 http://localhost:80
 ```
 
-For direct port forwarding, forward both ports 80 and 443 to this server.
+Direct port forwarding is not the default supported path for this stack. If you use it anyway, forward port 443 to this server and open `https://<service>.<domain>` directly.
+
+If you do not use Cloudflare Tunnel and expose Caddy directly, remove this block from `caddy/Caddyfile`:
+
+```caddy
+{
+	auto_https disable_redirects
+}
+```
+
+Then forward both port 80 and 443 to the server. Caddy will restore its default HTTP-to-HTTPS redirects.
 
 ## Image Policy
 

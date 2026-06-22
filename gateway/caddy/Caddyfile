@@ -1,1 +1,12 @@
+# Cloudflare Tunnel is the default public exposure layer for this stack.
+# Tunnel origin traffic enters Caddy over http://localhost:80, so automatic
+# HTTP-to-HTTPS redirects must stay disabled to avoid redirect loops.
+#
+# If you expose Caddy directly without Cloudflare Tunnel, remove this global
+# option and forward both port 80 and 443 to the server. Caddy will then
+# restore its default HTTP-to-HTTPS redirects.
+{
+	auto_https disable_redirects
+}
+
 import conf.d/*.caddy

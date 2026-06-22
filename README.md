@@ -1,14 +1,17 @@
 # DockerPackages
 
-A Docker Compose based home server stack with sensible defaults, Caddy routing, and optional Cloudflare Tunnel publishing.
+A Docker Compose based home server stack with sensible defaults, Caddy routing, and Cloudflare Tunnel publishing.
 
 The goal is simple: set one main domain, fill in a few secrets, run one command, and get a small but useful home server online.
+
+DockerPackages assumes Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy runs as the internal gateway for routing Cloudflare Tunnel origin traffic to Docker services.
 
 ## Included Services
 
 ```text
 home.<your-domain>    -> Homepage
 blog.<your-domain>    -> WordPress
+cloud.<your-domain>   -> Nextcloud
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
 ```
@@ -26,8 +29,8 @@ Caddy
 - Ubuntu Server or another Linux host
 - Docker with the Compose plugin
 - `make`
-- A domain managed by Cloudflare, if you want automatic public publishing
-- A Cloudflare Tunnel already connected to this server, if you use Cloudflare Tunnel
+- A domain managed by Cloudflare
+- A Cloudflare Tunnel connected to this server
 
 ## Setup Overview
 
@@ -67,6 +70,8 @@ STACK_DOMAIN=example.com
 
 MARIADB_ROOT_PASSWORD=change-root-password
 WORDPRESS_DB_PASSWORD=change-wordpress-db-password
+NEXTCLOUD_DB_PASSWORD=change-nextcloud-db-password
+NEXTCLOUD_ADMIN_PASSWORD=change-nextcloud-admin-password
 ```
 
 The default subdomains are already defined in `common.env.example`:
@@ -74,6 +79,7 @@ The default subdomains are already defined in `common.env.example`:
 ```env
 HOMEPAGE_SUBDOMAIN=home
 WORDPRESS_SUBDOMAIN=blog
+NEXTCLOUD_SUBDOMAIN=cloud
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
@@ -88,7 +94,9 @@ make launch
 
 ## Cloudflare Publishing
 
-Cloudflare automation is optional. Without `cloudflare.env`, `make publish` only prints the routes it would publish.
+Cloudflare Tunnel is the default public entrypoint for this stack.
+
+Without `cloudflare.env`, `make publish` only prints the routes it would publish. With `cloudflare.env`, it syncs Cloudflare Tunnel public hostnames and DNS records automatically.
 
 To enable Cloudflare sync:
 
@@ -129,9 +137,24 @@ All public hostnames point to the same local Caddy gateway:
 ```text
 home.<your-domain>    -> http://localhost:80
 blog.<your-domain>    -> http://localhost:80
+cloud.<your-domain>   -> http://localhost:80
 n8n.<your-domain>     -> http://localhost:80
 uptime.<your-domain>  -> http://localhost:80
 ```
+
+Set each Cloudflare Tunnel public hostname's Service URL to `http://localhost:80`. Public users should still open `https://<service>.<your-domain>`.
+
+## Without Cloudflare Tunnel
+
+Cloudflare Tunnel is the default supported public exposure layer for this stack. If you choose to expose Caddy directly with port forwarding instead, Caddy becomes the public edge.
+
+In that case:
+
+- forward port 80 and 443 to the server
+- remove the `auto_https disable_redirects` block from `gateway/caddy/Caddyfile`
+- open services with `https://<service>.<your-domain>`
+
+Removing that block lets Caddy restore its default HTTP-to-HTTPS redirects. Do not remove it when using Cloudflare Tunnel, because Tunnel origin traffic uses `http://localhost:80` and can enter redirect loops.
 
 ## Common Commands
 
@@ -210,6 +233,7 @@ services/*/.env
 └── services/
     ├── homepage/
     ├── n8n/
+    ├── nextcloud/
     ├── uptime-kuma/
     └── wordpress/
 ```

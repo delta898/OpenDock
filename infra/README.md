@@ -4,6 +4,8 @@ Shared infrastructure services for the home server stack.
 
 MariaDB root credentials are read from the repository-level `common.env`.
 
+MariaDB runs with `READ-COMMITTED` transaction isolation for Nextcloud compatibility.
+
 ## Image Policy
 
 - Prefer Ubuntu Noble based images by default.
