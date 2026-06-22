@@ -353,11 +353,7 @@ def main():
     print()
     print("Syncing Cloudflare...")
     zone = lookup_zone(client, stack_domain)
-    print(f"Cloudflare zone: {zone['zone_name']} ({zone['zone_id']})")
-    if zone.get("account_name"):
-        print(f"Cloudflare account: {zone['account_name']} ({zone['account_id']})")
-    else:
-        print(f"Cloudflare account: {zone['account_id']}")
+    print(f"Cloudflare zone: {zone['zone_name']}")
 
     tunnel_statuses = sync_tunnel(client, zone["account_id"], cf_env, routes)
     dns_statuses = sync_dns(client, zone["zone_id"], cf_env, routes)

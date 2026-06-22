@@ -142,8 +142,8 @@ publish:
 launch:
 	@target="$(TARGET)"; \
 	if [ -z "$$target" ]; then target="all"; fi; \
-	$(MAKE) up "$$target"; \
-	$(MAKE) publish "$$target"
+	$(MAKE) --no-print-directory up "$$target"; \
+	$(MAKE) --no-print-directory publish "$$target"
 
 sync sync-dry-run:
 	@$(call require_target,$@)
