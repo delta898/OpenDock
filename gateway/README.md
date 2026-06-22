@@ -43,23 +43,28 @@ The repository includes `caddy/conf.d/wordpress.caddy` as the active WordPress r
     }
     respond @blocked_wordpress_paths "" 404
 
-    reverse_proxy {$WORDPRESS_UPSTREAM:wordpress:80}
+    reverse_proxy wordpress:80
 }
 
-http://{$WORDPRESS_DOMAIN:localhost} {
+http://localhost {
     import wordpress_proxy
 }
 
-https://{$WORDPRESS_DOMAIN:localhost} {
+https://localhost {
     import wordpress_proxy
 }
 ```
 
-Edit `gateway/.env`:
+Edit `gateway/caddy/conf.d/wordpress.caddy` and replace `localhost` with your server IP or domain:
 
-```sh
-WORDPRESS_DOMAIN=blog.example.com
-WORDPRESS_UPSTREAM=wordpress:80
+```caddy
+http://blog.example.com {
+    import wordpress_proxy
+}
+
+https://blog.example.com {
+    import wordpress_proxy
+}
 ```
 
 The upstream container must be connected to `shared-net`.
@@ -75,7 +80,7 @@ The default domain is `localhost`, so the stack can be tested on the same machin
 http://localhost
 ```
 
-For a headless Ubuntu Server, set `WORDPRESS_DOMAIN` to the server's internal IP first:
+For a headless Ubuntu Server, replace `localhost` with the server's internal IP first:
 
 ```sh
 hostname -I
@@ -83,15 +88,21 @@ hostname -I
 
 Example:
 
-```sh
-WORDPRESS_DOMAIN=192.168.0.22
+```caddy
+http://192.168.0.22 {
+    import wordpress_proxy
+}
+
+https://192.168.0.22 {
+    import wordpress_proxy
+}
 ```
 
 Then open `http://192.168.0.22` from another device on the same network.
 
-Set `WORDPRESS_DOMAIN` to a real domain you control before exposing the server publicly.
+Set the route domain to a real domain you control before exposing the server publicly.
 
-When changing values in `gateway/.env`, recreate the gateway container so Docker Compose applies the updated environment:
+When changing Caddy route files, reload or recreate the gateway container:
 
 ```sh
 make down gateway

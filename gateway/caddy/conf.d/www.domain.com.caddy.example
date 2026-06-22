@@ -3,12 +3,26 @@
 # Example:
 #   cp gateway/caddy/conf.d/www.domain.com.caddy.example gateway/caddy/conf.d/blog.example.com.caddy
 #
+# Then replace:
+#   www.domain.com
+#   app-container-name:80
+#
 # Caddyfile imports conf.d/*.caddy, so *.caddy.example files are not loaded.
 
-www.domain.com {
+(example_site_proxy) {
     import common_proxy
     import security_headers
     import block_bots
 
     reverse_proxy app-container-name:80
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://www.domain.com {
+    import example_site_proxy
+}
+
+# Direct HTTPS when exposing Caddy with port forwarding.
+https://www.domain.com {
+    import example_site_proxy
 }

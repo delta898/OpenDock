@@ -56,16 +56,28 @@ If you installed a headless Ubuntu Server, check its internal IP:
 hostname -I
 ```
 
-Then edit `gateway/.env`:
+Then edit `gateway/caddy/conf.d/wordpress.caddy` and replace `localhost` with that IP:
 
-```sh
-WORDPRESS_DOMAIN=<your-server-internal-ip>
+```caddy
+http://<your-server-internal-ip> {
+    import wordpress_proxy
+}
+
+https://<your-server-internal-ip> {
+    import wordpress_proxy
+}
 ```
 
 Example:
 
-```sh
-WORDPRESS_DOMAIN=192.168.0.22
+```caddy
+http://192.168.0.22 {
+    import wordpress_proxy
+}
+
+https://192.168.0.22 {
+    import wordpress_proxy
+}
 ```
 
 Start the stack:
@@ -84,8 +96,14 @@ http://<your-server-internal-ip>
 
 Later, when you connect a real domain, replace the internal IP with that domain:
 
-```sh
-WORDPRESS_DOMAIN=blog.example.com
+```caddy
+http://blog.example.com {
+    import wordpress_proxy
+}
+
+https://blog.example.com {
+    import wordpress_proxy
+}
 ```
 
 If you use Cloudflare Tunnel, route the public hostname to:
@@ -96,7 +114,7 @@ http://localhost:80
 
 If you use direct port forwarding instead, forward both ports 80 and 443 to the server. The same WordPress Caddy route supports both Cloudflare Tunnel HTTP origin traffic and direct HTTPS traffic.
 
-After changing `gateway/.env`, recreate the gateway container:
+After changing a Caddy route file, recreate the gateway container:
 
 ```sh
 make down gateway

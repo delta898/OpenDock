@@ -22,14 +22,20 @@ WORDPRESS_DB_PASSWORD=change-wordpress-db-password
 
 Use different values for `MARIADB_ROOT_PASSWORD` and `WORDPRESS_DB_PASSWORD`. The root password can administer the whole MariaDB server, while the WordPress password is only for the WordPress database user.
 
-Edit `gateway/.env`:
+The matching Caddy route lives in `gateway/caddy/conf.d/wordpress.caddy`.
+Replace `localhost` in that file with your server's internal IP for first setup, or with your real domain before exposing it publicly:
 
-```sh
-WORDPRESS_DOMAIN=www.your-domain.com
-WORDPRESS_UPSTREAM=wordpress:80
+```caddy
+http://www.your-domain.com {
+    import wordpress_proxy
+}
+
+https://www.your-domain.com {
+    import wordpress_proxy
+}
 ```
 
-The matching Caddy route lives in `gateway/caddy/conf.d/wordpress.caddy`.
+The default WordPress upstream is `wordpress:80`, matching the `WORDPRESS_CONTAINER_NAME` value in `services/wordpress/.env`.
 
 Then start the stack:
 
