@@ -92,7 +92,7 @@ run_compose() { \
 		*) dir="$(ROOT)/services/$$target" ;; \
 	esac; \
 	test -f "$$dir/compose.yml" || { echo "Unknown target or missing compose.yml: $$target"; exit 1; }; \
-	test -f "$(ROOT)/common.env" || { echo "Missing common.env. Copy common.env.example to common.env."; exit 1; }; \
+	test -f "$(ROOT)/common.env" || { printf '%s\n' "Missing required file: common.env" "" "To continue:" "  cp common.env.example common.env" "  nano common.env" "  make check-config"; exit 1; }; \
 	env_files="--env-file $(ROOT)/common.env"; \
 	if [ -f "$$dir/.env" ]; then env_files="$$env_files --env-file $$dir/.env"; fi; \
 	docker compose --project-directory "$$dir" $$env_files -f "$$dir/compose.yml" -p "$$target" "$$@"; \

@@ -88,7 +88,13 @@ def target_services(target):
 
 def load_env():
     if not COMMON_ENV.exists():
-        raise SystemExit("Missing common.env. Copy common.env.example to common.env.")
+        raise SystemExit(
+            "Missing required file: common.env\n\n"
+            "To continue:\n"
+            "  cp common.env.example common.env\n"
+            "  nano common.env\n"
+            "  make check-config"
+        )
 
     env = {}
     env.update(parse_env_file(COMMON_ENV_EXAMPLE))

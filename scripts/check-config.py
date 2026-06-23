@@ -193,16 +193,26 @@ def print_results(results):
     return 0
 
 
+def print_missing_common_env():
+    print("Missing required file: common.env")
+    print()
+    print("To continue:")
+    print("  cp common.env.example common.env")
+    print("  nano common.env")
+    print("  make check-config")
+
+
 def main():
     if not COMMON_ENV.exists():
-        raise SystemExit("Missing common.env. Copy common.env.example to common.env.")
+        print_missing_common_env()
+        return 1
 
     common_values = parse_env_file(COMMON_ENV)
     example_values = parse_env_file(COMMON_ENV_EXAMPLE)
     targets = resolve_targets(TARGET)
     results = [check_target(target, common_values, example_values) for target in targets]
-    raise SystemExit(print_results(results))
+    return print_results(results)
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
