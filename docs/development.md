@@ -1,6 +1,6 @@
 # Development Notes
 
-This document describes the conventions used by DockerPackages. It is intended for maintainers and advanced users who want to add or modify services.
+This document describes the conventions used by OpenDock. It is intended for maintainers and advanced users who want to add or modify services.
 
 ## Design Goals
 

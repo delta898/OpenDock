@@ -1,10 +1,10 @@
-# DockerPackages
+# OpenDock
 
 A Docker Compose based home server stack with sensible defaults, Caddy routing, and Cloudflare Tunnel publishing.
 
 The goal is simple: set one main domain, fill in a few secrets, run one command, and get a small but useful home server online.
 
-DockerPackages assumes Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy runs as the internal gateway for routing Cloudflare Tunnel origin traffic to Docker services.
+OpenDock assumes Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy runs as the internal gateway for routing Cloudflare Tunnel origin traffic to Docker services.
 
 ## Included Services
 
@@ -55,8 +55,8 @@ After that, Docker services are started, Cloudflare routes are synced, DNS recor
 Clone the repository:
 
 ```sh
-git clone https://github.com/delta898/DockerPackages.git
-cd DockerPackages
+git clone https://github.com/delta898/OpenDock.git
+cd OpenDock
 ```
 
 Create the required local env file:
@@ -97,7 +97,7 @@ make launch
 
 `make launch` starts the Docker services and then publishes public routes if `cloudflare.env` exists.
 
-Before starting services, DockerPackages checks `common.env` for required values. This helps catch missing passwords after `git pull` adds a new service.
+Before starting services, OpenDock checks `common.env` for required values. This helps catch missing passwords after `git pull` adds a new service.
 
 ## Cloudflare Publishing
 
@@ -281,7 +281,7 @@ Then set your test machine connection:
 
 ```env
 SYNC_TEST_REMOTE=user@test-host
-SYNC_TEST_PATH=/home/user/DockerPackages
+SYNC_TEST_PATH=/home/user/OpenDock
 ```
 
 Preview first:

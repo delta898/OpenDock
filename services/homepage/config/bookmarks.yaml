@@ -1,6 +1,6 @@
 ---
 - Project:
-    - DockerPackages:
-        - href: https://github.com/delta898/DockerPackages
+    - OpenDock:
+        - href: https://github.com/delta898/OpenDock
           icon: github.png
           description: Home server stack repository
