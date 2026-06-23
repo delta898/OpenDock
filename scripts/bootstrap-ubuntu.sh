@@ -7,6 +7,7 @@ INSTALL_DIR_SET=0
 BRANCH="main"
 CLONE_REPO=1
 FORCE=0
+DOCKER_GROUP_ADDED=0
 
 usage() {
 	cat <<'USAGE'
@@ -178,8 +179,14 @@ configure_docker_group() {
 		return
 	fi
 
+	if id -nG "$target_user" | tr ' ' '\n' | grep -qx docker; then
+		log "${target_user} is already in the docker group"
+		return
+	fi
+
 	log "Adding ${target_user} to the docker group"
 	run_sudo usermod -aG docker "$target_user"
+	DOCKER_GROUP_ADDED=1
 }
 
 verify_docker() {
@@ -210,10 +217,18 @@ print_next_steps() {
 	cat <<EOF
 
 OpenDock bootstrap is complete.
+EOF
+
+	if [ "$DOCKER_GROUP_ADDED" -eq 1 ]; then
+		cat <<EOF
 
 Important:
-  If this user was newly added to the docker group, log out and log back in
+  ${target_user} was added to the docker group. Log out and log back in
   before running Docker without sudo.
+EOF
+	fi
+
+	cat <<EOF
 
 Next steps:
 EOF
