@@ -11,6 +11,55 @@ This document describes the conventions used by OpenDock. It is intended for mai
 - Cloudflare Tunnel is the default public exposure layer.
 - Beginner-facing setup should stay small: `common.env`, optional `cloudflare.env`, then `make launch`.
 
+## Ubuntu Bootstrap
+
+`scripts/bootstrap-ubuntu.sh` prepares a fresh Ubuntu Server host for OpenDock.
+
+Supported target:
+
+```text
+Ubuntu Server 24.04 or newer
+```
+
+The script intentionally uses Ubuntu packages instead of adding Docker's official apt repository. This keeps the beginner path shorter and avoids extra keyring/source-list steps. If Docker and Docker Compose are already installed, it does not replace them.
+
+Base packages:
+
+```text
+git
+make
+curl
+ca-certificates
+```
+
+Docker packages installed only when Docker or Docker Compose is missing:
+
+```text
+docker.io
+docker-compose-v2
+```
+
+The script also:
+
+- runs `apt-get update`
+- enables and starts Docker with systemd when available
+- adds the login user to the `docker` group
+- verifies `docker --version`
+- verifies `docker compose version`
+- clones the repository to `~/OpenDock` by default
+- supports `--no-clone` for prerequisite-only setup
+- prints next steps
+
+The script intentionally does not:
+
+- run `apt upgrade`
+- create or edit `common.env`
+- create or edit `cloudflare.env`
+- create a Cloudflare Tunnel
+- run `make launch`
+
+This keeps system preparation separate from stack configuration and avoids hiding important security choices from the user.
+
 ## Directory Conventions
 
 Core projects live at the repository root:

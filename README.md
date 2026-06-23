@@ -29,10 +29,10 @@ Caddy
 ## Requirements
 
 - Ubuntu Server or another Linux host
-- Docker with the Compose plugin
-- `make`
 - A domain managed by Cloudflare
 - A Cloudflare Tunnel connected to this server
+
+OpenDock includes an Ubuntu bootstrap script that installs prerequisites and clones this repository to `~/OpenDock` by default.
 
 ## Setup Overview
 
@@ -42,7 +42,7 @@ For a typical Cloudflare Tunnel setup:
 2. Add your domain to Cloudflare and update its nameservers.
 3. Create a Cloudflare Tunnel and connect it to your home server.
 4. Create a Cloudflare API token.
-5. Clone this repository.
+5. Run the Ubuntu bootstrap script.
 6. Copy example env files to real local env files.
 7. Edit required config: domain and passwords.
 8. Edit optional Cloudflare config: API token and tunnel ID.
@@ -52,11 +52,55 @@ After that, Docker services are started, Cloudflare routes are synced, DNS recor
 
 ## Quick Start
 
-Clone the repository:
+On a fresh Ubuntu Server 24.04 or newer host, install prerequisites and clone OpenDock to `~/OpenDock`:
 
 ```sh
-git clone https://github.com/delta898/OpenDock.git
-cd OpenDock
+curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap-ubuntu.sh | bash
+```
+
+The bootstrap script installs base packages from Ubuntu repositories:
+
+```text
+git
+make
+curl
+ca-certificates
+```
+
+If Docker and Docker Compose are not already installed, it also installs:
+
+```text
+docker.io
+docker-compose-v2
+```
+
+It enables Docker, adds the current user to the `docker` group, and clones OpenDock to `~/OpenDock`. If the user was newly added to that group, log out and log back in before running Docker commands.
+
+To inspect the script before running it:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap-ubuntu.sh -o bootstrap-ubuntu.sh
+less bootstrap-ubuntu.sh
+bash bootstrap-ubuntu.sh
+```
+
+After the default bootstrap completes, enter the cloned repository:
+
+```sh
+cd ~/OpenDock
+```
+
+If you want to install prerequisites without cloning the repository:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap-ubuntu.sh | bash -s -- --no-clone
+```
+
+Then clone manually when you are ready:
+
+```sh
+git clone https://github.com/delta898/OpenDock.git ~/OpenDock
+cd ~/OpenDock
 ```
 
 Create the required local env file:
