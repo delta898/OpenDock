@@ -139,7 +139,11 @@ Start the stack:
 make launch
 ```
 
-`make launch` starts the Docker services and then publishes public routes if `cloudflare.env` exists.
+`make launch` starts the Docker services and then publishes public routes if `cloudflare.env` exists. When launching one service, it also starts `infra` first so the shared Docker network and shared infrastructure are ready:
+
+```sh
+make launch wordpress
+```
 
 Before starting services, OpenDock checks `common.env` for required values. This helps catch missing passwords after `git pull` adds a new service.
 
@@ -245,6 +249,8 @@ make up services
 make up wordpress
 ```
 
+`make up <target>` is a thin Docker Compose wrapper for that target. It does not start prerequisites for you.
+
 Publish routes:
 
 ```sh
@@ -259,7 +265,10 @@ Start and publish:
 make launch
 make launch services
 make launch homepage
+make launch wordpress
 ```
+
+`make launch <target>` is the higher-level workflow: it prepares `infra` when needed, starts the target, reloads or starts the gateway, and publishes the target routes.
 
 Inspect or stop:
 

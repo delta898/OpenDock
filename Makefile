@@ -86,16 +86,16 @@ endef
 
 define compose_cmd
 run_compose() { \
-	target="$$1"; shift; \
-	case "$$target" in \
-		infra|gateway) dir="$(ROOT)/$$target" ;; \
-		*) dir="$(ROOT)/services/$$target" ;; \
+	compose_target="$$1"; shift; \
+	case "$$compose_target" in \
+		infra|gateway) dir="$(ROOT)/$$compose_target" ;; \
+		*) dir="$(ROOT)/services/$$compose_target" ;; \
 	esac; \
-	test -f "$$dir/compose.yml" || { echo "Unknown target or missing compose.yml: $$target"; exit 1; }; \
+	test -f "$$dir/compose.yml" || { echo "Unknown target or missing compose.yml: $$compose_target"; exit 1; }; \
 	test -f "$(ROOT)/common.env" || { printf '%s\n' "Missing required file: common.env" "" "To continue:" "  cp common.env.example common.env" "  nano common.env" "  make check-config"; exit 1; }; \
 	env_files="--env-file $(ROOT)/common.env"; \
 	if [ -f "$$dir/.env" ]; then env_files="$$env_files --env-file $$dir/.env"; fi; \
-	docker compose --project-directory "$$dir" $$env_files -f "$$dir/compose.yml" -p "$$target" "$$@"; \
+	docker compose --project-directory "$$dir" $$env_files -f "$$dir/compose.yml" -p "$$compose_target" "$$@"; \
 }; run_compose
 endef
 
@@ -193,13 +193,17 @@ publish:
 	"$(ROOT)/scripts/publish-cloudflare.sh" "$$target"
 
 launch:
-	@target="$(TARGET)"; \
-	if [ -z "$$target" ]; then target="all"; fi; \
-	$(MAKE) --no-print-directory up "$$target"; \
-	if [ "$$target" != "infra" ]; then \
+	@launch_target="$(TARGET)"; \
+	if [ -z "$$launch_target" ]; then launch_target="all"; fi; \
+	if [ "$$launch_target" != "all" ] && [ "$$launch_target" != "infra" ]; then \
+		echo "==> infra: launch prerequisite"; \
+		$(MAKE) --no-print-directory up infra || exit $$?; \
+	fi; \
+	$(MAKE) --no-print-directory up "$$launch_target"; \
+	if [ "$$launch_target" != "infra" ]; then \
 		$(call reload_gateway); \
 	fi; \
-	$(MAKE) --no-print-directory publish "$$target"
+	$(MAKE) --no-print-directory publish "$$launch_target"
 
 sync sync-dry-run:
 	@$(call require_target,$@)

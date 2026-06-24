@@ -106,6 +106,10 @@ gateway   Caddy only
 <name>    one service under services/<name>/
 ```
 
+`up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
+
+`launch` is a higher-level workflow. For `all`, it starts every target in order. For a single service, `services`, or `gateway`, it first starts `infra` so the external `shared-net` network exists, then starts the requested target, reloads or starts Caddy, and publishes matching routes.
+
 ## Config Validation
 
 `scripts/check-config.py` validates local configuration before Docker Compose starts or renders services.
@@ -129,7 +133,7 @@ config
 launch
 ```
 
-`launch` calls `up`, so it reuses the same validation layer instead of running a duplicate check.
+`launch` calls `up`, so it reuses the same validation layer instead of running a duplicate check. When `launch` starts `infra` as a prerequisite, that prerequisite is validated through the same path.
 
 Validation rules:
 
