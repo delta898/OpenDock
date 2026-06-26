@@ -110,6 +110,8 @@ gateway   Caddy only
 
 `launch` is a higher-level workflow. For `all`, it starts every target in order. For a single service, `services`, or `gateway`, it first starts `infra` so the external `shared-net` network exists, then starts the requested target, reloads or starts Caddy, and publishes matching routes.
 
+`wp-multisite` is a WordPress-specific workflow implemented by `scripts/wp-multisite.py`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
+
 ## Config Validation
 
 `scripts/check-config.py` validates local configuration before Docker Compose starts or renders services.

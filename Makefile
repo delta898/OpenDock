@@ -1,7 +1,7 @@
 ROOT := $(CURDIR)
 CHECKED_COMMANDS := up restart start build config
 UNCHECKED_COMMANDS := down stop ps pull
-COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch sync sync-dry-run
+COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch wp-multisite sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
 
 -include .sync.env
@@ -18,6 +18,7 @@ help:
 	@echo "  check-config"
 	@echo "  up down restart stop start ps logs pull build config"
 	@echo "  publish launch"
+	@echo "  wp-multisite"
 	@echo "  sync sync-dry-run"
 	@echo
 	@echo "Targets:"
@@ -35,6 +36,7 @@ help:
 	@echo "  make publish"
 	@echo "  make publish services"
 	@echo "  make launch"
+	@echo "  make wp-multisite"
 	@echo "  make services"
 	@echo "  make up services"
 	@echo "  make sync-dry-run test"
@@ -204,6 +206,9 @@ launch:
 		$(call reload_gateway); \
 	fi; \
 	$(MAKE) --no-print-directory publish "$$launch_target"
+
+wp-multisite:
+	@python3 "$(ROOT)/scripts/wp-multisite.py" $(if $(YES),--yes)
 
 sync sync-dry-run:
 	@$(call require_target,$@)

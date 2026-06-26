@@ -7,3 +7,4 @@ cloudflare.env
 __pycache__/
 
 services/*/data/
+services/*/backups/

@@ -270,6 +270,14 @@ make launch wordpress
 
 `make launch <target>` is the higher-level workflow: it prepares `infra` when needed, starts the target, reloads or starts the gateway, and publishes the target routes.
 
+Enable WordPress subdirectory multisite:
+
+```sh
+make wp-multisite
+```
+
+This command converts the launched WordPress site into subdirectory multisite mode, for example `https://blog.example.com/site-name/`. It prints a warning and asks for confirmation before changing anything. Before conversion, it backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database under `services/wordpress/backups/`.
+
 Inspect or stop:
 
 ```sh

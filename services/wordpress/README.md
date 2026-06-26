@@ -41,9 +41,40 @@ make up wordpress
 make up gateway
 ```
 
+## Multisite
+
+OpenDock can convert the WordPress site to subdirectory multisite mode:
+
+```sh
+make wp-multisite
+```
+
+The command uses `STACK_DOMAIN` and `WORDPRESS_SUBDOMAIN` to configure the network host. With the default subdomain, the network uses URLs like:
+
+```text
+https://blog.example.com/site-name/
+```
+
+The command prints a warning and asks for confirmation before making changes. WordPress multisite changes configuration and database behavior; returning to single-site mode later is a migration task, not a simple toggle after you create sites or content.
+
+Before converting, OpenDock creates backups:
+
+```text
+services/wordpress/backups/wp-config.php.<timestamp>
+services/wordpress/backups/.htaccess.<timestamp>
+services/wordpress/backups/wordpress-multisite-<timestamp>.sql
+```
+
+For non-interactive automation:
+
+```sh
+make wp-multisite YES=1
+```
+
 ## Image Policy
 
 - WordPress defaults to `7-php8.3-apache`.
+- WordPress CLI defaults to `wordpress:cli-php8.3`.
 - MariaDB client defaults to `11.8-noble`, matching the infra recommendation.
 - Versions live in `.env`, not `compose.yml`.
 - Avoid `latest` tags.
