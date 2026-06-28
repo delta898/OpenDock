@@ -19,6 +19,8 @@ CONTAINER_WEBROOT = "/var/www/html"
 
 CONFIG_BEGIN = "/* BEGIN OpenDock WordPress multisite */"
 CONFIG_END = "/* END OpenDock WordPress multisite */"
+HTTPS_BEGIN = "/* BEGIN OpenDock reverse proxy HTTPS */"
+HTTPS_END = "/* END OpenDock reverse proxy HTTPS */"
 HTACCESS_BEGIN = "# BEGIN WordPress"
 HTACCESS_END = "# END WordPress"
 MULTISITE_CONSTANTS = (
@@ -291,6 +293,16 @@ define( 'BLOG_ID_CURRENT_SITE', 1 );
 """
 
 
+def https_config_block():
+    return f"""\
+{HTTPS_BEGIN}
+if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && 'https' === $_SERVER['HTTP_X_FORWARDED_PROTO']) {{
+    $_SERVER['HTTPS'] = 'on';
+}}
+{HTTPS_END}
+"""
+
+
 def has_multisite_config(path):
     text = path.read_text()
     return bool(
@@ -327,6 +339,32 @@ def patch_wp_config(path, hostname):
         text = text.replace(marker, block + "\n" + marker, 1)
     else:
         text = text.rstrip() + "\n\n" + block
+
+    path.write_text(text)
+    return "enabled"
+
+
+def patch_https_config(path):
+    text = path.read_text()
+    block = https_config_block()
+
+    replaced = replace_between_markers(text, HTTPS_BEGIN, HTTPS_END, block)
+    if replaced is not None:
+        path.write_text(replaced)
+        return "updated"
+
+    marker = CONFIG_BEGIN
+    if marker in text:
+        text = text.replace(marker, block + "\n" + marker, 1)
+    else:
+        stop_marker = "/* That's all, stop editing!"
+        if stop_marker not in text:
+            stop_marker = "/* That's all, stop editing! Happy publishing. */"
+
+        if stop_marker in text:
+            text = text.replace(stop_marker, block + "\n" + stop_marker, 1)
+        else:
+            text = text.rstrip() + "\n\n" + block
 
     path.write_text(text)
     return "enabled"
@@ -483,10 +521,12 @@ def main():
         wp_cli_convert(env, hostname)
 
     print("==> wordpress: update multisite files")
+    https_status = patch_https_config(config)
     config_status = patch_wp_config(config, hostname)
     htaccess_status = patch_htaccess(htaccess)
     copy_to_container(container, config, "wp-config.php")
     copy_to_container(container, htaccess, ".htaccess")
+    print(f"  HTTPS proxy config: {https_status}")
     print(f"  wp-config.php: {config_status}")
     print(f"  .htaccess: {htaccess_status}")
 

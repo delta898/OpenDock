@@ -41,6 +41,10 @@ make up wordpress
 make up gateway
 ```
 
+## HTTPS Behind Caddy
+
+OpenDock publishes WordPress as `https://blog.<STACK_DOMAIN>` through Cloudflare Tunnel and Caddy, while the WordPress Apache container receives internal HTTP traffic. The Caddy route forwards HTTPS proxy headers, and the WordPress container config turns those headers into `$_SERVER['HTTPS'] = 'on'` for new installs. This lets WordPress enable HTTPS-only features such as Application Passwords.
+
 ## Multisite
 
 OpenDock can convert the WordPress site to subdirectory multisite mode:
@@ -56,6 +60,8 @@ https://blog.example.com/site-name/
 ```
 
 The command prints a warning and asks for confirmation before making changes. WordPress multisite changes configuration and database behavior; returning to single-site mode later is a migration task, not a simple toggle after you create sites or content.
+
+For existing installs, the command also patches `wp-config.php` with OpenDock's reverse proxy HTTPS detection block.
 
 Before converting, OpenDock creates backups:
 
