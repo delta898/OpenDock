@@ -1,0 +1,128 @@
+x-mastodon-env: &mastodon-env
+  RAILS_ENV: production
+  NODE_ENV: production
+  TZ: ${MASTODON_TIMEZONE}
+  LOCAL_DOMAIN: ${MASTODON_SUBDOMAIN:-social}.${STACK_DOMAIN:-localhost}
+  SINGLE_USER_MODE: ${MASTODON_SINGLE_USER_MODE}
+  DB_HOST: ${MASTODON_DB_HOST}
+  DB_PORT: ${MASTODON_DB_PORT}
+  DB_NAME: ${MASTODON_DB_NAME}
+  DB_USER: ${MASTODON_DB_USER}
+  DB_PASS: ${MASTODON_DB_PASSWORD}
+  REDIS_HOST: ${MASTODON_REDIS_HOST}
+  REDIS_PORT: ${MASTODON_REDIS_PORT}
+  SECRET_KEY_BASE: ${MASTODON_SECRET_KEY_BASE}
+  OTP_SECRET: ${MASTODON_OTP_SECRET}
+  ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY: ${MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY}
+  ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT: ${MASTODON_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT}
+  ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY: ${MASTODON_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY}
+  VAPID_PRIVATE_KEY: ${MASTODON_VAPID_PRIVATE_KEY}
+  VAPID_PUBLIC_KEY: ${MASTODON_VAPID_PUBLIC_KEY}
+  RAILS_SERVE_STATIC_FILES: "true"
+  RAILS_LOG_TO_STDOUT: "true"
+  ES_ENABLED: "false"
+  S3_ENABLED: ${MASTODON_S3_ENABLED}
+  SMTP_SERVER: ${MASTODON_SMTP_SERVER:-}
+  SMTP_PORT: ${MASTODON_SMTP_PORT:-587}
+  SMTP_LOGIN: ${MASTODON_SMTP_LOGIN:-}
+  SMTP_PASSWORD: ${MASTODON_SMTP_PASSWORD:-}
+  SMTP_FROM_ADDRESS: ${MASTODON_SMTP_FROM_ADDRESS:-}
+
+services:
+  mastodon-db-init:
+    image: postgres:${MASTODON_POSTGRES_CLIENT_VERSION}
+    networks:
+      - shared-net
+    environment:
+      POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      MASTODON_DB_HOST: ${MASTODON_DB_HOST}
+      MASTODON_DB_PORT: ${MASTODON_DB_PORT}
+      MASTODON_DB_NAME: ${MASTODON_DB_NAME}
+      MASTODON_DB_USER: ${MASTODON_DB_USER}
+      MASTODON_DB_PASSWORD: ${MASTODON_DB_PASSWORD}
+    command: >
+      sh -c '
+        export PGPASSWORD="$${POSTGRES_ADMIN_PASSWORD}";
+        attempts=0;
+        until pg_isready -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres; do
+          attempts=$$((attempts + 1));
+          if [ "$$attempts" -ge 60 ]; then
+            echo "PostgreSQL did not become ready after 120 seconds.";
+            exit 1;
+          fi;
+          echo "Waiting for PostgreSQL...";
+          sleep 2;
+        done;
+        if ! psql -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '\''$${MASTODON_DB_USER}'\''" | grep -qx 1; then
+          psql -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER \"$${MASTODON_DB_USER}\" WITH PASSWORD '\''$${MASTODON_DB_PASSWORD}'\''";
+        else
+          psql -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "ALTER USER \"$${MASTODON_DB_USER}\" WITH PASSWORD '\''$${MASTODON_DB_PASSWORD}'\''";
+        fi;
+        if ! psql -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '\''$${MASTODON_DB_NAME}'\''" | grep -qx 1; then
+          createdb -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -O "$${MASTODON_DB_USER}" "$${MASTODON_DB_NAME}";
+        fi;
+        psql -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$${MASTODON_DB_NAME}\" OWNER TO \"$${MASTODON_DB_USER}\"";
+        psql -h "$${MASTODON_DB_HOST}" -p "$${MASTODON_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "GRANT ALL PRIVILEGES ON DATABASE \"$${MASTODON_DB_NAME}\" TO \"$${MASTODON_DB_USER}\"";
+      '
+    restart: "no"
+
+  mastodon-db-prepare:
+    image: ghcr.io/mastodon/mastodon:${MASTODON_VERSION}
+    depends_on:
+      mastodon-db-init:
+        condition: service_completed_successfully
+    networks:
+      - shared-net
+    volumes:
+      - ./data/public/system:/mastodon/public/system
+    environment:
+      <<: *mastodon-env
+    command: bundle exec rails db:prepare
+    restart: "no"
+
+  mastodon-web:
+    image: ghcr.io/mastodon/mastodon:${MASTODON_VERSION}
+    container_name: ${MASTODON_WEB_CONTAINER_NAME}
+    depends_on:
+      mastodon-db-prepare:
+        condition: service_completed_successfully
+    networks:
+      - shared-net
+    volumes:
+      - ./data/public/system:/mastodon/public/system
+    environment:
+      <<: *mastodon-env
+    command: bundle exec puma -C config/puma.rb
+    restart: unless-stopped
+
+  mastodon-streaming:
+    image: ghcr.io/mastodon/mastodon-streaming:${MASTODON_VERSION}
+    container_name: ${MASTODON_STREAMING_CONTAINER_NAME}
+    depends_on:
+      mastodon-db-prepare:
+        condition: service_completed_successfully
+    networks:
+      - shared-net
+    environment:
+      <<: *mastodon-env
+    restart: unless-stopped
+
+  mastodon-sidekiq:
+    image: ghcr.io/mastodon/mastodon:${MASTODON_VERSION}
+    container_name: ${MASTODON_SIDEKIQ_CONTAINER_NAME}
+    depends_on:
+      mastodon-db-prepare:
+        condition: service_completed_successfully
+    networks:
+      - shared-net
+    volumes:
+      - ./data/public/system:/mastodon/public/system
+    environment:
+      <<: *mastodon-env
+    command: bundle exec sidekiq
+    restart: unless-stopped
+
+networks:
+  shared-net:
+    external: true

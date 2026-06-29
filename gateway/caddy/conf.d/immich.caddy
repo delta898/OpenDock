@@ -8,7 +8,9 @@
     import security_headers
     import block_bots
 
-    reverse_proxy immich-server:2283
+    reverse_proxy immich-server:2283 {
+        import forwarded_https
+    }
 }
 
 # Cloudflare Tunnel origin or local HTTP testing.

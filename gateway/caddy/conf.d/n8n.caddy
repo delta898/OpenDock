@@ -8,7 +8,9 @@
     import security_headers
     import block_bots
 
-    reverse_proxy n8n:5678
+    reverse_proxy n8n:5678 {
+        import forwarded_https
+    }
 }
 
 # Cloudflare Tunnel origin or local HTTP testing.

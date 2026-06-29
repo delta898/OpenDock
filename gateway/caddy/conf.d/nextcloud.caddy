@@ -18,7 +18,9 @@
     }
     redir @nextcloud_wellknown /index.php{uri} 301
 
-    reverse_proxy nextcloud:80
+    reverse_proxy nextcloud:80 {
+        import forwarded_https
+    }
 }
 
 # Cloudflare Tunnel origin or local HTTP testing.

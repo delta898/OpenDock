@@ -17,6 +17,10 @@ INTERPOLATION_RE = re.compile(
 GLOBAL_REQUIRED = {"STACK_DOMAIN"}
 
 
+def service_env_key(service):
+    return f"{service.replace('-', '_').upper()}_SUBDOMAIN"
+
+
 def parse_env_file(path):
     values = {}
     if not path.exists():
@@ -136,11 +140,12 @@ def check_target(target, common_values, example_values):
         if name in env and is_placeholder(name, env.get(name, ""), example_values)
     )
 
-    optional_missing = {
-        name: default
-        for name, default in sorted(optional.items())
-        if name not in env and name.endswith("_SUBDOMAIN")
-    }
+    optional_missing = {}
+    target_subdomain = service_env_key(target)
+    for name, default in sorted(optional.items()):
+        if name in env or name != target_subdomain:
+            continue
+        optional_missing[name] = default
 
     return {
         "target": target,
@@ -187,7 +192,8 @@ def print_results(results):
             print()
 
     if failed:
-        print("Update common.env using common.env.example, then try again.")
+        print("Set external values such as STACK_DOMAIN in common.env.")
+        print("Run `make secrets` to fill generated passwords and app secrets.")
         return 1
 
     return 0
@@ -198,7 +204,8 @@ def print_missing_common_env():
     print()
     print("To continue:")
     print("  cp common.env.example common.env")
-    print("  nano common.env")
+    print("  nano common.env  # set STACK_DOMAIN")
+    print("  make secrets")
     print("  make check-config")
 
 

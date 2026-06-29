@@ -16,6 +16,24 @@ services:
       MYSQL_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
     restart: unless-stopped
 
+  postgres:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: postgres
+    networks:
+      - shared-net
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_ADMIN_USER}", "-d", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   redis:
     image: redis:${REDIS_VERSION}
     container_name: redis
@@ -25,3 +43,4 @@ services:
 
 volumes:
   mariadb_data:
+  postgres_data:

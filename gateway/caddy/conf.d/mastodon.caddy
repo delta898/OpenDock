@@ -1,0 +1,31 @@
+# Default Mastodon route for the home server stack.
+#
+# The default route is:
+#   {$MASTODON_SUBDOMAIN:social}.{$STACK_DOMAIN:localhost}
+
+(mastodon_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    @mastodon_streaming {
+        path /api/v1/streaming*
+    }
+    reverse_proxy @mastodon_streaming mastodon-streaming:4000 {
+        import forwarded_https
+    }
+
+    reverse_proxy mastodon-web:3000 {
+        import forwarded_https
+    }
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://{$MASTODON_SUBDOMAIN:social}.{$STACK_DOMAIN:localhost} {
+    import mastodon_proxy
+}
+
+# Direct HTTPS when exposing Caddy with port forwarding.
+https://{$MASTODON_SUBDOMAIN:social}.{$STACK_DOMAIN:localhost} {
+    import mastodon_proxy
+}

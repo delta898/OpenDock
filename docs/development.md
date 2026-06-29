@@ -148,6 +148,16 @@ Validation rules:
 
 Automatic validation uses quiet mode and prints only failures. Manual `make check-config` also prints optional values that will use defaults.
 
+Secret generation rules:
+
+- `make check-config` is read-only and never changes files.
+- `make secrets [target]` fills generated passwords and app secrets in `common.env`.
+- `make up`, `make services`, and `make launch` run the same generator before validation.
+- Existing real values are kept. Empty or placeholder values are generated.
+- Before `common.env` is changed, the previous file is backed up under `backups/common-env/`.
+- Do not auto-generate external values such as `STACK_DOMAIN`, Cloudflare tokens, tunnel IDs, or SMTP credentials.
+- Initial login passwords, such as `NEXTCLOUD_ADMIN_PASSWORD`, may be generated, but docs must explain where to find them and whether changing `common.env` later affects an installed app.
+
 ## Domain Convention
 
 The stack assumes one main domain:
@@ -166,6 +176,7 @@ HOMEPAGE_SUBDOMAIN=home
 NEXTCLOUD_SUBDOMAIN=cloud
 IMMICH_SUBDOMAIN=photos
 JELLYFIN_SUBDOMAIN=media
+MASTODON_SUBDOMAIN=social
 ```
 
 The variable name is derived from the service directory name:
@@ -174,6 +185,7 @@ The variable name is derived from the service directory name:
 homepage    -> HOMEPAGE_SUBDOMAIN
 immich      -> IMMICH_SUBDOMAIN
 jellyfin    -> JELLYFIN_SUBDOMAIN
+mastodon    -> MASTODON_SUBDOMAIN
 n8n         -> N8N_SUBDOMAIN
 nextcloud   -> NEXTCLOUD_SUBDOMAIN
 uptime-kuma -> UPTIME_KUMA_SUBDOMAIN
@@ -316,7 +328,7 @@ jellyfin/media
 wordpress/data/webroot
 ```
 
-Some services require app-specific infrastructure instead of shared infrastructure. For example, Immich uses the shared Redis service, but runs its own PostgreSQL image because Immich requires vector extensions that are not part of a generic PostgreSQL service.
+Services should use shared MariaDB, PostgreSQL, or Redis when the generic infrastructure is enough. Some services require app-specific infrastructure instead. For example, Immich uses the shared Redis service, but runs its own PostgreSQL image because Immich requires vector extensions that are not part of a generic PostgreSQL service.
 
 ## Image Policy
 

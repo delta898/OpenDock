@@ -16,3 +16,8 @@
 (common_proxy) {
     encode zstd gzip
 }
+
+(forwarded_https) {
+    header_up X-Forwarded-Proto https
+    header_up X-Forwarded-Ssl on
+}

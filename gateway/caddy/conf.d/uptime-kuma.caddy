@@ -8,7 +8,9 @@
     import security_headers
     import block_bots
 
-    reverse_proxy uptime-kuma:3001
+    reverse_proxy uptime-kuma:3001 {
+        import forwarded_https
+    }
 }
 
 # Cloudflare Tunnel origin or local HTTP testing.

@@ -12,12 +12,14 @@ https://cloud.<STACK_DOMAIN>
 
 Service defaults live in `services/nextcloud/.env`.
 
-Required secrets live in the repository-level `common.env`:
+Generated secrets live in the repository-level `common.env`:
 
 ```env
 NEXTCLOUD_DB_PASSWORD=change-nextcloud-db-password
 NEXTCLOUD_ADMIN_PASSWORD=change-nextcloud-admin-password
 ```
+
+OpenDock fills these automatically before Nextcloud starts when they are empty or still placeholders. Existing real values are kept.
 
 The initial admin account uses:
 

@@ -2,7 +2,7 @@
 
 A Docker Compose based home server stack with sensible defaults, Caddy routing, and Cloudflare Tunnel publishing.
 
-The goal is simple: set one main domain, fill in a few secrets, run one command, and get a small but useful home server online.
+The goal is simple: set one main domain, run one command, and get a small but useful home server online.
 
 OpenDock assumes Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy runs as the internal gateway for routing Cloudflare Tunnel origin traffic to Docker services.
 
@@ -14,6 +14,7 @@ blog.<your-domain>    -> WordPress
 cloud.<your-domain>   -> Nextcloud
 photos.<your-domain>  -> Immich
 media.<your-domain>   -> Jellyfin
+social.<your-domain>  -> Mastodon
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
 ```
@@ -22,6 +23,7 @@ Shared infrastructure:
 
 ```text
 MariaDB
+PostgreSQL
 Redis
 Caddy
 ```
@@ -44,7 +46,7 @@ For a typical Cloudflare Tunnel setup:
 4. Create a Cloudflare API token.
 5. Run the Ubuntu bootstrap script.
 6. Copy example env files to real local env files.
-7. Edit required config: domain and passwords.
+7. Edit the required domain config.
 8. Edit optional Cloudflare config: API token and tunnel ID.
 9. Run `make launch`.
 
@@ -109,17 +111,22 @@ Create the required local env file:
 cp common.env.example common.env
 ```
 
-Edit `common.env`:
+Edit the main domain in `common.env`:
 
 ```env
 STACK_DOMAIN=example.com
-
-MARIADB_ROOT_PASSWORD=change-root-password
-WORDPRESS_DB_PASSWORD=change-wordpress-db-password
-NEXTCLOUD_DB_PASSWORD=change-nextcloud-db-password
-NEXTCLOUD_ADMIN_PASSWORD=change-nextcloud-admin-password
-IMMICH_DB_PASSWORD=changeImmichDbPassword
 ```
+
+OpenDock generates local passwords and app secrets automatically before `make up` and `make launch`. Existing real values in `common.env` are kept. If `common.env` must be updated, the previous file is backed up under `backups/common-env/`.
+
+You can also generate values explicitly:
+
+```sh
+make secrets
+make secrets nextcloud
+```
+
+Nextcloud's generated admin password is the initial login password for the first installation. The value is stored in `NEXTCLOUD_ADMIN_PASSWORD` in `common.env`; changing it later does not reset an already installed Nextcloud account.
 
 The default subdomains are already defined in `common.env.example`:
 
@@ -129,6 +136,7 @@ WORDPRESS_SUBDOMAIN=blog
 NEXTCLOUD_SUBDOMAIN=cloud
 IMMICH_SUBDOMAIN=photos
 JELLYFIN_SUBDOMAIN=media
+MASTODON_SUBDOMAIN=social
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
@@ -145,7 +153,7 @@ make launch
 make launch wordpress
 ```
 
-Before starting services, OpenDock checks `common.env` for required values. This helps catch missing passwords after `git pull` adds a new service.
+Before starting services, OpenDock fills generated secrets and checks `common.env` for required values. This helps catch missing external settings after `git pull` adds a new service.
 
 ## Cloudflare Publishing
 
@@ -195,6 +203,7 @@ blog.<your-domain>    -> http://localhost:80
 cloud.<your-domain>   -> http://localhost:80
 photos.<your-domain>  -> http://localhost:80
 media.<your-domain>   -> http://localhost:80
+social.<your-domain>  -> http://localhost:80
 n8n.<your-domain>     -> http://localhost:80
 uptime.<your-domain>  -> http://localhost:80
 ```
@@ -238,6 +247,16 @@ restart
 build
 config
 launch
+```
+
+`make check-config` is read-only. Commands that start services generate missing local passwords and app secrets first, then run the same validation.
+
+Generate local secrets manually:
+
+```sh
+make secrets
+make secrets wordpress
+make secrets mastodon
 ```
 
 Start services:
@@ -307,7 +326,7 @@ gateway/.env
 services/*/.env
 ```
 
-When you update the repository with `git pull`, compare new values in `common.env.example` with your local `common.env`. Missing optional subdomain values use sensible defaults, but missing required secrets stop service startup with a clear message.
+When you update the repository with `git pull`, compare new values in `common.env.example` with your local `common.env`. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
 
 ## Directory Layout
 
@@ -324,6 +343,7 @@ When you update the repository with `git pull`, compare new values in `common.en
     ├── homepage/
     ├── immich/
     ├── jellyfin/
+    ├── mastodon/
     ├── n8n/
     ├── nextcloud/
     ├── uptime-kuma/

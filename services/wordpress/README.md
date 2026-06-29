@@ -18,11 +18,9 @@ Edit `common.env`:
 ```sh
 STACK_DOMAIN=example.com
 WORDPRESS_SUBDOMAIN=blog
-MARIADB_ROOT_PASSWORD=change-root-password
-WORDPRESS_DB_PASSWORD=change-wordpress-db-password
 ```
 
-Use different values for `MARIADB_ROOT_PASSWORD` and `WORDPRESS_DB_PASSWORD`. The root password can administer the whole MariaDB server, while the WordPress password is only for the WordPress database user.
+`MARIADB_ROOT_PASSWORD` and `WORDPRESS_DB_PASSWORD` are generated automatically before WordPress starts. Existing real values in `common.env` are kept.
 
 The matching Caddy route lives in `gateway/caddy/conf.d/wordpress.caddy`.
 By default, WordPress is published as:
@@ -99,4 +97,4 @@ This path is intentionally ignored by Git. It is useful for search engine owners
 
 The `wordpress-db-init` service is safe to run repeatedly. It uses `CREATE DATABASE IF NOT EXISTS` and `CREATE USER IF NOT EXISTS`.
 
-The default password values are placeholders. Change them before using this on a public server.
+Generated password values are stored in `common.env`. The `wordpress-db-init` service keeps existing database users and updates only when the generated values are still placeholders before startup.

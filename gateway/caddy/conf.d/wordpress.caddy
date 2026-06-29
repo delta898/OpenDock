@@ -14,8 +14,7 @@
     respond @blocked_wordpress_paths "" 404
 
     reverse_proxy wordpress:80 {
-        header_up X-Forwarded-Proto https
-        header_up X-Forwarded-Ssl on
+        import forwarded_https
     }
 }
 

@@ -1,7 +1,7 @@
 ROOT := $(CURDIR)
 CHECKED_COMMANDS := up restart start build config
 UNCHECKED_COMMANDS := down stop ps pull
-COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch wp-multisite sync sync-dry-run
+COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch secrets wp-multisite sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
 
 -include .sync.env
@@ -18,6 +18,7 @@ help:
 	@echo "  check-config"
 	@echo "  up down restart stop start ps logs pull build config"
 	@echo "  publish launch"
+	@echo "  secrets"
 	@echo "  wp-multisite"
 	@echo "  sync sync-dry-run"
 	@echo
@@ -36,6 +37,8 @@ help:
 	@echo "  make publish"
 	@echo "  make publish services"
 	@echo "  make launch"
+	@echo "  make secrets"
+	@echo "  make secrets nextcloud"
 	@echo "  make wp-multisite"
 	@echo "  make services"
 	@echo "  make up services"
@@ -113,35 +116,45 @@ define reload_gateway
 	if [ -f "$(ROOT)/gateway/compose.yml" ]; then \
 		if docker ps --format '{{.Names}}' | grep -qx caddy; then \
 			echo "==> gateway: caddy reload"; \
-			docker exec caddy caddy reload --config /etc/caddy/Caddyfile; \
+			docker exec caddy caddy reload --config /etc/caddy/Caddyfile || exit $$?; \
 		else \
 			echo "==> gateway: docker compose up"; \
-			$(call compose_cmd) "gateway" up -d; \
+			$(call compose_cmd) "gateway" up -d || exit $$?; \
 		fi; \
 	fi
+endef
+
+define ensure_generated_secrets
+	OPEN_DOCK_QUIET_SECRETS=1 python3 "$(ROOT)/scripts/opendock-secrets.py" "$(1)"
 endef
 
 check-config:
 	@target="$(TARGET)"; \
 	if [ -z "$$target" ]; then target="all"; fi; \
-	$(call check_config,$$target)
+	$(call check_config,$$target) || { \
+		printf '%s\n' "Configuration is not ready. No services were changed."; \
+		exit 0; \
+	}
 
 $(CHECKED_COMMANDS):
 	@$(call require_target,$@)
 	@if [ "$(TARGET)" = "all" ]; then \
 		for target in $(call all_targets); do \
+			if [ "$@" = "up" ]; then $(call ensure_generated_secrets,$$target) || exit $$?; fi; \
 			$(call check_config_quiet,$$target) || exit $$?; \
 			echo "==> $$target: docker compose $@"; \
 			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
 		done; \
 	elif [ "$(TARGET)" = "services" ]; then \
 		for target in $(call service_targets); do \
+			if [ "$@" = "up" ]; then $(call ensure_generated_secrets,$$target) || exit $$?; fi; \
 			$(call check_config_quiet,$$target) || exit $$?; \
 			echo "==> $$target: docker compose $@"; \
 			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
 		done; \
 	else \
 		$(call require_compose,$(TARGET)); \
+		if [ "$@" = "up" ]; then $(call ensure_generated_secrets,$(TARGET)) || exit $$?; fi; \
 		$(call check_config_quiet,$(TARGET)) || exit $$?; \
 		echo "==> $(TARGET): docker compose $@"; \
 		$(call compose_cmd) "$(TARGET)" $@ $(if $(filter up,$@),-d); \
@@ -173,6 +186,7 @@ services:
 		exit 1; \
 	else \
 		for target in $(call service_targets); do \
+			$(call ensure_generated_secrets,$$target) || exit $$?; \
 			$(call check_config_quiet,$$target) || exit $$?; \
 			echo "==> $$target: docker compose up"; \
 			$(call compose_cmd) "$$target" up -d || exit $$?; \
@@ -201,11 +215,16 @@ launch:
 		echo "==> infra: launch prerequisite"; \
 		$(MAKE) --no-print-directory up infra || exit $$?; \
 	fi; \
-	$(MAKE) --no-print-directory up "$$launch_target"; \
+	$(MAKE) --no-print-directory up "$$launch_target" || exit $$?; \
 	if [ "$$launch_target" != "infra" ]; then \
 		$(call reload_gateway); \
 	fi; \
-	$(MAKE) --no-print-directory publish "$$launch_target"
+	$(MAKE) --no-print-directory publish "$$launch_target" || exit $$?
+
+secrets:
+	@target="$(TARGET)"; \
+	if [ -z "$$target" ]; then target="all"; fi; \
+	python3 "$(ROOT)/scripts/opendock-secrets.py" "$$target"
 
 wp-multisite:
 	@python3 "$(ROOT)/scripts/wp-multisite.py" $(if $(YES),--yes)

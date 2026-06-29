@@ -12,11 +12,13 @@ https://photos.<STACK_DOMAIN>
 
 Service defaults live in `services/immich/.env`.
 
-Required secrets live in the repository-level `common.env`:
+Generated secrets live in the repository-level `common.env`:
 
 ```env
 IMMICH_DB_PASSWORD=change-immich-db-password
 ```
+
+OpenDock fills this automatically before Immich starts when it is empty or still a placeholder. Existing real values are kept.
 
 Immich uses the shared Redis service from `infra/` and runs its own app-specific PostgreSQL container with the vector extensions required by Immich.
 

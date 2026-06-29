@@ -24,3 +24,7 @@
         icon: jellyfin.png
         href: https://{{HOMEPAGE_VAR_JELLYFIN_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
         description: Movies, shows, and music
+    - Mastodon:
+        icon: mastodon.png
+        href: https://{{HOMEPAGE_VAR_MASTODON_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
+        description: Federated social networking

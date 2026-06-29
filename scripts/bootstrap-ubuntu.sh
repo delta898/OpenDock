@@ -247,6 +247,7 @@ EOF
 	cat <<'EOF'
   cp common.env.example common.env
   nano common.env
+  # Set STACK_DOMAIN. Local passwords and app secrets are generated automatically.
 
   # Optional Cloudflare API sync:
   cp cloudflare.env.example cloudflare.env
