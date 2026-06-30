@@ -108,6 +108,8 @@ gateway   Caddy only
 
 `up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
 
+`setup` is the interactive OpenDock setup workflow. It creates `common.env` when missing, asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and backs up `common.env` before mutation.
+
 `launch` is a higher-level workflow. For `all`, it starts every target in order. For a single service, `services`, or `gateway`, it first starts `infra` so the external `shared-net` network exists, then starts the requested target, reloads or starts Caddy, and publishes matching routes.
 
 `wp-multisite` is a WordPress-specific workflow implemented by `scripts/wp-multisite.py`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
@@ -116,7 +118,7 @@ gateway   Caddy only
 
 `scripts/check-config.py` validates local configuration before Docker Compose starts or renders services.
 
-For the next interactive setup direction, see `docs/smart-config.md`.
+For the interactive setup design background, see `docs/smart-config.md`.
 
 Manual commands:
 
@@ -153,6 +155,7 @@ Automatic validation uses quiet mode and prints only failures. Manual `make chec
 Secret generation rules:
 
 - `make check-config` is read-only and never changes files.
+- `make setup [target]` interactively fills user-facing values and generated secrets.
 - `make secrets [target]` fills generated passwords and app secrets in `common.env`.
 - `make up`, `make services`, and `make launch` run the same generator before validation.
 - Existing real values are kept. Empty or placeholder values are generated.

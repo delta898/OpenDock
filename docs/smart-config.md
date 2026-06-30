@@ -30,24 +30,24 @@ Current behavior:
 - Empty or placeholder secret values are generated.
 - `common.env` is backed up under `backups/common-env/` before mutation.
 
-This gives a good zero-config baseline, but the next step is smart-config: ask only for values that genuinely need user intent.
+This gives a good zero-config baseline. The first smart-config step now uses `make setup`: ask only for values that genuinely need user intent, while continuing to generate machine secrets.
 
 ## Goal
 
-Add an interactive setup command:
+Interactive setup command:
 
 ```sh
-make config
-make config mastodon
-make config nextcloud
+make setup
+make setup mastodon
+make setup nextcloud
 ```
 
-`make config` should guide the user through required and useful choices, while continuing to generate machine secrets transparently.
+`make setup` guides the user through required and useful choices, while continuing to generate machine secrets transparently.
 
 The desired user experience:
 
 ```text
-make config mastodon
+make setup mastodon
 
 STACK_DOMAIN: gongzza.com
 MASTODON_SUBDOMAIN [social]:
@@ -173,7 +173,7 @@ Rules:
 Keep these command roles separate.
 
 ```text
-make config [target]
+make setup [target]
   Interactive smart setup. May ask questions and update common.env.
 
 make secrets [target]
@@ -188,22 +188,22 @@ make launch [target]
 
 Important decision:
 
-`make launch` should remain non-interactive. This preserves predictable automation and remote usage. If required-user values are missing, it should fail with a friendly message that points to `make config [target]`.
+`make launch` should remain non-interactive. This preserves predictable automation and remote usage. If required-user values are missing, it should fail with a friendly message that points to `make setup [target]`.
 
 ## Target Behavior
 
-`make config` without a target should configure `all`.
+`make setup` without a target should configure `all`.
 
 Suggested target resolution:
 
 ```text
-make config
+make setup
   global + infra + every service
 
-make config mastodon
+make setup mastodon
   global + infra values needed by Mastodon + Mastodon fields
 
-make config nextcloud
+make setup nextcloud
   global + infra values needed by Nextcloud + Nextcloud fields
 ```
 
@@ -220,8 +220,10 @@ CONFIG_FIELDS = {
     "global": [
         Field("STACK_DOMAIN", kind="required-user"),
     ],
-    "infra": [
+    "mariadb": [
         Field("MARIADB_ROOT_PASSWORD", kind="generated-secret"),
+    ],
+    "postgres": [
         Field("POSTGRES_ADMIN_USER", kind="defaulted-choice", default="opendock"),
         Field("POSTGRES_ADMIN_PASSWORD", kind="generated-secret"),
     ],
@@ -267,15 +269,15 @@ make launch mastodon
 However, this should be designed carefully:
 
 - `make launch` should stay non-interactive.
-- `make config mastodon` should collect `MASTODON_ADMIN_EMAIL`.
-- If Mastodon admin fields are missing, `make launch mastodon` should not prompt. It should say to run `make config mastodon`.
+- `make setup mastodon` should collect `MASTODON_ADMIN_EMAIL`.
+- If Mastodon admin fields are missing, `make launch mastodon` should not prompt. It should say to run `make setup mastodon`.
 - If an owner already exists, do nothing.
 - Do not reset admin passwords automatically.
 
 Possible commands:
 
 ```sh
-make config mastodon
+make setup mastodon
 make launch mastodon
 make mastodon-account USERNAME=alice EMAIL=alice@example.com
 make mastodon-password-reset USERNAME=admin
@@ -311,40 +313,33 @@ Current product opinion:
 
 - Email is required for Mastodon admin setup.
 - Defaulting to `admin@STACK_DOMAIN` is convenient but not ideal, because the owner may need password recovery or notifications later.
-- Prefer `MASTODON_ADMIN_EMAIL` as required-user in `make config mastodon`.
+- Prefer `MASTODON_ADMIN_EMAIL` as required-user in `make setup mastodon`.
 
-## Implementation Plan
+## Remaining Implementation Plan
+
+Completed first step:
+
+- `scripts/opendock-config.py`
+- `make setup [target]`
+- basic field registry for global, infra, and service fields
+- prompt helpers for required input, defaulted input, initial credentials, and silent generated secrets
+- high-signal summaries that do not print secret values
+- `scripts/check-config.py` suggestions for `make setup [target]`
+- README quick start update
 
 Suggested next steps:
 
-1. Add `scripts/opendock-config.py`.
-2. Add `make config [target]` to `Makefile`.
-3. Reuse env parsing, placeholder detection, generation, and backup logic from `scripts/opendock-secrets.py`.
-4. Introduce a small field registry for global, infra, and service fields.
-5. Implement interactive prompt helpers:
-   - required input
-   - defaulted input
-   - auto-generate-or-input secret
-   - silent generated secret
-6. Keep summaries high signal:
-   - show changed key names
-   - show backup path
-   - do not print secret values
-   - show login credential locations for initial-credential fields
-7. Update `scripts/check-config.py` failure text to suggest `make config [target]` when required-user values are missing.
-8. Update README quick start:
-   - `cp common.env.example common.env`
-   - `make config`
-   - optional `cloudflare.env`
-   - `make launch`
-9. Add Mastodon admin fields to `common.env.example` only after the account creation flow is implemented.
-10. Add focused tests with temporary directories, similar to the manual checks already used for `opendock-secrets.py`.
+1. Verify Mastodon `tootctl accounts create` password behavior.
+2. Decide whether Mastodon admin account creation belongs in `make launch mastodon` or a separate explicit helper.
+3. Add Mastodon account helper commands after that behavior is verified.
+4. Consider Cloudflare setup later, perhaps as `make setup cloudflare`.
+5. Add focused tests with temporary directories, similar to the manual checks already used for `opendock-secrets.py`.
 
 ## Open Questions
 
-- Should `make config` create `common.env` automatically if missing, or should the user still run `cp common.env.example common.env`? Current preference: create it automatically, matching `make secrets`.
-- Should `make config` support `--non-interactive` later? Current preference: not now; `make secrets` already covers non-interactive generated values.
-- Should Cloudflare be included in `make config` now? Current preference: later, perhaps as `make config cloudflare` or a prompt asking whether to enable Cloudflare sync.
+- Should `make setup` create `common.env` automatically if missing, or should the user still run `cp common.env.example common.env`? Current preference: create it automatically, matching `make secrets`.
+- Should `make setup` support `--non-interactive` later? Current preference: not now; `make secrets` already covers non-interactive generated values.
+- Should Cloudflare be included in `make setup` now? Current preference: later, perhaps as `make setup cloudflare` or a prompt asking whether to enable Cloudflare sync.
 - Should Mastodon admin account creation happen inside `make launch mastodon` or a separate explicit `make mastodon-admin`? Current preference: collect config now, decide after verifying `tootctl` password behavior.
 
 ## Safety Rules

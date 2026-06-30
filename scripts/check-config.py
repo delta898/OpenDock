@@ -15,6 +15,9 @@ INTERPOLATION_RE = re.compile(
     r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?=+])([^}]*))?\}"
 )
 GLOBAL_REQUIRED = {"STACK_DOMAIN"}
+SERVICE_REQUIRED = {
+    "mastodon": {"MASTODON_ADMIN_EMAIL"},
+}
 
 
 def service_env_key(service):
@@ -133,6 +136,7 @@ def check_target(target, common_values, example_values):
 
     required, optional = compose_variables(compose)
     required.update(GLOBAL_REQUIRED)
+    required.update(SERVICE_REQUIRED.get(target, set()))
     missing = sorted(name for name in required if not env.get(name))
     placeholders = sorted(
         name
@@ -193,6 +197,7 @@ def print_results(results):
 
     if failed:
         print("Set external values such as STACK_DOMAIN in common.env.")
+        print(f"Run `make setup {TARGET}` to review and fill user-facing values.")
         print("Run `make secrets` to fill generated passwords and app secrets.")
         return 1
 
@@ -203,10 +208,13 @@ def print_missing_common_env():
     print("Missing required file: common.env")
     print()
     print("To continue:")
+    print("  make setup")
+    print("  make check-config")
+    print()
+    print("Or configure manually:")
     print("  cp common.env.example common.env")
     print("  nano common.env  # set STACK_DOMAIN")
     print("  make secrets")
-    print("  make check-config")
 
 
 def main():

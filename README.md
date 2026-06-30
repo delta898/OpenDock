@@ -105,19 +105,22 @@ git clone https://github.com/delta898/OpenDock.git ~/OpenDock
 cd ~/OpenDock
 ```
 
-Create the required local env file:
+Create and review the local env file:
+
+```sh
+make setup
+```
+
+`make setup` asks for values that need your intent, such as the main domain, and keeps existing values when you press Enter. It also generates local passwords and app secrets without printing them.
+
+If you prefer to edit by hand, copy the example file and set at least the main domain:
 
 ```sh
 cp common.env.example common.env
+nano common.env
 ```
 
-Edit the main domain in `common.env`:
-
-```env
-STACK_DOMAIN=example.com
-```
-
-OpenDock generates local passwords and app secrets automatically before `make up` and `make launch`. Existing real values in `common.env` are kept. If `common.env` must be updated, the previous file is backed up under `backups/common-env/`.
+OpenDock also generates local passwords and app secrets automatically before `make up` and `make launch`. Existing real values in `common.env` are kept. If `common.env` must be updated, the previous file is backed up under `backups/common-env/`.
 
 You can also generate values explicitly:
 
@@ -250,6 +253,13 @@ launch
 ```
 
 `make check-config` is read-only. Commands that start services generate missing local passwords and app secrets first, then run the same validation.
+
+Review or update local setup interactively:
+
+```sh
+make setup
+make setup mastodon
+```
 
 Generate local secrets manually:
 

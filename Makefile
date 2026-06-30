@@ -1,7 +1,7 @@
 ROOT := $(CURDIR)
 CHECKED_COMMANDS := up restart start build config
 UNCHECKED_COMMANDS := down stop ps pull
-COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch secrets wp-multisite sync sync-dry-run
+COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch setup secrets wp-multisite sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
 
 -include .sync.env
@@ -18,6 +18,7 @@ help:
 	@echo "  check-config"
 	@echo "  up down restart stop start ps logs pull build config"
 	@echo "  publish launch"
+	@echo "  setup"
 	@echo "  secrets"
 	@echo "  wp-multisite"
 	@echo "  sync sync-dry-run"
@@ -37,6 +38,8 @@ help:
 	@echo "  make publish"
 	@echo "  make publish services"
 	@echo "  make launch"
+	@echo "  make setup"
+	@echo "  make setup mastodon"
 	@echo "  make secrets"
 	@echo "  make secrets nextcloud"
 	@echo "  make wp-multisite"
@@ -220,6 +223,11 @@ launch:
 		$(call reload_gateway); \
 	fi; \
 	$(MAKE) --no-print-directory publish "$$launch_target" || exit $$?
+
+setup:
+	@target="$(TARGET)"; \
+	if [ -z "$$target" ]; then target="all"; fi; \
+	python3 "$(ROOT)/scripts/opendock-config.py" "$$target"
 
 secrets:
 	@target="$(TARGET)"; \
