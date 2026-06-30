@@ -36,6 +36,18 @@ MASTODON_ADMIN_PASSWORD=change-mastodon-admin-password
 
 Use `make setup mastodon` to fill these values interactively.
 
+Outbound email uses the common SMTP relay values in `common.env`:
+
+```env
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=mailer@example.com
+SMTP_PASSWORD=change-smtp-password
+SMTP_FROM_ADDRESS=mailer@example.com
+```
+
+Use `make setup mail` to fill these values interactively. OpenDock maps them into Mastodon's official SMTP environment variables.
+
 Generate and fill the Mastodon-only secrets manually:
 
 ```sh
@@ -46,7 +58,7 @@ This creates `common.env` from `common.env.example` if needed, then fills missin
 
 `make secrets`, `make up`, `make services`, and `make launch` also fill missing or placeholder generated values before validation when the target needs them. `make check-config` only reports missing values and never changes files.
 
-Mastodon sends account confirmation and notification emails through SMTP. Set the SMTP values in `services/mastodon/.env` or override them locally before opening registrations.
+Mastodon sends account confirmation and notification emails through SMTP. Configure `make setup mail` before opening registrations.
 
 ## First Launch
 

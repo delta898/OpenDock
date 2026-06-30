@@ -165,6 +165,12 @@ Secret generation rules:
 - Do not auto-generate external values such as `STACK_DOMAIN`, Cloudflare tokens, tunnel IDs, or SMTP credentials.
 - Initial login passwords, such as `NEXTCLOUD_ADMIN_PASSWORD`, may be generated, but docs must explain where to find them and whether changing `common.env` later affects an installed app.
 
+Mail setup rules:
+
+- `make setup mail` stores common outbound SMTP relay values in `common.env`.
+- Map common SMTP values only into services that support official environment-based core mail configuration.
+- Do not configure plugin-based, UI-only, or notification-provider mail settings from OpenDock.
+
 ## Domain Convention
 
 The stack assumes one main domain:

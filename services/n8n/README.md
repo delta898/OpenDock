@@ -21,6 +21,18 @@ https://n8n.example.com/
 
 n8n receives this URL automatically as `WEBHOOK_URL`.
 
+Outbound user-management email uses the common SMTP relay values in `common.env`:
+
+```env
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=mailer@example.com
+SMTP_PASSWORD=change-smtp-password
+SMTP_FROM_ADDRESS=mailer@example.com
+```
+
+Use `make setup mail` to fill these values interactively. OpenDock maps them into n8n's official SMTP environment variables.
+
 Then start the stack:
 
 ```sh

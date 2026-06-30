@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import importlib.util
+import getpass
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,13 @@ CONFIG_FIELDS = {
     "postgres": [
         Field("POSTGRES_ADMIN_USER", "defaulted-choice", default="opendock"),
         Field("POSTGRES_ADMIN_PASSWORD", "generated-secret"),
+    ],
+    "mail": [
+        Field("SMTP_HOST", "required-user"),
+        Field("SMTP_PORT", "defaulted-choice", default="587"),
+        Field("SMTP_USERNAME", "required-user"),
+        Field("SMTP_PASSWORD", "secret-user"),
+        Field("SMTP_FROM_ADDRESS", "required-user"),
     ],
     "homepage": [
         Field("HOMEPAGE_SUBDOMAIN", "defaulted-choice", default="home"),
@@ -118,16 +126,20 @@ def resolve_sections(target):
         services = service_targets()
     elif target in ("infra", "gateway"):
         services = []
+    elif target == "mail":
+        services = []
     elif (ROOT_DIR / "services" / target / "compose.yml").is_file():
         services = [target]
     else:
         raise SystemExit(f"Unknown target or missing compose.yml: {target}")
 
-    sections = ["global"]
+    sections = [] if target == "mail" else ["global"]
     if target in ("infra", "all") or any(s in MARIADB_DEPENDENCIES for s in services):
         sections.append("mariadb")
     if target in ("infra", "all") or any(s in POSTGRES_DEPENDENCIES for s in services):
         sections.append("postgres")
+    if target == "mail":
+        sections.append("mail")
 
     for service in services:
         if service in CONFIG_FIELDS:
@@ -199,6 +211,20 @@ def prompt_initial_credential(field, values):
         print(f"  {field.note}")
     value = input(f"{field.name} [auto-generate]: ").strip()
     return value or "__GENERATE__"
+
+
+def prompt_secret(field, values):
+    if is_real_value(field.name, values):
+        print(f"{field.name} [keep existing]")
+        answer = input("  Enter a new value? [y/N] ").strip().lower()
+        if answer not in ("y", "yes"):
+            return None
+
+    while True:
+        value = getpass.getpass(f"{field.name}: ").strip()
+        if value:
+            return value
+        print("  Required. Please enter a value.")
 
 
 def values_to_generate(fields, values, chosen):
@@ -316,6 +342,10 @@ def main():
             chosen[field.name] = prompt_defaulted(field, values)
         elif field.kind == "initial-credential":
             result = prompt_initial_credential(field, values)
+            if result is not None:
+                chosen[field.name] = result
+        elif field.kind == "secret-user":
+            result = prompt_secret(field, values)
             if result is not None:
                 chosen[field.name] = result
 

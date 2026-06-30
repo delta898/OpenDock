@@ -258,8 +258,11 @@ Review or update local setup interactively:
 
 ```sh
 make setup
+make setup mail
 make setup mastodon
 ```
+
+`make setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon and n8n.
 
 Generate local secrets manually:
 

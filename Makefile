@@ -25,6 +25,7 @@ help:
 	@echo
 	@echo "Targets:"
 	@echo "  infra, gateway, services, all, or any directory under services/"
+	@echo "  setup also supports mail"
 	@echo
 	@echo "Examples:"
 	@echo "  make list"
@@ -39,6 +40,7 @@ help:
 	@echo "  make publish services"
 	@echo "  make launch"
 	@echo "  make setup"
+	@echo "  make setup mail"
 	@echo "  make setup mastodon"
 	@echo "  make secrets"
 	@echo "  make secrets nextcloud"
