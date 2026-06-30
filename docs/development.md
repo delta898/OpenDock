@@ -116,6 +116,8 @@ gateway   Caddy only
 
 `scripts/check-config.py` validates local configuration before Docker Compose starts or renders services.
 
+For the next interactive setup direction, see `docs/smart-config.md`.
+
 Manual commands:
 
 ```sh
