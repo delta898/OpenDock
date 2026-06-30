@@ -106,6 +106,21 @@ gateway   Caddy only
 <name>    one service under services/<name>/
 ```
 
+Purpose-based service groups live in:
+
+```text
+services/groups.conf
+```
+
+The format is intentionally small:
+
+```text
+media: immich jellyfin
+publishing: wordpress mastodon
+```
+
+Group names are target aliases for multiple services. They are supported by setup, check-config, secrets, up/start/restart/build/config, down/stop/ps/pull, launch, and publish. Service names win if a service and group ever share the same name. Commands with service-specific behavior, such as logs and sync, should stay single-target unless there is a clear UX reason to broaden them.
+
 `up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
 
 `setup` is the interactive OpenDock setup workflow. It creates `common.env` when missing, asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and backs up `common.env` before mutation.
@@ -357,6 +372,7 @@ Before merging service or routing changes:
 ```sh
 make list
 make list services
+make list groups
 make publish
 git diff --check
 ```

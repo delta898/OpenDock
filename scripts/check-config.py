@@ -4,6 +4,8 @@ import sys
 import os
 from pathlib import Path
 
+from opendock_groups import group_services, validate_services
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 COMMON_ENV = ROOT_DIR / "common.env"
@@ -83,9 +85,15 @@ def resolve_targets(target):
         return [target]
 
     compose = ROOT_DIR / "services" / target / "compose.yml"
-    if not compose.is_file():
-        raise SystemExit(f"Unknown target or missing compose.yml: {target}")
-    return [target]
+    if compose.is_file():
+        return [target]
+
+    group = group_services(target)
+    if group:
+        validate_services(group)
+        return group
+
+    raise SystemExit(f"Unknown target or missing compose.yml: {target}")
 
 
 def compose_variables(path):

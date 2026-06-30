@@ -1,4 +1,5 @@
 ROOT := $(CURDIR)
+GROUPS_FILE := $(ROOT)/services/groups.conf
 CHECKED_COMMANDS := up restart start build config
 UNCHECKED_COMMANDS := down stop ps pull
 COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch setup secrets wp-multisite sync sync-dry-run
@@ -25,15 +26,18 @@ help:
 	@echo
 	@echo "Targets:"
 	@echo "  infra, gateway, services, all, or any directory under services/"
+	@echo "  service groups from services/groups.conf"
 	@echo "  setup also supports mail"
 	@echo
 	@echo "Examples:"
 	@echo "  make list"
 	@echo "  make list services"
+	@echo "  make list groups"
 	@echo "  make check-config"
 	@echo "  make check-config immich"
 	@echo "  make up infra"
 	@echo "  make up wordpress"
+	@echo "  make up media"
 	@echo "  make logs wordpress"
 	@echo "  make ps all"
 	@echo "  make publish"
@@ -42,6 +46,7 @@ help:
 	@echo "  make setup"
 	@echo "  make setup mail"
 	@echo "  make setup mastodon"
+	@echo "  make setup media"
 	@echo "  make secrets"
 	@echo "  make secrets nextcloud"
 	@echo "  make wp-multisite"
@@ -51,14 +56,20 @@ help:
 	@echo "  make sync test"
 
 list:
-	@if [ "$(TARGET)" = "services" ]; then \
+	@if [ "$(TARGET)" = "groups" ]; then \
+		if [ ! -f "$(GROUPS_FILE)" ]; then \
+			echo "No service groups found."; \
+		else \
+			awk -F: 'NF >= 2 && $$1 !~ /^[[:space:]]*(#|$$)/ { gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$1); gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$2); printf "%s: %s\n", $$1, $$2 }' "$(GROUPS_FILE)"; \
+		fi; \
+	elif [ "$(TARGET)" = "services" ]; then \
 		if [ -z "$(strip $(call service_targets))" ]; then \
 			echo "No services found under services/*/compose.yml"; \
 			exit 1; \
 		fi; \
 		printf '%s\n' $(call service_targets) | sort; \
 	elif [ -n "$(TARGET)" ]; then \
-		echo "Usage: make list [services]"; \
+		echo "Usage: make list [services|groups]"; \
 		exit 1; \
 	else \
 		echo "Core:"; \
@@ -70,6 +81,13 @@ list:
 			echo "  (none)"; \
 		else \
 			printf '  %s\n' $(call service_targets) | sort; \
+		fi; \
+		echo; \
+		echo "Groups:"; \
+		if [ ! -f "$(GROUPS_FILE)" ]; then \
+			echo "  (none)"; \
+		else \
+			awk -F: 'NF >= 2 && $$1 !~ /^[[:space:]]*(#|$$)/ { gsub(/^[[:space:]]+|[[:space:]]+$$/, "", $$1); printf "  %s\n", $$1 }' "$(GROUPS_FILE)"; \
 		fi; \
 	fi
 
@@ -117,6 +135,10 @@ define service_targets
 $(shell find "$(ROOT)/services" -mindepth 2 -maxdepth 2 -name compose.yml -exec sh -c 'basename "$$(dirname "$$1")"' _ {} \; 2>/dev/null)
 endef
 
+define group_targets
+$(shell awk -F: -v group="$(1)" 'NF >= 2 { name=$$1; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", name); if (name == group) { services=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", services); print services; exit } }' "$(GROUPS_FILE)" 2>/dev/null)
+endef
+
 define reload_gateway
 	if [ -f "$(ROOT)/gateway/compose.yml" ]; then \
 		if docker ps --format '{{.Names}}' | grep -qx caddy; then \
@@ -142,10 +164,23 @@ define run_post_launch_hooks
 			python3 "$$hook" || exit $$?; \
 		fi; \
 	}; \
+	run_post_launch_target_hooks() { \
+		hook_request="$$1"; \
+		if [ -f "$(ROOT)/services/$$hook_request/compose.yml" ]; then \
+			run_post_launch_hook "$$hook_request"; \
+			return; \
+		fi; \
+		group_members="$$(awk -F: -v group="$$hook_request" 'NF >= 2 { name=$$1; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", name); if (name == group) { services=$$2; gsub(/^[[:space:]]+|[[:space:]]+$$/, "", services); print services; exit } }' "$(GROUPS_FILE)" 2>/dev/null)"; \
+		if [ -n "$$group_members" ]; then \
+			for hook_target in $$group_members; do run_post_launch_hook "$$hook_target" || exit $$?; done; \
+		else \
+			run_post_launch_hook "$$hook_request"; \
+		fi; \
+	}; \
 	case "$(1)" in \
 		all|services) for hook_target in $(call service_targets); do run_post_launch_hook "$$hook_target" || exit $$?; done ;; \
 		infra|gateway) : ;; \
-		*) run_post_launch_hook "$(1)" ;; \
+		*) run_post_launch_target_hooks "$(1)" ;; \
 	esac
 endef
 
@@ -173,6 +208,13 @@ $(CHECKED_COMMANDS):
 			echo "==> $$target: docker compose $@"; \
 			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
 		done; \
+	elif [ ! -f "$(ROOT)/services/$(TARGET)/compose.yml" ] && [ -n "$(strip $(call group_targets,$(TARGET)))" ]; then \
+		for target in $(call group_targets,$(TARGET)); do \
+			if [ "$@" = "up" ]; then $(call ensure_generated_secrets,$$target) || exit $$?; fi; \
+			$(call check_config_quiet,$$target) || exit $$?; \
+			echo "==> $$target: docker compose $@"; \
+			$(call compose_cmd) "$$target" $@ $(if $(filter up,$@),-d) || exit $$?; \
+		done; \
 	else \
 		$(call require_compose,$(TARGET)); \
 		if [ "$@" = "up" ]; then $(call ensure_generated_secrets,$(TARGET)) || exit $$?; fi; \
@@ -190,6 +232,11 @@ $(UNCHECKED_COMMANDS):
 		done; \
 	elif [ "$(TARGET)" = "services" ]; then \
 		for target in $(call service_targets); do \
+			echo "==> $$target: docker compose $@"; \
+			$(call compose_cmd) "$$target" $@ || exit $$?; \
+		done; \
+	elif [ ! -f "$(ROOT)/services/$(TARGET)/compose.yml" ] && [ -n "$(strip $(call group_targets,$(TARGET)))" ]; then \
+		for target in $(call group_targets,$(TARGET)); do \
 			echo "==> $$target: docker compose $@"; \
 			$(call compose_cmd) "$$target" $@ || exit $$?; \
 		done; \

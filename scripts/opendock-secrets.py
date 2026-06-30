@@ -8,6 +8,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from opendock_groups import group_services, validate_services
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 COMMON_ENV = ROOT_DIR / "common.env"
@@ -79,6 +81,13 @@ def target_keys(target):
     if target == "services":
         keys = set()
         for service in service_targets():
+            keys.update(SERVICE_KEYS.get(service, set()))
+        return keys
+    group = group_services(target)
+    if group:
+        validate_services(group)
+        keys = set()
+        for service in group:
             keys.update(SERVICE_KEYS.get(service, set()))
         return keys
     return set(SERVICE_KEYS.get(target, set()))

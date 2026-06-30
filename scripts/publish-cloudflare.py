@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from opendock_groups import group_services, validate_services
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -80,10 +82,15 @@ def target_services(target):
         return []
 
     compose = ROOT_DIR / "services" / target / "compose.yml"
-    if not compose.is_file():
-        raise SystemExit(f"Unknown service target: {target}")
+    if compose.is_file():
+        return [target] if service_is_publishable(target) else []
 
-    return [target] if service_is_publishable(target) else []
+    group = group_services(target)
+    if group:
+        validate_services(group)
+        return [service for service in group if service_is_publishable(service)]
+
+    raise SystemExit(f"Unknown service target: {target}")
 
 
 def load_env():

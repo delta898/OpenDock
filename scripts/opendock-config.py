@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from opendock_groups import group_services, validate_services
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 COMMON_ENV = ROOT_DIR / "common.env"
@@ -131,7 +133,11 @@ def resolve_sections(target):
     elif (ROOT_DIR / "services" / target / "compose.yml").is_file():
         services = [target]
     else:
-        raise SystemExit(f"Unknown target or missing compose.yml: {target}")
+        group = group_services(target)
+        if not group:
+            raise SystemExit(f"Unknown target or missing compose.yml: {target}")
+        validate_services(group)
+        services = group
 
     sections = [] if target == "mail" else ["global"]
     if target in ("infra", "all") or any(s in MARIADB_DEPENDENCIES for s in services):

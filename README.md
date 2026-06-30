@@ -232,6 +232,7 @@ List available targets:
 ```sh
 make list
 make list services
+make list groups
 ```
 
 Check local configuration:
@@ -239,6 +240,7 @@ Check local configuration:
 ```sh
 make check-config
 make check-config immich
+make check-config media
 ```
 
 `check-config` runs automatically before commands that start or render services:
@@ -260,6 +262,7 @@ Review or update local setup interactively:
 make setup
 make setup mail
 make setup mastodon
+make setup media
 ```
 
 `make setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon and n8n.
@@ -270,6 +273,7 @@ Generate local secrets manually:
 make secrets
 make secrets wordpress
 make secrets mastodon
+make secrets media
 ```
 
 Start services:
@@ -279,6 +283,7 @@ make up infra
 make up gateway
 make up services
 make up wordpress
+make up media
 ```
 
 `make up <target>` is a thin Docker Compose wrapper for that target. It does not start prerequisites for you.
@@ -289,6 +294,7 @@ Publish routes:
 make publish
 make publish services
 make publish n8n
+make publish media
 ```
 
 Start and publish:
@@ -298,9 +304,12 @@ make launch
 make launch services
 make launch homepage
 make launch wordpress
+make launch media
 ```
 
 `make launch <target>` is the higher-level workflow: it prepares `infra` when needed, starts the target, reloads or starts the gateway, and publishes the target routes.
+
+Service groups are defined in `services/groups.conf`. Groups are convenience aliases for multiple services, for example `media` expands to Immich and Jellyfin. Use `make list groups` to see the available groups.
 
 Enable WordPress subdirectory multisite:
 
