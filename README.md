@@ -267,6 +267,15 @@ make setup media
 
 `make setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon and n8n.
 
+Run a service-specific action:
+
+```sh
+make action wordpress
+make action wordpress multisite
+```
+
+`make action <service>` lists available actions for that service. Actions are for service-specific setup helpers that do not belong in the shared command set.
+
 Generate local secrets manually:
 
 ```sh
@@ -314,10 +323,12 @@ Service groups are defined in `services/groups.conf`. Groups are convenience ali
 Enable WordPress subdirectory multisite:
 
 ```sh
-make wp-multisite
+make action wordpress multisite
 ```
 
 This command converts the launched WordPress site into subdirectory multisite mode, for example `https://blog.example.com/site-name/`. It prints a warning and asks for confirmation before changing anything. Before conversion, it backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database under `services/wordpress/backups/`.
+
+The legacy shortcut `make wp-multisite` is still available temporarily, but it is deprecated.
 
 Inspect or stop:
 

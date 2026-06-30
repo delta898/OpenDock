@@ -129,7 +129,18 @@ Group names are target aliases for multiple services. They are supported by setu
 
 After starting services, `launch` runs service-owned post-launch hooks named `services/<service>/opendock-post-launch.py` when present. Keep service-specific bootstrap logic inside those service directories instead of adding new top-level Make targets.
 
-`wp-multisite` is a WordPress-specific workflow implemented by `scripts/wp-multisite.py`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
+`action` is the shared entry point for service-specific manual workflows:
+
+```sh
+make action <service>
+make action <service> <action>
+```
+
+Actions live at `services/<service>/actions/<action>` and must be executable. `make action <service>` lists executable actions for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_ACTION` to the action process.
+
+WordPress multisite is exposed as `make action wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
+
+`make wp-multisite` remains as a temporary deprecated shortcut for backward compatibility. New service-specific workflows should use `make action <service> <action>` instead of adding new top-level Make targets.
 
 ## Config Validation
 

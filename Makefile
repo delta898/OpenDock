@@ -2,8 +2,9 @@ ROOT := $(CURDIR)
 GROUPS_FILE := $(ROOT)/services/groups.conf
 CHECKED_COMMANDS := up restart start build config
 UNCHECKED_COMMANDS := down stop ps pull
-COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch setup secrets wp-multisite sync sync-dry-run
+COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch setup secrets action wp-multisite sync sync-dry-run
 TARGET := $(word 2,$(MAKECMDGOALS))
+ACTION := $(word 3,$(MAKECMDGOALS))
 
 -include .sync.env
 .EXPORT_ALL_VARIABLES:
@@ -21,6 +22,7 @@ help:
 	@echo "  publish launch"
 	@echo "  setup"
 	@echo "  secrets"
+	@echo "  action"
 	@echo "  wp-multisite"
 	@echo "  sync sync-dry-run"
 	@echo
@@ -64,7 +66,9 @@ help:
 	@echo "    make ps all"
 	@echo
 	@echo "  Service-specific:"
-	@echo "    make wp-multisite"
+	@echo "    make action wordpress"
+	@echo "    make action wordpress multisite"
+	@echo "    make wp-multisite  # deprecated"
 	@echo
 	@echo "  Sync:"
 	@echo "    make sync-dry-run test"
@@ -315,8 +319,12 @@ secrets:
 	if [ -z "$$target" ]; then target="all"; fi; \
 	python3 "$(ROOT)/scripts/opendock-secrets.py" "$$target"
 
+action:
+	@python3 "$(ROOT)/scripts/opendock-action.py" "$(TARGET)" "$(ACTION)"
+
 wp-multisite:
-	@python3 "$(ROOT)/scripts/wp-multisite.py" $(if $(YES),--yes)
+	@printf '%s\n\n' "Deprecated: use 'make action wordpress multisite'."
+	@$(MAKE) --no-print-directory action wordpress multisite
 
 sync sync-dry-run:
 	@$(call require_target,$@)

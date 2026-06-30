@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+set -eu
+
+ROOT_DIR="${OPENDOCK_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)}"
+
+if [ -n "${YES:-}" ]; then
+	exec python3 "$ROOT_DIR/scripts/wp-multisite.py" --yes
+fi
+
+exec python3 "$ROOT_DIR/scripts/wp-multisite.py"
