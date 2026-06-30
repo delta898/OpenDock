@@ -16,7 +16,11 @@ INTERPOLATION_RE = re.compile(
 )
 GLOBAL_REQUIRED = {"STACK_DOMAIN"}
 SERVICE_REQUIRED = {
-    "mastodon": {"MASTODON_ADMIN_EMAIL"},
+    "mastodon": {
+        "MASTODON_ADMIN_USERNAME",
+        "MASTODON_ADMIN_EMAIL",
+        "MASTODON_ADMIN_PASSWORD",
+    },
 }
 
 
@@ -104,6 +108,9 @@ def is_placeholder(name, value, example_values):
         return True
 
     if name == "STACK_DOMAIN" and value == "example.com":
+        return True
+
+    if name == "MASTODON_ADMIN_USERNAME" and value.lower() == "admin":
         return True
 
     if re.search(r"(PASSWORD|SECRET|TOKEN|KEY)", name):

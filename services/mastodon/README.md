@@ -26,6 +26,16 @@ MASTODON_VAPID_PRIVATE_KEY=change-mastodon-vapid-private-key
 MASTODON_VAPID_PUBLIC_KEY=change-mastodon-vapid-public-key
 ```
 
+The initial owner account is also configured in `common.env`:
+
+```env
+MASTODON_ADMIN_USERNAME=opendock
+MASTODON_ADMIN_EMAIL=you@example.com
+MASTODON_ADMIN_PASSWORD=change-mastodon-admin-password
+```
+
+Use `make setup mastodon` to fill these values interactively.
+
 Generate and fill the Mastodon-only secrets manually:
 
 ```sh
@@ -48,13 +58,16 @@ make launch mastodon
 
 The `mastodon-db-init` container creates or updates the Mastodon PostgreSQL database and user in the shared `infra` PostgreSQL service. The `mastodon-db-prepare` container then runs Mastodon's database preparation before the web, streaming, and Sidekiq containers start.
 
-Create the first owner account:
+On first launch, OpenDock creates `MASTODON_ADMIN_USERNAME` when no owner exists. The generated password printed by Mastodon's internal tooling is ignored, and OpenDock sets the initial login password to `MASTODON_ADMIN_PASSWORD` from `common.env`.
+
+Recommended first-run flow:
 
 ```sh
-docker compose --project-directory services/mastodon --env-file common.env --env-file services/mastodon/.env -f services/mastodon/compose.yml run --rm mastodon-web bin/tootctl accounts create admin --email admin@example.com --confirmed --role Owner
+make setup mastodon
+make launch mastodon
 ```
 
-Use a real email address for the owner account. The command prints the initial password.
+Use a real email address for the owner account. If an owner or `MASTODON_ADMIN_USERNAME` already exists, OpenDock does not change its password automatically. Manage existing account passwords in Mastodon.
 
 ## Storage
 

@@ -131,6 +131,22 @@ define ensure_generated_secrets
 	OPEN_DOCK_QUIET_SECRETS=1 python3 "$(ROOT)/scripts/opendock-secrets.py" "$(1)"
 endef
 
+define run_post_launch_hooks
+	run_post_launch_hook() { \
+		hook_target="$$1"; \
+		hook="$(ROOT)/services/$$hook_target/opendock-post-launch.py"; \
+		if [ -f "$$hook" ]; then \
+			echo "==> $$hook_target: post-launch"; \
+			python3 "$$hook" || exit $$?; \
+		fi; \
+	}; \
+	case "$(1)" in \
+		all|services) for hook_target in $(call service_targets); do run_post_launch_hook "$$hook_target" || exit $$?; done ;; \
+		infra|gateway) : ;; \
+		*) run_post_launch_hook "$(1)" ;; \
+	esac
+endef
+
 check-config:
 	@target="$(TARGET)"; \
 	if [ -z "$$target" ]; then target="all"; fi; \
@@ -219,6 +235,7 @@ launch:
 		$(MAKE) --no-print-directory up infra || exit $$?; \
 	fi; \
 	$(MAKE) --no-print-directory up "$$launch_target" || exit $$?; \
+	$(call run_post_launch_hooks,$$launch_target); \
 	if [ "$$launch_target" != "infra" ]; then \
 		$(call reload_gateway); \
 	fi; \

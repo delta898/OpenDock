@@ -113,6 +113,11 @@ def generated_password(length=36):
     return secrets.token_urlsafe(length)
 
 
+def generated_initial_credential(length=20):
+    alphabet = "abcdefghjkmnpqrstuvwxyz23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
 def generated_alnum(length=48):
     alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
@@ -141,7 +146,7 @@ def generate_values(needed):
     if "NEXTCLOUD_DB_PASSWORD" in needed:
         generated["NEXTCLOUD_DB_PASSWORD"] = generated_password()
     if "NEXTCLOUD_ADMIN_PASSWORD" in needed:
-        generated["NEXTCLOUD_ADMIN_PASSWORD"] = generated_password()
+        generated["NEXTCLOUD_ADMIN_PASSWORD"] = generated_initial_credential()
     if "IMMICH_DB_PASSWORD" in needed:
         generated["IMMICH_DB_PASSWORD"] = generated_alnum()
     if "MASTODON_DB_PASSWORD" in needed:

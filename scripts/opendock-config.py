@@ -75,14 +75,13 @@ CONFIG_FIELDS = {
     ],
     "mastodon": [
         Field("MASTODON_SUBDOMAIN", "defaulted-choice", default="social"),
-        Field("MASTODON_ADMIN_USERNAME", "defaulted-choice", default="admin"),
+        Field("MASTODON_ADMIN_USERNAME", "defaulted-choice", default="opendock"),
         Field("MASTODON_ADMIN_EMAIL", "required-user"),
         Field(
             "MASTODON_ADMIN_PASSWORD",
             "initial-credential",
             note=(
-                "Stored for the planned Mastodon owner-account workflow. "
-                "Do not assume changing it resets an existing account."
+                "Used only when OpenDock creates the first Mastodon owner account."
             ),
         ),
         Field("MASTODON_DB_PASSWORD", "generated-secret"),
@@ -154,6 +153,8 @@ def is_real_value(name, values):
     if not value:
         return False
     if name == "STACK_DOMAIN" and value == "example.com":
+        return False
+    if name == "MASTODON_ADMIN_USERNAME" and value.lower() == "admin":
         return False
     return not SECRETS.is_placeholder(value)
 
@@ -289,7 +290,8 @@ def print_credential_notices(changed):
         print("Changing common.env later will not reset an installed Nextcloud password.")
     if "MASTODON_ADMIN_PASSWORD" in changed:
         print()
-        print("Mastodon admin password is stored in common.env for the planned account workflow.")
+        print("Mastodon owner password is stored in common.env.")
+        print("It is used only when OpenDock creates the first Mastodon owner account.")
 
 
 def main():
@@ -325,7 +327,7 @@ def main():
             and chosen.get(field.name) == "__GENERATE__"
             and field.name not in generated
         ):
-            generated[field.name] = SECRETS.generated_password()
+            generated[field.name] = SECRETS.generated_initial_credential()
 
     updates = {}
     updates.update({k: v for k, v in chosen.items() if v != "__GENERATE__"})

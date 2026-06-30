@@ -51,7 +51,7 @@ make setup mastodon
 
 STACK_DOMAIN: gongzza.com
 MASTODON_SUBDOMAIN [social]:
-MASTODON_ADMIN_USERNAME [admin]:
+MASTODON_ADMIN_USERNAME [opendock]:
 MASTODON_ADMIN_EMAIL: delta@example.com
 MASTODON_ADMIN_PASSWORD [auto-generate]:
 
@@ -137,6 +137,7 @@ Rules:
 - Prompt with `[auto-generate]`.
 - Enter means generate.
 - User input is accepted and stored.
+- Auto-generated values should be copy/paste friendly, around 20 characters, and avoid easily confused characters.
 - Do not echo password values in summaries.
 - Explain where to find the value.
 - Explain whether changing `common.env` later affects an installed app.
@@ -144,7 +145,7 @@ Rules:
 Important known behavior:
 
 - `NEXTCLOUD_ADMIN_PASSWORD` is used only during first successful Nextcloud installation. Changing `common.env` later does not reset the installed admin password.
-- Mastodon owner password behavior still needs implementation verification. If `tootctl accounts create` cannot reliably accept an explicit password, use the generated password printed by Mastodon once and provide a reset helper instead.
+- `MASTODON_ADMIN_PASSWORD` is used only when OpenDock creates the first Mastodon owner account. Changing `common.env` later does not reset an existing Mastodon account.
 
 ### defaulted-choice
 
@@ -158,7 +159,7 @@ NEXTCLOUD_SUBDOMAIN=cloud
 IMMICH_SUBDOMAIN=photos
 JELLYFIN_SUBDOMAIN=media
 MASTODON_SUBDOMAIN=social
-MASTODON_ADMIN_USERNAME=admin     proposed
+MASTODON_ADMIN_USERNAME=opendock     proposed
 ```
 
 Rules:
@@ -229,7 +230,7 @@ CONFIG_FIELDS = {
     ],
     "mastodon": [
         Field("MASTODON_SUBDOMAIN", kind="defaulted-choice", default="social"),
-        Field("MASTODON_ADMIN_USERNAME", kind="defaulted-choice", default="admin"),
+        Field("MASTODON_ADMIN_USERNAME", kind="defaulted-choice", default="opendock"),
         Field("MASTODON_ADMIN_EMAIL", kind="required-user"),
         Field("MASTODON_ADMIN_PASSWORD", kind="initial-credential"),
         Field("MASTODON_DB_PASSWORD", kind="generated-secret"),
@@ -263,6 +264,7 @@ make launch mastodon
   -> ensure generated secrets
   -> start Mastodon
   -> if no owner exists, create owner account
+  -> set the new owner password from MASTODON_ADMIN_PASSWORD
   -> show login guidance
 ```
 
@@ -274,40 +276,19 @@ However, this should be designed carefully:
 - If an owner already exists, do nothing.
 - Do not reset admin passwords automatically.
 
-Possible commands:
+Implemented entrypoint:
 
 ```sh
 make setup mastodon
 make launch mastodon
-make mastodon-account USERNAME=alice EMAIL=alice@example.com
-make mastodon-password-reset USERNAME=admin
 ```
 
-The account helper can run:
-
-```sh
-docker compose \
-  --project-directory services/mastodon \
-  --env-file common.env \
-  --env-file services/mastodon/.env \
-  -f services/mastodon/compose.yml \
-  run --rm mastodon-web \
-  bin/tootctl accounts create USERNAME \
-  --email EMAIL \
-  --confirmed
-```
-
-The first owner adds:
-
-```text
---role Owner
-```
+The account helper is service-owned and lives at `services/mastodon/opendock-post-launch.py`, called by the generic launch post-hook.
 
 Still to verify:
 
-- Whether current Mastodon `tootctl accounts create` supports setting an explicit password in the installed version.
-- Whether owner existence should be detected by `tootctl` or Rails runner.
-- How to handle fake default email such as `admin@STACK_DOMAIN` if the user has not configured SMTP.
+- Verify the Rails runner owner detection and password assignment against a fresh Mastodon instance.
+- Whether separate account/password-reset helpers are worth adding later.
 
 Current product opinion:
 
@@ -329,18 +310,17 @@ Completed first step:
 
 Suggested next steps:
 
-1. Verify Mastodon `tootctl accounts create` password behavior.
-2. Decide whether Mastodon admin account creation belongs in `make launch mastodon` or a separate explicit helper.
-3. Add Mastodon account helper commands after that behavior is verified.
-4. Consider Cloudflare setup later, perhaps as `make setup cloudflare`.
-5. Add focused tests with temporary directories, similar to the manual checks already used for `opendock-secrets.py`.
+1. Verify owner detection and password assignment against a fresh Mastodon instance.
+2. Decide whether separate account/password-reset helpers are worth adding later.
+3. Consider Cloudflare setup later, perhaps as `make setup cloudflare`.
+4. Add focused tests with temporary directories, similar to the manual checks already used for `opendock-secrets.py`.
 
 ## Open Questions
 
 - Should `make setup` create `common.env` automatically if missing, or should the user still run `cp common.env.example common.env`? Current preference: create it automatically, matching `make secrets`.
 - Should `make setup` support `--non-interactive` later? Current preference: not now; `make secrets` already covers non-interactive generated values.
 - Should Cloudflare be included in `make setup` now? Current preference: later, perhaps as `make setup cloudflare` or a prompt asking whether to enable Cloudflare sync.
-- Should Mastodon admin account creation happen inside `make launch mastodon` or a separate explicit `make mastodon-admin`? Current preference: collect config now, decide after verifying `tootctl` password behavior.
+- Should additional Mastodon account management helpers be exposed later, and if so should they remain service-owned rather than top-level make commands?
 
 ## Safety Rules
 
