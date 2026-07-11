@@ -15,6 +15,7 @@ cloud.<your-domain>   -> Nextcloud
 photos.<your-domain>  -> Immich
 media.<your-domain>   -> Jellyfin
 social.<your-domain>  -> Mastodon
+chat.<your-domain>    -> Mattermost
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
 ```
@@ -262,10 +263,11 @@ Review or update local setup interactively:
 make setup
 make setup mail
 make setup mastodon
+make setup mattermost
 make setup media
 ```
 
-`make setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon and n8n.
+`make setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon, Mattermost, and n8n.
 
 Run a service-specific action:
 
@@ -313,6 +315,7 @@ make launch
 make launch services
 make launch homepage
 make launch wordpress
+make launch mattermost
 make launch media
 ```
 
@@ -377,6 +380,7 @@ When you update the repository with `git pull`, compare new values in `common.en
     ├── immich/
     ├── jellyfin/
     ├── mastodon/
+    ├── mattermost/
     ├── n8n/
     ├── nextcloud/
     ├── uptime-kuma/

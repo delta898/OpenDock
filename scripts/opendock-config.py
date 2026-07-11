@@ -103,6 +103,10 @@ CONFIG_FIELDS = {
         Field("MASTODON_VAPID_PRIVATE_KEY", "generated-secret"),
         Field("MASTODON_VAPID_PUBLIC_KEY", "generated-secret"),
     ],
+    "mattermost": [
+        Field("MATTERMOST_SUBDOMAIN", "defaulted-choice", default="chat"),
+        Field("MATTERMOST_DB_PASSWORD", "generated-secret"),
+    ],
 }
 
 MARIADB_DEPENDENCIES = {
@@ -111,6 +115,7 @@ MARIADB_DEPENDENCIES = {
 }
 POSTGRES_DEPENDENCIES = {
     "mastodon",
+    "mattermost",
 }
 
 
@@ -324,8 +329,6 @@ def print_credential_notices(changed):
         print()
         print("Mastodon owner password is stored in common.env.")
         print("It is used only when OpenDock creates the first Mastodon owner account.")
-
-
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     sections = resolve_sections(target)

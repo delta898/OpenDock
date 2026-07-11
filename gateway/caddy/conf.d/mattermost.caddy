@@ -1,0 +1,24 @@
+# Default Mattermost route for the home server stack.
+#
+# The default route is:
+#   {$MATTERMOST_SUBDOMAIN:chat}.{$STACK_DOMAIN:localhost}
+
+(mattermost_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy mattermost:8065 {
+        import forwarded_https
+    }
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://{$MATTERMOST_SUBDOMAIN:chat}.{$STACK_DOMAIN:localhost} {
+    import mattermost_proxy
+}
+
+# Direct HTTPS when exposing Caddy with port forwarding.
+https://{$MATTERMOST_SUBDOMAIN:chat}.{$STACK_DOMAIN:localhost} {
+    import mattermost_proxy
+}

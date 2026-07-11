@@ -1,0 +1,84 @@
+services:
+  mattermost-db-init:
+    image: postgres:${MATTERMOST_POSTGRES_CLIENT_VERSION}
+    networks:
+      - shared-net
+    environment:
+      POSTGRES_ADMIN_USER: ${POSTGRES_ADMIN_USER}
+      POSTGRES_ADMIN_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+      MATTERMOST_DB_HOST: ${MATTERMOST_DB_HOST}
+      MATTERMOST_DB_PORT: ${MATTERMOST_DB_PORT}
+      MATTERMOST_DB_NAME: ${MATTERMOST_DB_NAME}
+      MATTERMOST_DB_USER: ${MATTERMOST_DB_USER}
+      MATTERMOST_DB_PASSWORD: ${MATTERMOST_DB_PASSWORD}
+    command: >
+      sh -c '
+        export PGPASSWORD="$${POSTGRES_ADMIN_PASSWORD}";
+        attempts=0;
+        until pg_isready -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres; do
+          attempts=$$((attempts + 1));
+          if [ "$$attempts" -ge 60 ]; then
+            echo "PostgreSQL did not become ready after 120 seconds.";
+            exit 1;
+          fi;
+          echo "Waiting for PostgreSQL...";
+          sleep 2;
+        done;
+        if ! psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '\''$${MATTERMOST_DB_USER}'\''" | grep -qx 1; then
+          psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "CREATE USER \"$${MATTERMOST_DB_USER}\" WITH PASSWORD '\''$${MATTERMOST_DB_PASSWORD}'\''";
+        else
+          psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "ALTER USER \"$${MATTERMOST_DB_USER}\" WITH PASSWORD '\''$${MATTERMOST_DB_PASSWORD}'\''";
+        fi;
+        if ! psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '\''$${MATTERMOST_DB_NAME}'\''" | grep -qx 1; then
+          createdb -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -O "$${MATTERMOST_DB_USER}" "$${MATTERMOST_DB_NAME}";
+        fi;
+        psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "ALTER DATABASE \"$${MATTERMOST_DB_NAME}\" OWNER TO \"$${MATTERMOST_DB_USER}\"";
+        psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d postgres -v ON_ERROR_STOP=1 -c "GRANT ALL PRIVILEGES ON DATABASE \"$${MATTERMOST_DB_NAME}\" TO \"$${MATTERMOST_DB_USER}\"";
+        psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d "$${MATTERMOST_DB_NAME}" -v ON_ERROR_STOP=1 -c "ALTER SCHEMA public OWNER TO \"$${MATTERMOST_DB_USER}\"";
+        psql -h "$${MATTERMOST_DB_HOST}" -p "$${MATTERMOST_DB_PORT}" -U "$${POSTGRES_ADMIN_USER}" -d "$${MATTERMOST_DB_NAME}" -v ON_ERROR_STOP=1 -c "GRANT ALL ON SCHEMA public TO \"$${MATTERMOST_DB_USER}\"";
+      '
+    restart: "no"
+
+  mattermost:
+    image: mattermost/mattermost-team-edition:${MATTERMOST_VERSION}
+    container_name: ${MATTERMOST_CONTAINER_NAME}
+    depends_on:
+      mattermost-db-init:
+        condition: service_completed_successfully
+    networks:
+      - shared-net
+    volumes:
+      - mattermost_config:/mattermost/config
+      - mattermost_data:/mattermost/data
+      - mattermost_logs:/mattermost/logs
+      - mattermost_plugins:/mattermost/plugins
+      - mattermost_client_plugins:/mattermost/client/plugins
+      - mattermost_bleve_indexes:/mattermost/bleve-indexes
+    environment:
+      TZ: ${MATTERMOST_TIMEZONE}
+      MM_SERVICESETTINGS_SITEURL: https://${MATTERMOST_SUBDOMAIN:-chat}.${STACK_DOMAIN:-localhost}
+      MM_SERVICESETTINGS_ENABLESECURITYFIXALERT: "false"
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://${MATTERMOST_DB_USER}:${MATTERMOST_DB_PASSWORD}@${MATTERMOST_DB_HOST}:${MATTERMOST_DB_PORT}/${MATTERMOST_DB_NAME}?sslmode=disable&connect_timeout=10
+      MM_BLEVESETTINGS_INDEXDIR: /mattermost/bleve-indexes
+      MM_EMAILSETTINGS_SMTPSERVER: ${SMTP_HOST:-}
+      MM_EMAILSETTINGS_SMTPPORT: ${SMTP_PORT:-587}
+      MM_EMAILSETTINGS_SMTPUSERNAME: ${SMTP_USERNAME:-}
+      MM_EMAILSETTINGS_SMTPPASSWORD: ${SMTP_PASSWORD:-}
+      MM_EMAILSETTINGS_FEEDBACKEMAIL: ${SMTP_FROM_ADDRESS:-}
+      MM_EMAILSETTINGS_REPLYTOADDRESS: ${SMTP_FROM_ADDRESS:-}
+      MM_EMAILSETTINGS_ENABLESMTPAUTH: ${MATTERMOST_ENABLE_SMTP_AUTH}
+      MM_EMAILSETTINGS_CONNECTIONSECURITY: ${MATTERMOST_SMTP_CONNECTION_SECURITY}
+    restart: unless-stopped
+
+networks:
+  shared-net:
+    external: true
+
+volumes:
+  mattermost_config:
+  mattermost_data:
+  mattermost_logs:
+  mattermost_plugins:
+  mattermost_client_plugins:
+  mattermost_bleve_indexes:

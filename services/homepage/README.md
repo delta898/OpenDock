@@ -40,4 +40,4 @@ Homepage is configured with YAML files under:
 services/homepage/config/
 ```
 
-The default dashboard links to WordPress, n8n, and Uptime Kuma using the shared `STACK_DOMAIN` and service subdomain settings.
+The default dashboard links to the included OpenDock services using the shared `STACK_DOMAIN` and service subdomain settings.

@@ -38,6 +38,11 @@ SERVICE_KEYS = {
     },
     "immich": {"IMMICH_DB_PASSWORD"},
     "mastodon": {"POSTGRES_ADMIN_USER", "POSTGRES_ADMIN_PASSWORD"} | MASTODON_KEYS,
+    "mattermost": {
+        "POSTGRES_ADMIN_USER",
+        "POSTGRES_ADMIN_PASSWORD",
+        "MATTERMOST_DB_PASSWORD",
+    },
 }
 GENERATED_KEYS = set().union(INFRA_KEYS, *SERVICE_KEYS.values())
 VAPID_KEYS = {"MASTODON_VAPID_PRIVATE_KEY", "MASTODON_VAPID_PUBLIC_KEY"}
@@ -160,6 +165,8 @@ def generate_values(needed):
         generated["IMMICH_DB_PASSWORD"] = generated_alnum()
     if "MASTODON_DB_PASSWORD" in needed:
         generated["MASTODON_DB_PASSWORD"] = generated_password()
+    if "MATTERMOST_DB_PASSWORD" in needed:
+        generated["MATTERMOST_DB_PASSWORD"] = generated_password()
     if "MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY" in needed:
         generated["MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY"] = (
             secrets.token_hex(32)

@@ -117,6 +117,7 @@ The format is intentionally small:
 ```text
 media: immich jellyfin
 publishing: wordpress mastodon
+communication: mattermost
 ```
 
 Group names are target aliases for multiple services. They are supported by setup, check-config, secrets, up/start/restart/build/config, down/stop/ps/pull, launch, and publish. Service names win if a service and group ever share the same name. Commands with service-specific behavior, such as logs and sync, should stay single-target unless there is a clear UX reason to broaden them.
@@ -128,6 +129,8 @@ Group names are target aliases for multiple services. They are supported by setu
 `launch` is a higher-level workflow. For `all`, it starts every target in order. For a single service, `services`, or `gateway`, it first starts `infra` so the external `shared-net` network exists, then starts the requested target, reloads or starts Caddy, and publishes matching routes.
 
 After starting services, `launch` runs service-owned post-launch hooks named `services/<service>/opendock-post-launch.py` when present. Keep service-specific bootstrap logic inside those service directories instead of adding new top-level Make targets.
+
+Do not create initial app accounts in OpenDock when the service provides a first-run web setup flow. WordPress, Jellyfin, Uptime Kuma, and Mattermost follow this model. Use post-launch account bootstrap only when a service cannot be reached or administered after launch without an initial account created outside the web UI.
 
 `action` is the shared entry point for service-specific manual workflows:
 

@@ -28,3 +28,7 @@
         icon: mastodon.png
         href: https://{{HOMEPAGE_VAR_MASTODON_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
         description: Federated social networking
+    - Mattermost:
+        icon: mattermost.png
+        href: https://{{HOMEPAGE_VAR_MATTERMOST_SUBDOMAIN}}.{{HOMEPAGE_VAR_STACK_DOMAIN}}/
+        description: Team chat and collaboration
