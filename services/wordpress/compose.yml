@@ -33,6 +33,7 @@ services:
       - shared-net
     volumes:
       - ./data/webroot:/var/www/html
+      - ./php/uploads.ini:/usr/local/etc/php/conf.d/opendock-uploads.ini:ro
     environment:
       WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}
       WORDPRESS_DB_NAME: ${WORDPRESS_DB_NAME}

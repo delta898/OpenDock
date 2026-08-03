@@ -342,6 +342,8 @@ make down services
 make down gateway
 ```
 
+The WordPress service includes practical PHP defaults for media, theme, and plugin uploads: a 64 MB per-file limit, a 72 MB POST limit, a 256 MB PHP memory limit, and a 300-second processing window. No manual `php.ini` setup is required.
+
 ## Configuration Files
 
 Local files ignored by Git:

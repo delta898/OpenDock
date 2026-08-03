@@ -93,6 +93,23 @@ services/wordpress/data/webroot/
 
 This path is intentionally ignored by Git. It is useful for search engine ownership files, manual inspection, and file-level backup or rsync workflows.
 
+## Upload Limits
+
+OpenDock raises WordPress's PHP upload defaults so common media, theme, and plugin uploads work without manual PHP configuration:
+
+```text
+Maximum file size: 64 MB
+Maximum POST size: 72 MB
+PHP memory limit: 256 MB
+Upload processing time: 300 seconds
+```
+
+The committed configuration lives at `services/wordpress/php/uploads.ini` and is mounted read-only into the WordPress container. Recreate the WordPress container after changing it:
+
+```sh
+make up wordpress
+```
+
 ## Notes
 
 The `wordpress-db-init` service is safe to run repeatedly. It uses `CREATE DATABASE IF NOT EXISTS` and `CREATE USER IF NOT EXISTS`.
