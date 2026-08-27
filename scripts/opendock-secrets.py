@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+import base64
+import hashlib
+import hmac
+import json
 import os
 import secrets
 import shutil
@@ -27,6 +31,18 @@ MASTODON_KEYS = {
     "MASTODON_VAPID_PRIVATE_KEY",
     "MASTODON_VAPID_PUBLIC_KEY",
 }
+SUPABASE_JWT_KEYS = {
+    "SUPABASE_JWT_SECRET",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+}
+SUPABASE_KEYS = {
+    "SUPABASE_DB_PASSWORD",
+    "SUPABASE_DASHBOARD_USER",
+    "SUPABASE_DASHBOARD_PASSWORD",
+    "SUPABASE_SECRET_KEY_BASE",
+    "SUPABASE_PG_META_CRYPTO_KEY",
+} | SUPABASE_JWT_KEYS
 INFRA_KEYS = {"MARIADB_ROOT_PASSWORD", "POSTGRES_ADMIN_USER", "POSTGRES_ADMIN_PASSWORD"}
 SERVICE_KEYS = {
     "infra": INFRA_KEYS,
@@ -43,6 +59,7 @@ SERVICE_KEYS = {
         "POSTGRES_ADMIN_PASSWORD",
         "MATTERMOST_DB_PASSWORD",
     },
+    "supabase": SUPABASE_KEYS,
 }
 GENERATED_KEYS = set().union(INFRA_KEYS, *SERVICE_KEYS.values())
 VAPID_KEYS = {"MASTODON_VAPID_PRIVATE_KEY", "MASTODON_VAPID_PUBLIC_KEY"}
@@ -137,10 +154,31 @@ def generated_alnum(length=48):
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def generate_supabase_jwt(secret, role, exp_years=10):
+    header = {"alg": "HS256", "typ": "JWT"}
+    now = int(datetime.utcnow().timestamp())
+    payload = {
+        "role": role,
+        "iss": "supabase",
+        "iat": now,
+        "exp": now + (exp_years * 365 * 24 * 3600),
+    }
+    header_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    header_b64 = base64.urlsafe_b64encode(header_bytes).decode("utf-8").rstrip("=")
+    payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("utf-8").rstrip("=")
+    message = f"{header_b64}.{payload_b64}".encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).digest()
+    signature_b64 = base64.urlsafe_b64encode(signature).decode("utf-8").rstrip("=")
+    return f"{header_b64}.{payload_b64}.{signature_b64}"
+
+
 def keys_needing_update(values, selected_keys):
     needed = {key for key in selected_keys if is_placeholder(values.get(key, ""))}
     if needed & VAPID_KEYS:
         needed.update(VAPID_KEYS)
+    if needed & SUPABASE_JWT_KEYS:
+        needed.update(SUPABASE_JWT_KEYS)
     return needed
 
 
@@ -167,6 +205,23 @@ def generate_values(needed):
         generated["MASTODON_DB_PASSWORD"] = generated_password()
     if "MATTERMOST_DB_PASSWORD" in needed:
         generated["MATTERMOST_DB_PASSWORD"] = generated_password()
+    if "SUPABASE_DB_PASSWORD" in needed:
+        generated["SUPABASE_DB_PASSWORD"] = generated_password()
+    if "SUPABASE_DASHBOARD_PASSWORD" in needed:
+        generated["SUPABASE_DASHBOARD_PASSWORD"] = generated_initial_credential()
+    if "SUPABASE_DASHBOARD_USER" in needed:
+        generated["SUPABASE_DASHBOARD_USER"] = "opendock"
+    if "SUPABASE_SECRET_KEY_BASE" in needed:
+        generated["SUPABASE_SECRET_KEY_BASE"] = generated_alnum(64)
+    if "SUPABASE_PG_META_CRYPTO_KEY" in needed:
+        generated["SUPABASE_PG_META_CRYPTO_KEY"] = generated_alnum(48)
+    if needed & SUPABASE_JWT_KEYS:
+        jwt_secret = generated_alnum(40)
+        generated["SUPABASE_JWT_SECRET"] = jwt_secret
+        generated["SUPABASE_ANON_KEY"] = generate_supabase_jwt(jwt_secret, "anon")
+        generated["SUPABASE_SERVICE_ROLE_KEY"] = generate_supabase_jwt(
+            jwt_secret, "service_role"
+        )
     if "MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY" in needed:
         generated["MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY"] = (
             secrets.token_hex(32)
@@ -305,6 +360,16 @@ def print_nextcloud_notice(changed):
     print("Changing common.env later will not reset an installed Nextcloud password.")
 
 
+def print_supabase_notice(changed):
+    if "SUPABASE_DASHBOARD_PASSWORD" not in changed:
+        return
+
+    print()
+    print("Supabase Studio dashboard password was generated in common.env.")
+    print("Login user: SUPABASE_DASHBOARD_USER (default: opendock)")
+    print("Login password: SUPABASE_DASHBOARD_PASSWORD")
+
+
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     quiet = os.environ.get("OPEN_DOCK_QUIET_SECRETS") == "1"
@@ -313,7 +378,11 @@ def main():
     created = ensure_common_env()
     existing = parse_env(COMMON_ENV)
     needed = keys_needing_update(existing, selected_keys)
-    force_update = VAPID_KEYS if needed & VAPID_KEYS else set()
+    force_update = set()
+    if needed & VAPID_KEYS:
+        force_update.update(VAPID_KEYS)
+    if needed & SUPABASE_JWT_KEYS:
+        force_update.update(SUPABASE_JWT_KEYS)
 
     if not needed:
         if not quiet:
@@ -339,6 +408,7 @@ def main():
         print(f"Backup: {backup.relative_to(ROOT_DIR)}")
 
     print_nextcloud_notice(changed)
+    print_supabase_notice(changed)
 
     print()
     print("Done. Generated values were not printed; see common.env when needed.")

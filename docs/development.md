@@ -322,6 +322,39 @@ Sync behavior:
 - create missing DNS CNAME records
 - stop on DNS conflicts
 
+## Multi-Container Services
+
+Some services cannot be expressed as a single container. Supabase, for example, requires a dedicated PostgreSQL image with extensions, an API gateway, an auth service, a storage service, and several supporting components that must run together.
+
+For multi-container services:
+
+- Keep all containers in a single `services/<name>/compose.yml`.
+- Use a shared `shared-net` external network so all containers can reach each other and the Caddy gateway.
+- Pin versions in `services/<name>/.env` as with single-container services.
+- Route all public traffic through one gateway container (e.g. Kong) rather than exposing each container through Caddy separately.
+- The Caddy route file should proxy to the internal gateway container only.
+
+### Kong API Gateway Pattern
+
+When a service uses Kong as an internal gateway (db-less declarative mode), Kong's configuration file (`kong.yml`) may reference environment variables for runtime-injected values such as dashboard credentials.
+
+Kong does not natively expand environment variables inside its declarative config file. To inject values at container start without writing credentials to a committed file, use a shell entrypoint script:
+
+```
+services/<name>/config/kong-entrypoint.sh   # mounted read-only into the container
+services/<name>/config/kong.yml             # template with $PLACEHOLDER markers
+```
+
+The entrypoint script uses `awk` to substitute placeholders with container environment variable values, writes the result to `/tmp/kong.yml` (writable by the Kong user), then starts Kong with `KONG_DECLARATIVE_CONFIG=/tmp/kong.yml`.
+
+Key points:
+
+- Write substituted output to `/tmp/` — Kong's working directories (`/var/lib/kong/`, `/usr/local/kong/`) are owned by root and not writable by the `kong` user at runtime.
+- Use literal `$PLACEHOLDER` markers and environment-aware `awk` substitution rather than `eval echo`, which strips YAML string quotes and corrupts the format version field.
+- Keep generated credential alphabets YAML-safe and quote placeholders where arbitrary user input is allowed.
+- The entrypoint script must be executable (`chmod +x`) before being committed.
+- `KONG_PLUGINS` must explicitly list all plugins used across all routes, including `basic-auth`, even if only one route uses it.
+
 ## Adding A Service
 
 Add service files:

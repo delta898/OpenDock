@@ -107,6 +107,23 @@ CONFIG_FIELDS = {
         Field("MATTERMOST_SUBDOMAIN", "defaulted-choice", default="chat"),
         Field("MATTERMOST_DB_PASSWORD", "generated-secret"),
     ],
+    "supabase": [
+        Field("SUPABASE_SUBDOMAIN", "defaulted-choice", default="supabase"),
+        Field("SUPABASE_DB_PASSWORD", "generated-secret"),
+        Field("SUPABASE_JWT_SECRET", "generated-secret"),
+        Field("SUPABASE_ANON_KEY", "generated-secret"),
+        Field("SUPABASE_SERVICE_ROLE_KEY", "generated-secret"),
+        Field("SUPABASE_SECRET_KEY_BASE", "generated-secret"),
+        Field("SUPABASE_PG_META_CRYPTO_KEY", "generated-secret"),
+        Field("SUPABASE_DASHBOARD_USER", "defaulted-choice", default="opendock"),
+        Field(
+            "SUPABASE_DASHBOARD_PASSWORD",
+            "initial-credential",
+            note="Used for HTTP Basic Auth login to Supabase Studio dashboard.",
+        ),
+        Field("SUPABASE_STUDIO_DEFAULT_ORGANIZATION", "defaulted-choice", default="OpenDock"),
+        Field("SUPABASE_STUDIO_DEFAULT_PROJECT", "defaulted-choice", default="OpenDock"),
+    ],
 }
 
 MARIADB_DEPENDENCIES = {

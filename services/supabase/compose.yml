@@ -1,0 +1,333 @@
+services:
+  supabase-db:
+    image: supabase/postgres:${SUPABASE_POSTGRES_VERSION}
+    container_name: ${SUPABASE_DB_CONTAINER_NAME}
+    networks: [shared-net]
+    volumes:
+      - ./config/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
+      - ./config/db/graphql.sql:/docker-entrypoint-initdb.d/init-scripts/97-graphql.sql:ro
+      - ./config/db/ownership.sql:/docker-entrypoint-initdb.d/init-scripts/98-ownership.sql:ro
+      - ./config/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./config/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
+      - ./data/db:/var/lib/postgresql/data
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: ${SUPABASE_DB_PORT}
+      POSTGRES_PORT: ${SUPABASE_DB_PORT}
+      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      PGDATABASE: ${SUPABASE_DB_NAME}
+      POSTGRES_DB: ${SUPABASE_DB_NAME}
+      JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      JWT_EXP: ${SUPABASE_JWT_EXPIRY}
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf", "-c", "log_min_messages=fatal"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${SUPABASE_DB_USER}", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      # The first boot runs the Supabase schema migrations and briefly restarts
+      # Postgres. Keep the dependency gate alive for slow Docker Desktop disks.
+      retries: 60
+      start_period: 30s
+    restart: unless-stopped
+
+  supabase-db-bootstrap:
+    image: supabase/postgres:${SUPABASE_POSTGRES_VERSION}
+    container_name: ${SUPABASE_DB_BOOTSTRAP_CONTAINER_NAME}
+    depends_on:
+      supabase-db: {condition: service_healthy}
+    networks: [shared-net]
+    volumes:
+      - ./config/db:/bootstrap:ro
+    environment:
+      PGPASSWORD: ${SUPABASE_DB_PASSWORD}
+      POSTGRES_PASSWORD: ${SUPABASE_DB_PASSWORD}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        psql
+        --host=${SUPABASE_DB_HOST}
+        --port=${SUPABASE_DB_PORT}
+        --username=${SUPABASE_DB_USER}
+        --dbname=${SUPABASE_DB_NAME}
+        --set=ON_ERROR_STOP=1
+        --file=/bootstrap/realtime.sql
+        --file=/bootstrap/roles.sql
+        --file=/bootstrap/ownership.sql
+        --file=/bootstrap/graphql.sql
+    restart: "no"
+
+  supabase-auth:
+    image: supabase/gotrue:${SUPABASE_GOTRUE_VERSION}
+    container_name: ${SUPABASE_AUTH_CONTAINER_NAME}
+    depends_on:
+      supabase-db-bootstrap: {condition: service_completed_successfully}
+    networks: [shared-net]
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: https://${SUPABASE_SUBDOMAIN:-supabase}.${STACK_DOMAIN:-localhost}/auth/v1
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:${SUPABASE_DB_PORT}/${SUPABASE_DB_NAME}
+      GOTRUE_SITE_URL: https://${SUPABASE_SUBDOMAIN:-supabase}.${STACK_DOMAIN:-localhost}
+      GOTRUE_URI_ALLOW_LIST: https://${SUPABASE_SUBDOMAIN:-supabase}.${STACK_DOMAIN:-localhost}
+      GOTRUE_DISABLE_SIGNUP: "false"
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${SUPABASE_JWT_EXPIRY}
+      GOTRUE_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+      GOTRUE_MAILER_AUTOCONFIRM: ${SUPABASE_EMAIL_AUTOCONFIRM}
+      GOTRUE_MAILER_URLPATHS_CONFIRMATION: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_INVITE: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_RECOVERY: /auth/v1/verify
+      GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE: /auth/v1/verify
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-supabase-inbucket}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-2500}
+      GOTRUE_SMTP_USER: ${SMTP_USERNAME:-fake_mail_user}
+      GOTRUE_SMTP_PASS: ${SMTP_PASSWORD:-fake_mail_password}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_FROM_ADDRESS:-admin@example.com}
+      GOTRUE_SMTP_SENDER_NAME: OpenDock Supabase
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  supabase-rest:
+    image: postgrest/postgrest:${SUPABASE_POSTGREST_VERSION}
+    container_name: ${SUPABASE_REST_CONTAINER_NAME}
+    depends_on:
+      supabase-db-bootstrap: {condition: service_completed_successfully}
+    networks: [shared-net]
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:${SUPABASE_DB_PORT}/${SUPABASE_DB_NAME}
+      PGRST_DB_SCHEMAS: public,graphql_public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_ADMIN_SERVER_PORT: 3001
+      PGRST_ADMIN_SERVER_HOST: localhost
+      PGRST_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${SUPABASE_JWT_EXPIRY}
+    healthcheck:
+      test: ["CMD", "postgrest", "--ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  supabase-realtime:
+    image: supabase/realtime:${SUPABASE_REALTIME_VERSION}
+    container_name: realtime-dev.supabase-realtime
+    depends_on:
+      supabase-db-bootstrap: {condition: service_completed_successfully}
+    networks: [shared-net]
+    environment:
+      PORT: 4000
+      DB_HOST: ${SUPABASE_DB_HOST}
+      DB_PORT: ${SUPABASE_DB_PORT}
+      DB_USER: supabase_admin
+      DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      DB_NAME: ${SUPABASE_DB_NAME}
+      DB_AFTER_CONNECT_QUERY: SET search_path TO _realtime
+      DB_ENC_KEY: ${SUPABASE_REALTIME_DB_ENC_KEY}
+      API_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      SECRET_KEY_BASE: ${SUPABASE_SECRET_KEY_BASE}
+      METRICS_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      ERL_AFLAGS: -proto_dist inet_tcp
+      DNS_NODES: "''"
+      RLIMIT_NOFILE: "10000"
+      APP_NAME: realtime
+      SEED_SELF_HOST: "true"
+      RUN_JANITOR: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sSfL --head -o /dev/null -H 'Authorization: Bearer ${SUPABASE_ANON_KEY}' http://localhost:4000/api/tenants/realtime-dev/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  supabase-storage:
+    image: supabase/storage-api:${SUPABASE_STORAGE_VERSION}
+    container_name: ${SUPABASE_STORAGE_CONTAINER_NAME}
+    depends_on:
+      supabase-db-bootstrap: {condition: service_completed_successfully}
+      supabase-rest: {condition: service_healthy}
+      supabase-imgproxy: {condition: service_started}
+    networks: [shared-net]
+    volumes:
+      - ./data/storage:/var/lib/storage
+    environment:
+      ANON_KEY: ${SUPABASE_ANON_KEY}
+      SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://supabase-rest:3000
+      AUTH_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:${SUPABASE_DB_PORT}/${SUPABASE_DB_NAME}
+      STORAGE_PUBLIC_URL: https://${SUPABASE_SUBDOMAIN:-supabase}.${STACK_DOMAIN:-localhost}/storage/v1
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://supabase-imgproxy:5001
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://supabase-storage:5000/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  supabase-imgproxy:
+    image: darthsim/imgproxy:${SUPABASE_IMGPROXY_VERSION}
+    container_name: ${SUPABASE_IMGPROXY_CONTAINER_NAME}
+    networks: [shared-net]
+    volumes:
+      - ./data/storage:/var/lib/storage:ro
+    environment:
+      IMGPROXY_BIND: :5001
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_AUTO_WEBP: "true"
+    healthcheck:
+      test: ["CMD", "imgproxy", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  supabase-pg-meta:
+    image: supabase/postgres-meta:${SUPABASE_PG_META_VERSION}
+    container_name: ${SUPABASE_PG_META_CONTAINER_NAME}
+    depends_on:
+      supabase-db-bootstrap: {condition: service_completed_successfully}
+    networks: [shared-net]
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: ${SUPABASE_DB_HOST}
+      PG_META_DB_PORT: ${SUPABASE_DB_PORT}
+      PG_META_DB_NAME: ${SUPABASE_DB_NAME}
+      PG_META_DB_USER: ${SUPABASE_DB_USER}
+      PG_META_DB_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      CRYPTO_KEY: ${SUPABASE_PG_META_CRYPTO_KEY}
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8080/health').then(r => { if (!r.ok) throw new Error(r.status) })"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  supabase-studio:
+    image: supabase/studio:${SUPABASE_STUDIO_VERSION}
+    container_name: ${SUPABASE_STUDIO_CONTAINER_NAME}
+    depends_on:
+      supabase-pg-meta: {condition: service_healthy}
+    networks: [shared-net]
+    volumes:
+      - ./config/functions:/app/edge-functions:ro
+    environment:
+      HOSTNAME: 0.0.0.0
+      STUDIO_PG_META_URL: http://supabase-pg-meta:8080
+      POSTGRES_HOST: ${SUPABASE_DB_HOST}
+      POSTGRES_PORT: ${SUPABASE_DB_PORT}
+      POSTGRES_DB: ${SUPABASE_DB_NAME}
+      POSTGRES_PASSWORD: ${SUPABASE_DB_PASSWORD}
+      PG_META_CRYPTO_KEY: ${SUPABASE_PG_META_CRYPTO_KEY}
+      PGRST_DB_SCHEMAS: public,graphql_public
+      DEFAULT_ORGANIZATION_NAME: ${SUPABASE_STUDIO_DEFAULT_ORGANIZATION:-OpenDock}
+      DEFAULT_PROJECT_NAME: ${SUPABASE_STUDIO_DEFAULT_PROJECT:-OpenDock}
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: https://${SUPABASE_SUBDOMAIN:-supabase}.${STACK_DOMAIN:-localhost}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      ENABLED_FEATURES_LOGS_ALL: "false"
+      EDGE_FUNCTIONS_MANAGEMENT_FOLDER: /app/edge-functions
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3000/api/platform/profile').then(r => { if (r.status !== 200) throw new Error(r.status) })\""]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  supabase-edge-runtime:
+    image: supabase/edge-runtime:${SUPABASE_EDGE_RUNTIME_VERSION}
+    container_name: ${SUPABASE_EDGE_RUNTIME_CONTAINER_NAME}
+    depends_on:
+      supabase-kong: {condition: service_healthy}
+    networks: [shared-net]
+    volumes:
+      - ./config/functions:/home/deno/functions:ro
+      - supabase_deno_cache:/root/.cache/deno
+    environment:
+      JWT_SECRET: ${SUPABASE_JWT_SECRET}
+      VERIFY_JWT: "true"
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: https://${SUPABASE_SUBDOMAIN:-supabase}.${STACK_DOMAIN:-localhost}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SUPABASE_DB_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@${SUPABASE_DB_HOST}:${SUPABASE_DB_PORT}/${SUPABASE_DB_NAME}
+    command: ["start", "--main-service", "/home/deno/functions/main"]
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/127.0.0.1/9000'"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  supabase-inbucket:
+    image: inbucket/inbucket:${SUPABASE_INBUCKET_VERSION}
+    container_name: ${SUPABASE_INBUCKET_CONTAINER_NAME}
+    networks: [shared-net]
+    restart: unless-stopped
+
+  supabase-kong:
+    image: kong/kong:${SUPABASE_KONG_VERSION}
+    container_name: ${SUPABASE_KONG_CONTAINER_NAME}
+    entrypoint: ["/bin/sh", "/home/kong/kong-entrypoint.sh"]
+    depends_on:
+      supabase-auth: {condition: service_healthy}
+      supabase-rest: {condition: service_healthy}
+      supabase-realtime: {condition: service_healthy}
+      supabase-storage: {condition: service_healthy}
+      supabase-studio: {condition: service_healthy}
+    networks: [shared-net]
+    volumes:
+      - ./config/kong.yml:/home/kong/temp.yml:ro
+      - ./config/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /tmp/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_DNS_NOT_FOUND_TTL: 1
+      KONG_DNS_VALID_TTL: 5
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      KONG_PROXY_ACCESS_LOG: /dev/stdout combined
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      DASHBOARD_USERNAME: ${SUPABASE_DASHBOARD_USER:-opendock}
+      DASHBOARD_PASSWORD: ${SUPABASE_DASHBOARD_PASSWORD}
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  shared-net:
+    external: true
+
+volumes:
+  supabase_deno_cache:

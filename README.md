@@ -16,6 +16,7 @@ photos.<your-domain>  -> Immich
 media.<your-domain>   -> Jellyfin
 social.<your-domain>  -> Mastodon
 chat.<your-domain>    -> Mattermost
+supabase.<your-domain> -> Supabase
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
 ```
@@ -141,6 +142,8 @@ NEXTCLOUD_SUBDOMAIN=cloud
 IMMICH_SUBDOMAIN=photos
 JELLYFIN_SUBDOMAIN=media
 MASTODON_SUBDOMAIN=social
+MATTERMOST_SUBDOMAIN=chat
+SUPABASE_SUBDOMAIN=supabase
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
@@ -208,6 +211,8 @@ cloud.<your-domain>   -> http://localhost:80
 photos.<your-domain>  -> http://localhost:80
 media.<your-domain>   -> http://localhost:80
 social.<your-domain>  -> http://localhost:80
+chat.<your-domain>    -> http://localhost:80
+supabase.<your-domain> -> http://localhost:80
 n8n.<your-domain>     -> http://localhost:80
 uptime.<your-domain>  -> http://localhost:80
 ```

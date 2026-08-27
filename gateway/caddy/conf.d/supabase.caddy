@@ -1,0 +1,24 @@
+# Default Supabase route for the home server stack.
+#
+# The default route is:
+#   {$SUPABASE_SUBDOMAIN:supabase}.{$STACK_DOMAIN:localhost}
+
+(supabase_proxy) {
+    import common_proxy
+    import security_headers
+    import block_bots
+
+    reverse_proxy supabase-kong:8000 {
+        import forwarded_https
+    }
+}
+
+# Cloudflare Tunnel origin or local HTTP testing.
+http://{$SUPABASE_SUBDOMAIN:supabase}.{$STACK_DOMAIN:localhost} {
+    import supabase_proxy
+}
+
+# Direct HTTPS when exposing Caddy manually.
+https://{$SUPABASE_SUBDOMAIN:supabase}.{$STACK_DOMAIN:localhost} {
+    import supabase_proxy
+}

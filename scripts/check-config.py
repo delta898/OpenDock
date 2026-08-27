@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
+import os
+import base64
+import hashlib
+import hmac
+import json
 import re
 import sys
-import os
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
@@ -131,6 +135,49 @@ def is_placeholder(name, value, example_values):
     return False
 
 
+def valid_supabase_jwt(token, secret, expected_role):
+    try:
+        header, payload, signature = token.split(".")
+        message = f"{header}.{payload}".encode("utf-8")
+        expected = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).digest()
+        actual = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
+        claims = json.loads(
+            base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+        )
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return False
+
+    return hmac.compare_digest(actual, expected) and claims.get("role") == expected_role
+
+
+def supabase_invalid_values(values, example_values):
+    invalid = []
+
+    minimum_lengths = {
+        "SUPABASE_JWT_SECRET": 32,
+        "SUPABASE_SECRET_KEY_BASE": 64,
+        "SUPABASE_PG_META_CRYPTO_KEY": 32,
+    }
+    for name, minimum in minimum_lengths.items():
+        value = values.get(name, "")
+        if value and not is_placeholder(name, value, example_values) and len(value) < minimum:
+            invalid.append(f"{name} (must be at least {minimum} characters)")
+
+    secret = values.get("SUPABASE_JWT_SECRET", "")
+    jwt_roles = {
+        "SUPABASE_ANON_KEY": "anon",
+        "SUPABASE_SERVICE_ROLE_KEY": "service_role",
+    }
+    if secret and not is_placeholder("SUPABASE_JWT_SECRET", secret, example_values):
+        for name, role in jwt_roles.items():
+            token = values.get(name, "")
+            if token and not is_placeholder(name, token, example_values):
+                if not valid_supabase_jwt(token, secret, role):
+                    invalid.append(f"{name} (does not match SUPABASE_JWT_SECRET/{role})")
+
+    return invalid
+
+
 def check_target(target, common_values, example_values):
     directory = target_dir(target)
     compose = directory / "compose.yml"
@@ -139,6 +186,7 @@ def check_target(target, common_values, example_values):
             "target": target,
             "missing": [f"compose.yml for {target}"],
             "placeholders": [],
+            "invalid": [],
             "optional": {},
         }
 
@@ -158,6 +206,7 @@ def check_target(target, common_values, example_values):
         for name in required
         if name in env and is_placeholder(name, env.get(name, ""), example_values)
     )
+    invalid = supabase_invalid_values(env, example_values) if target == "supabase" else []
 
     optional_missing = {}
     target_subdomain = service_env_key(target)
@@ -170,6 +219,7 @@ def check_target(target, common_values, example_values):
         "target": target,
         "missing": missing,
         "placeholders": placeholders,
+        "invalid": invalid,
         "optional": optional_missing,
     }
 
@@ -181,8 +231,9 @@ def print_results(results):
         target = result["target"]
         missing = result["missing"]
         placeholders = result["placeholders"]
+        invalid = result["invalid"]
         optional = result["optional"]
-        should_print = not QUIET or missing or placeholders
+        should_print = not QUIET or missing or placeholders or invalid
 
         if should_print:
             print(f"==> check-config: {target}")
@@ -199,12 +250,18 @@ def print_results(results):
             for name in placeholders:
                 print(f"  {name}")
 
+        if invalid:
+            failed = True
+            print("Invalid or inconsistent values:")
+            for name in invalid:
+                print(f"  {name}")
+
         if optional and not QUIET:
             print("Optional values missing, defaults will be used:")
             for name, default in optional.items():
                 print(f"  {name}={default}")
 
-        if not missing and not placeholders and not optional and not QUIET:
+        if not missing and not placeholders and not invalid and not optional and not QUIET:
             print("OK")
 
         if should_print:
