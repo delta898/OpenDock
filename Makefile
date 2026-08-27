@@ -66,6 +66,7 @@ help:
 	@echo "    make ps all"
 	@echo
 	@echo "  Service-specific:"
+	@echo "    make action supabase functions-secrets"
 	@echo "    make action wordpress"
 	@echo "    make action wordpress multisite"
 	@echo "    make wp-multisite  # deprecated"
@@ -348,6 +349,8 @@ sync sync-dry-run:
 		--include="common.env.example" \
 		--exclude="cloudflare.env" \
 		--include="cloudflare.env.example" \
+		--exclude="services/supabase/functions.env" \
+		--include="services/supabase/functions.env.example" \
 		--exclude="services/*/data/" \
 		--exclude="**/data/" \
 		--exclude=".DS_Store" \

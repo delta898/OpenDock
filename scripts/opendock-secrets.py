@@ -20,6 +20,10 @@ COMMON_ENV = ROOT_DIR / "common.env"
 COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 MASTODON_ENV = ROOT_DIR / "services" / "mastodon" / ".env"
 BACKUP_DIR = ROOT_DIR / "backups" / "common-env"
+SUPABASE_FUNCTIONS_ENV = ROOT_DIR / "services" / "supabase" / "functions.env"
+SUPABASE_FUNCTIONS_ENV_EXAMPLE = (
+    ROOT_DIR / "services" / "supabase" / "functions.env.example"
+)
 
 MASTODON_KEYS = {
     "MASTODON_DB_PASSWORD",
@@ -113,6 +117,12 @@ def target_keys(target):
             keys.update(SERVICE_KEYS.get(service, set()))
         return keys
     return set(SERVICE_KEYS.get(target, set()))
+
+
+def target_includes_service(target, service):
+    if target in ("all", "services", service):
+        return True
+    return service in group_services(target)
 
 
 def mastodon_image():
@@ -293,6 +303,23 @@ def ensure_common_env():
     return True
 
 
+def ensure_supabase_functions_env():
+    if SUPABASE_FUNCTIONS_ENV.exists():
+        SUPABASE_FUNCTIONS_ENV.chmod(0o600)
+        return False
+
+    if not SUPABASE_FUNCTIONS_ENV_EXAMPLE.exists():
+        raise SystemExit(
+            "Missing services/supabase/functions.env.example; "
+            "cannot create the Edge Function secrets file."
+        )
+
+    shutil.copyfile(SUPABASE_FUNCTIONS_ENV_EXAMPLE, SUPABASE_FUNCTIONS_ENV)
+    SUPABASE_FUNCTIONS_ENV.chmod(0o600)
+    print("Created services/supabase/functions.env from functions.env.example")
+    return True
+
+
 def backup_common_env():
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -376,6 +403,8 @@ def main():
     selected_keys = target_keys(target)
 
     created = ensure_common_env()
+    if target_includes_service(target, "supabase"):
+        ensure_supabase_functions_env()
     existing = parse_env(COMMON_ENV)
     needed = keys_needing_update(existing, selected_keys)
     force_update = set()

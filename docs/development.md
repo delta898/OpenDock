@@ -141,6 +141,13 @@ make action <service> <action>
 
 Actions live at `services/<service>/actions/<action>` and must be executable. `make action <service>` lists executable actions for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_ACTION` to the action process.
 
+Supabase Edge Function user secrets follow the same local-template pattern as
+other OpenDock configuration. `make launch supabase` creates the ignored
+`services/supabase/functions.env` from `functions.env.example`; the optional
+`make action supabase functions-secrets` action reports configured names and
+application instructions without revealing values. Keep this file outside
+`config/functions/`, because that source directory is also mounted in Studio.
+
 WordPress multisite is exposed as `make action wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
 
 `make wp-multisite` remains as a temporary deprecated shortcut for backward compatibility. New service-specific workflows should use `make action <service> <action>` instead of adding new top-level Make targets.

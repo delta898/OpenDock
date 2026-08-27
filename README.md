@@ -277,11 +277,15 @@ make setup media
 Run a service-specific action:
 
 ```sh
+make action supabase functions-secrets
 make action wordpress
 make action wordpress multisite
 ```
 
 `make action <service>` lists available actions for that service. Actions are for service-specific setup helpers that do not belong in the shared command set.
+The Supabase action creates or inspects the local Edge Function secrets file
+without printing its values; a normal `make launch supabase` also creates the
+empty, usable file automatically.
 
 Generate local secrets manually:
 
@@ -421,7 +425,9 @@ Then sync:
 make sync test
 ```
 
-Runtime data such as `services/*/data/`, `common.env`, `cloudflare.env`, and `.sync.env` is excluded.
+Runtime data and local secrets such as `services/*/data/`, `common.env`,
+`cloudflare.env`, `.sync.env`, and `services/supabase/functions.env` are
+excluded. Their committed example files remain available on the destination.
 
 ## Development
 

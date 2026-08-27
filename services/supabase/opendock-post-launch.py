@@ -9,6 +9,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 SERVICE_DIR = ROOT_DIR / "services" / "supabase"
 COMMON_ENV = ROOT_DIR / "common.env"
 SERVICE_ENV = SERVICE_DIR / ".env"
+FUNCTIONS_ENV = SERVICE_DIR / "functions.env"
 
 
 def parse_env(path):
@@ -194,6 +195,19 @@ main().catch((error) => {
         print(f"  OK {result['name']} (HTTP {result['status']})")
 
 
+def print_functions_secrets_notice():
+    configured = len(parse_env(FUNCTIONS_ENV))
+    print()
+    print("Edge Function secrets:")
+    print("  File: services/supabase/functions.env")
+    if configured:
+        print(f"  User variables loaded: {configured} (values hidden)")
+    else:
+        print("  User variables loaded: none (optional)")
+    print("  Manage: make action supabase functions-secrets")
+    print("  Apply changes: make up supabase")
+
+
 def main():
     env = load_env()
     required = [
@@ -217,6 +231,7 @@ def main():
     check_database(env)
     check_http(env)
     print("Supabase is ready.")
+    print_functions_secrets_notice()
     return 0
 
 

@@ -75,6 +75,43 @@ shared SMTP relay with `make setup mail`, and recreate the Auth container.
 ## Edge Functions
 
 Functions live at `services/supabase/config/functions/<name>/index.ts`.
+On the first `make launch supabase`, OpenDock also copies
+`services/supabase/functions.env.example` to
+`services/supabase/functions.env` with mode `0600`. The generated file may be
+left unchanged when functions do not need additional secrets, so it never
+blocks a zero-config launch.
+
+Add user secrets to the generated file:
+
+```env
+EXTERNAL_API_KEY=replace-with-a-real-secret
+WEBHOOK_SIGNING_SECRET=replace-with-a-real-secret
+```
+
+Then recreate the changed Edge Runtime configuration:
+
+```sh
+make up supabase
+```
+
+Use the service action to create the file on demand, check its permissions,
+and list configured variable names without printing their values:
+
+```sh
+make action supabase functions-secrets
+```
+
+A successful `make launch supabase` also prints a short summary containing the
+file location, the number of loaded user variables, and these management and
+application commands. Secret values are never printed.
+
+`functions.env` is ignored by Git, excluded from `make sync`, and injected
+only into the Edge Runtime; it is not part of the function source directory
+mounted in Studio. Every Edge Function in this single runtime receives the
+same variables, so only functions trusted with those secrets should share the
+runtime. The built-in Supabase variables declared in `compose.yml` remain
+managed by OpenDock.
+
 The included function can be tested with:
 
 ```sh
@@ -85,7 +122,7 @@ curl "https://${SUPABASE_SUBDOMAIN}.${STACK_DOMAIN}/functions/v1/hello" \
   -H "Authorization: Bearer ${SUPABASE_ANON_KEY}"
 ```
 
-Restart Supabase after adding a function:
+Restart Supabase after adding or changing function source code:
 
 ```sh
 make restart supabase

@@ -9,3 +9,6 @@ __pycache__/
 services/*/data/
 services/*/backups/
 backups/common-env/
+
+# User-provided Supabase Edge Function secrets. Keep the example in Git.
+services/supabase/functions.env
