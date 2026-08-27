@@ -3,7 +3,9 @@ GROUPS_FILE := $(ROOT)/services/groups.conf
 CHECKED_COMMANDS := up restart start build config
 UNCHECKED_COMMANDS := down stop ps pull
 COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch setup secrets action wp-multisite sync sync-dry-run
-TARGET := $(word 2,$(MAKECMDGOALS))
+COMMAND := $(firstword $(MAKECMDGOALS))
+REQUESTED_TARGET := $(word 2,$(MAKECMDGOALS))
+TARGET := $(if $(REQUESTED_TARGET),$(REQUESTED_TARGET),$(if $(filter config ps,$(COMMAND)),all))
 ACTION := $(word 3,$(MAKECMDGOALS))
 
 -include .sync.env
@@ -12,69 +14,71 @@ ACTION := $(word 3,$(MAKECMDGOALS))
 .PHONY: help list services $(COMMANDS) infra gateway all test
 
 help:
-	@echo "Usage:"
-	@echo "  make <command> <target>"
-	@echo
-	@echo "Commands:"
-	@echo "  list"
-	@echo "  check-config"
-	@echo "  up down restart stop start ps logs pull build config"
-	@echo "  publish launch"
-	@echo "  setup"
-	@echo "  secrets"
-	@echo "  action"
-	@echo "  wp-multisite"
-	@echo "  sync sync-dry-run"
-	@echo
-	@echo "Targets:"
-	@echo "  infra, gateway, services, all, or any directory under services/"
-	@echo "  service groups from services/groups.conf"
-	@echo "  setup also supports mail"
-	@echo
-	@echo "Examples:"
-	@echo "  Discover:"
-	@echo "    make list"
-	@echo "    make list services"
-	@echo "    make list groups"
-	@echo
-	@echo "  Check:"
-	@echo "    make check-config"
-	@echo "    make check-config immich"
-	@echo
-	@echo "  Setup:"
-	@echo "    make setup"
-	@echo "    make setup mail"
-	@echo "    make setup mastodon"
-	@echo "    make setup media"
-	@echo "    make secrets"
-	@echo "    make secrets nextcloud"
-	@echo
-	@echo "  Start:"
-	@echo "    make up infra"
-	@echo "    make up wordpress"
-	@echo "    make up media"
-	@echo "    make up services"
-	@echo "    make services"
-	@echo "    make launch"
-	@echo
-	@echo "  Publish:"
-	@echo "    make publish"
-	@echo "    make publish services"
-	@echo
-	@echo "  Inspect:"
-	@echo "    make logs wordpress"
-	@echo "    make ps all"
-	@echo
-	@echo "  Service-specific:"
-	@echo "    make action supabase api-keys"
-	@echo "    make action supabase functions-secrets"
-	@echo "    make action wordpress"
-	@echo "    make action wordpress multisite"
-	@echo "    make wp-multisite  # deprecated"
-	@echo
-	@echo "  Sync:"
-	@echo "    make sync-dry-run test"
-	@echo "    make sync test"
+	@printf '%s\n' \
+		"OpenDock command guide" \
+		"" \
+		"Quick start:" \
+		"  make setup                     Create/review local config and generate secrets" \
+		"  make launch [target]           Recommended: prepare, start, check, and publish" \
+		"  make list                      Show every discovered service and group" \
+		"" \
+		"Target syntax:" \
+		"  [target]  optional; omitted means all where supported" \
+		"  <target>  required" \
+		"  <service> one services/<name>/compose.yml project (example: supabase)" \
+		"  <group>   purpose-based alias from services/groups.conf (example: media)" \
+		"  services  every application service; excludes infra and gateway" \
+		"  all       infra + gateway + every application service" \
+		"  infra     shared databases, Redis, and Docker network" \
+		"  gateway   Caddy only" \
+		"  mail      setup-only target for shared SMTP settings" \
+		"  Discover names with: make list | make list services | make list groups" \
+		"" \
+		"Configuration:" \
+		"  make setup [target]            Interactive config; keeps existing values" \
+		"  make check-config [target]     Read-only validation; changes nothing" \
+		"  make secrets [target]          Generate only missing passwords and keys" \
+		"" \
+		"Start and lifecycle:" \
+		"  make launch [target]           Starts infra, target, service hooks, gateway, and routes" \
+		"  make up <target>               Compose up/create/recreate; no prerequisites or publishing" \
+		"  make start <target>            Start existing stopped containers" \
+		"  make restart <target>          Restart existing containers; does not apply env/config changes" \
+		"  make stop <target>             Stop containers without removing them" \
+		"  make down <target>             Remove containers/network; persistent data is kept" \
+		"  make services                  Shortcut for make up services; infra must already exist" \
+		"" \
+		"Inspect and update:" \
+		"  make ps [target]               Show status; omitted target means all" \
+		"  make logs <target>             Follow one project; groups/services/all are unsupported" \
+		"  make config [target]           Render Compose config; omitted target means all" \
+		"  make pull <target>             Pull service images" \
+		"  make build <target>            Build images declared by the service" \
+		"" \
+		"Routing and publishing:" \
+		"  make publish [target]          Sync/print routes only; does not start containers" \
+		"  make launch [target]           Start and publish in one workflow" \
+		"" \
+		"Service-specific actions:" \
+		"  make action <service>          List actions available for that service" \
+		"  make action <service> <action> Run one action" \
+		"  make action supabase api-keys  Print the client-safe URL and publishable key" \
+		"  make action supabase functions-secrets" \
+		"                                Inspect Edge Function secret names/instructions" \
+		"  make action wordpress multisite" \
+		"                                Convert WordPress to subdirectory multisite" \
+		"" \
+		"Test-machine sync (configured in .sync.env):" \
+		"  make sync-dry-run <name>       Preview rsync changes first" \
+		"  make sync <name>               Apply rsync to the named remote" \
+		"" \
+		"Common examples:" \
+		"  make launch supabase           Launch one service with prerequisites" \
+		"  make launch media              Launch the Immich + Jellyfin group" \
+		"  make logs wordpress            Follow WordPress logs" \
+		"  make ps all                    Show status across the whole stack" \
+		"" \
+		"Deprecated: make wp-multisite (use make action wordpress multisite)"
 
 list:
 	@if [ "$(TARGET)" = "groups" ]; then \
