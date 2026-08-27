@@ -7,5 +7,6 @@ Invoke a function through the public gateway:
 
 ```sh
 curl https://supabase.example.com/functions/v1/hello \
-  -H "Authorization: Bearer $SUPABASE_ANON_KEY"
+  -H "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_PUBLISHABLE_KEY"
 ```

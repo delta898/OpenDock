@@ -40,13 +40,21 @@ SUPABASE_JWT_KEYS = {
     "SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
 }
+SUPABASE_NEW_AUTH_KEYS = {
+    "SUPABASE_PUBLISHABLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "SUPABASE_ANON_KEY_ASYMMETRIC",
+    "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC",
+    "SUPABASE_JWT_KEYS",
+    "SUPABASE_JWT_JWKS",
+}
 SUPABASE_KEYS = {
     "SUPABASE_DB_PASSWORD",
     "SUPABASE_DASHBOARD_USER",
     "SUPABASE_DASHBOARD_PASSWORD",
     "SUPABASE_SECRET_KEY_BASE",
     "SUPABASE_PG_META_CRYPTO_KEY",
-} | SUPABASE_JWT_KEYS
+} | SUPABASE_JWT_KEYS | SUPABASE_NEW_AUTH_KEYS
 INFRA_KEYS = {"MARIADB_ROOT_PASSWORD", "POSTGRES_ADMIN_USER", "POSTGRES_ADMIN_PASSWORD"}
 SERVICE_KEYS = {
     "infra": INFRA_KEYS,
@@ -130,22 +138,27 @@ def mastodon_image():
     return f"ghcr.io/mastodon/mastodon:{version}"
 
 
-def docker_capture(image, *command):
+def docker_capture(image, *command, input_text=None):
+    docker_command = ["docker", "run", "--rm"]
+    if input_text is not None:
+        docker_command.append("-i")
+    docker_command.extend([image, *command])
     try:
         result = subprocess.run(
-            ["docker", "run", "--rm", image, *command],
+            docker_command,
             check=True,
             text=True,
+            input=input_text,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
     except FileNotFoundError as error:
-        raise SystemExit("Docker is required to generate Mastodon secrets.") from error
+        raise SystemExit("Docker is required to generate containerized secrets.") from error
     except subprocess.CalledProcessError as error:
         output = "\n".join(
             part.strip() for part in (error.stdout, error.stderr) if part.strip()
         )
-        raise SystemExit(f"Could not generate Mastodon secrets with Docker.\n{output}") from error
+        raise SystemExit(f"Could not generate secrets with Docker.\n{output}") from error
 
     return result.stdout.strip()
 
@@ -183,16 +196,85 @@ def generate_supabase_jwt(secret, role, exp_years=10):
     return f"{header_b64}.{payload_b64}.{signature_b64}"
 
 
+def generate_supabase_new_auth(jwt_secret):
+    script = r"""
+const crypto = require("crypto");
+const fs = require("fs");
+const jwtSecret = fs.readFileSync(0, "utf8");
+const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
+const jwkPrivate = privateKey.export({ format: "jwk" });
+const kid = crypto.randomUUID();
+const octKey = {
+  kty: "oct",
+  k: Buffer.from(jwtSecret).toString("base64url"),
+  alg: "HS256",
+};
+const privateEc = {
+  kty: "EC", kid, use: "sig", key_ops: ["sign", "verify"], alg: "ES256",
+  ext: true, crv: jwkPrivate.crv, x: jwkPrivate.x, y: jwkPrivate.y,
+  d: jwkPrivate.d,
+};
+const publicEc = {
+  kty: "EC", kid, use: "sig", key_ops: ["verify"], alg: "ES256",
+  ext: true, crv: jwkPrivate.crv, x: jwkPrivate.x, y: jwkPrivate.y,
+};
+function signES256(payload) {
+  const header = { alg: "ES256", typ: "JWT", kid };
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString("base64url");
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const data = `${encodedHeader}.${encodedPayload}`;
+  const signature = crypto.sign("SHA256", Buffer.from(data), {
+    key: privateKey,
+    dsaEncoding: "ieee-p1363",
+  }).toString("base64url");
+  return `${data}.${signature}`;
+}
+function opaqueKey(prefix) {
+  const random = crypto.randomBytes(17).toString("base64url").slice(0, 22);
+  const intermediate = prefix + random;
+  const checksum = crypto.createHash("sha256")
+    .update(`supabase-self-hosted|${intermediate}`)
+    .digest("base64url")
+    .slice(0, 8);
+  return `${intermediate}_${checksum}`;
+}
+const iat = Math.floor(Date.now() / 1000);
+const exp = iat + 5 * 365 * 24 * 3600;
+process.stdout.write(JSON.stringify({
+  SUPABASE_PUBLISHABLE_KEY: opaqueKey("sb_publishable_"),
+  SUPABASE_SECRET_KEY: opaqueKey("sb_secret_"),
+  SUPABASE_ANON_KEY_ASYMMETRIC: signES256({ role: "anon", iss: "supabase", iat, exp }),
+  SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC: signES256({ role: "service_role", iss: "supabase", iat, exp }),
+  SUPABASE_JWT_KEYS: JSON.stringify([privateEc, octKey]),
+  SUPABASE_JWT_JWKS: JSON.stringify({ keys: [publicEc, octKey] }),
+}));
+"""
+    print("Generating Supabase publishable keys and ES256 signing keys...")
+    output = docker_capture(
+        "node:22-alpine", "node", "-e", script, input_text=jwt_secret
+    )
+    try:
+        generated = json.loads(output)
+    except json.JSONDecodeError as error:
+        raise SystemExit("Supabase key generator returned invalid output.") from error
+    if set(generated) != SUPABASE_NEW_AUTH_KEYS:
+        raise SystemExit("Supabase key generator did not return the expected keys.")
+    return generated
+
+
 def keys_needing_update(values, selected_keys):
     needed = {key for key in selected_keys if is_placeholder(values.get(key, ""))}
     if needed & VAPID_KEYS:
         needed.update(VAPID_KEYS)
     if needed & SUPABASE_JWT_KEYS:
         needed.update(SUPABASE_JWT_KEYS)
+        needed.update(SUPABASE_NEW_AUTH_KEYS)
+    if needed & SUPABASE_NEW_AUTH_KEYS:
+        needed.update(SUPABASE_NEW_AUTH_KEYS)
     return needed
 
 
-def generate_values(needed):
+def generate_values(needed, existing):
     generated = {}
     if not needed:
         return generated
@@ -232,6 +314,15 @@ def generate_values(needed):
         generated["SUPABASE_SERVICE_ROLE_KEY"] = generate_supabase_jwt(
             jwt_secret, "service_role"
         )
+    if needed & SUPABASE_NEW_AUTH_KEYS:
+        jwt_secret = generated.get("SUPABASE_JWT_SECRET") or existing.get(
+            "SUPABASE_JWT_SECRET", ""
+        )
+        if is_placeholder(jwt_secret):
+            raise SystemExit(
+                "SUPABASE_JWT_SECRET must be generated before the new API keys."
+            )
+        generated.update(generate_supabase_new_auth(jwt_secret))
     if "MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY" in needed:
         generated["MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY"] = (
             secrets.token_hex(32)
@@ -388,13 +479,17 @@ def print_nextcloud_notice(changed):
 
 
 def print_supabase_notice(changed):
-    if "SUPABASE_DASHBOARD_PASSWORD" not in changed:
-        return
+    if "SUPABASE_DASHBOARD_PASSWORD" in changed:
+        print()
+        print("Supabase Studio dashboard password was generated in common.env.")
+        print("Login user: SUPABASE_DASHBOARD_USER (default: opendock)")
+        print("Login password: SUPABASE_DASHBOARD_PASSWORD")
 
-    print()
-    print("Supabase Studio dashboard password was generated in common.env.")
-    print("Login user: SUPABASE_DASHBOARD_USER (default: opendock)")
-    print("Login password: SUPABASE_DASHBOARD_PASSWORD")
+    if "SUPABASE_PUBLISHABLE_KEY" in changed:
+        print()
+        print("Supabase publishable API key was generated in common.env.")
+        print("Client key: SUPABASE_PUBLISHABLE_KEY")
+        print("Legacy anon/service-role keys were retained for internal compatibility.")
 
 
 def main():
@@ -418,7 +513,7 @@ def main():
             print("Generated secrets already exist in common.env. Nothing changed.")
         return 0
 
-    generated = generate_values(needed)
+    generated = generate_values(needed, existing)
     changed, kept, backup = update_common_env(
         generated, force_update, selected_keys, should_backup=not created
     )

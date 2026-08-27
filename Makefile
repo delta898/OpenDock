@@ -66,6 +66,7 @@ help:
 	@echo "    make ps all"
 	@echo
 	@echo "  Service-specific:"
+	@echo "    make action supabase api-keys"
 	@echo "    make action supabase functions-secrets"
 	@echo "    make action wordpress"
 	@echo "    make action wordpress multisite"

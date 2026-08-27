@@ -150,6 +150,74 @@ def valid_supabase_jwt(token, secret, expected_role):
     return hmac.compare_digest(actual, expected) and claims.get("role") == expected_role
 
 
+def decode_jwt_parts(token):
+    try:
+        header, payload, _signature = token.split(".")
+        return (
+            json.loads(base64.urlsafe_b64decode(header + "=" * (-len(header) % 4))),
+            json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))),
+        )
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return None, None
+
+
+def supabase_new_auth_invalid_values(values):
+    invalid = []
+    opaque_patterns = {
+        "SUPABASE_PUBLISHABLE_KEY": r"sb_publishable_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}",
+        "SUPABASE_SECRET_KEY": r"sb_secret_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}",
+    }
+    for name, pattern in opaque_patterns.items():
+        if values.get(name) and not re.fullmatch(pattern, values[name]):
+            invalid.append(f"{name} (invalid opaque API key format)")
+
+    try:
+        signing_keys = json.loads(values.get("SUPABASE_JWT_KEYS", ""))
+        public_jwks = json.loads(values.get("SUPABASE_JWT_JWKS", ""))
+        public_keys = public_jwks.get("keys", [])
+        private_ec = next(
+            key
+            for key in signing_keys
+            if key.get("kty") == "EC" and key.get("alg") == "ES256" and key.get("d")
+        )
+        public_ec = next(
+            key
+            for key in public_keys
+            if key.get("kty") == "EC" and key.get("alg") == "ES256"
+        )
+        signing_oct = next(key for key in signing_keys if key.get("kty") == "oct")
+        public_oct = next(key for key in public_keys if key.get("kty") == "oct")
+        expected_oct = base64.urlsafe_b64encode(
+            values.get("SUPABASE_JWT_SECRET", "").encode("utf-8")
+        ).decode("utf-8").rstrip("=")
+        if private_ec.get("kid") != public_ec.get("kid"):
+            raise ValueError("EC key ids differ")
+        if public_ec.get("d"):
+            raise ValueError("public JWKS contains a private EC key")
+        if signing_oct.get("k") != expected_oct or public_oct.get("k") != expected_oct:
+            raise ValueError("symmetric JWK does not match JWT secret")
+    except (json.JSONDecodeError, TypeError, AttributeError, StopIteration, ValueError):
+        invalid.append("SUPABASE_JWT_KEYS/SUPABASE_JWT_JWKS (invalid or inconsistent JWKS)")
+        return invalid
+
+    asymmetric_roles = {
+        "SUPABASE_ANON_KEY_ASYMMETRIC": "anon",
+        "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC": "service_role",
+    }
+    for name, role in asymmetric_roles.items():
+        header, payload = decode_jwt_parts(values.get(name, ""))
+        if (
+            not header
+            or not payload
+            or header.get("alg") != "ES256"
+            or header.get("kid") != public_ec.get("kid")
+            or payload.get("role") != role
+        ):
+            invalid.append(f"{name} (does not match ES256 JWKS/{role})")
+
+    return invalid
+
+
 def supabase_invalid_values(values, example_values):
     invalid = []
 
@@ -174,6 +242,20 @@ def supabase_invalid_values(values, example_values):
             if token and not is_placeholder(name, token, example_values):
                 if not valid_supabase_jwt(token, secret, role):
                     invalid.append(f"{name} (does not match SUPABASE_JWT_SECRET/{role})")
+
+    new_auth_names = {
+        "SUPABASE_PUBLISHABLE_KEY",
+        "SUPABASE_SECRET_KEY",
+        "SUPABASE_ANON_KEY_ASYMMETRIC",
+        "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC",
+        "SUPABASE_JWT_KEYS",
+        "SUPABASE_JWT_JWKS",
+    }
+    if all(
+        values.get(name) and not is_placeholder(name, values[name], example_values)
+        for name in new_auth_names
+    ):
+        invalid.extend(supabase_new_auth_invalid_values(values))
 
     return invalid
 

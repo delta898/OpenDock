@@ -51,7 +51,24 @@ SUPABASE_DASHBOARD_USER=opendock
 SUPABASE_DASHBOARD_PASSWORD=<generated>
 ```
 
-API endpoints use the generated anon or service-role key:
+Client applications should use the generated opaque publishable key:
+
+```env
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+Print the client URL and publishable key without exposing any elevated key:
+
+```sh
+make action supabase api-keys
+```
+
+Server-only administrative applications may use `SUPABASE_SECRET_KEY`. It
+bypasses row-level security and must never be exposed to browsers. The legacy
+`SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` remain generated only for
+backward compatibility and internal health checks while clients migrate.
+
+API endpoints accepting these keys are:
 
 ```text
 /auth/v1/
@@ -62,8 +79,8 @@ API endpoints use the generated anon or service-role key:
 /functions/v1/
 ```
 
-The service-role key bypasses row-level security. Never expose it to browsers
-or commit `common.env`.
+Never commit `common.env` or use `SUPABASE_JWT_SECRET` as an API key. That value
+is private JWT signing material, not a publishable credential.
 
 ## Email behavior
 
@@ -119,7 +136,8 @@ set -a
 . ./common.env
 set +a
 curl "https://${SUPABASE_SUBDOMAIN}.${STACK_DOMAIN}/functions/v1/hello" \
-  -H "Authorization: Bearer ${SUPABASE_ANON_KEY}"
+  -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" \
+  -H "Authorization: Bearer ${SUPABASE_PUBLISHABLE_KEY}"
 ```
 
 Restart Supabase after adding or changing function source code:

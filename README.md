@@ -277,15 +277,17 @@ make setup media
 Run a service-specific action:
 
 ```sh
+make action supabase api-keys
 make action supabase functions-secrets
 make action wordpress
 make action wordpress multisite
 ```
 
 `make action <service>` lists available actions for that service. Actions are for service-specific setup helpers that do not belong in the shared command set.
-The Supabase action creates or inspects the local Edge Function secrets file
-without printing its values; a normal `make launch supabase` also creates the
-empty, usable file automatically.
+The Supabase API-key action prints only the client-safe publishable key and
+keeps all elevated keys hidden. The Functions action creates or inspects the
+local Edge Function secrets file without printing its values; a normal
+`make launch supabase` also creates the empty, usable file automatically.
 
 Generate local secrets manually:
 

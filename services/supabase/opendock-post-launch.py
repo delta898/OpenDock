@@ -126,15 +126,17 @@ SELECT json_build_object(
 def check_http(env):
     node_script = r"""
 const anon = process.env.SUPABASE_ANON_KEY;
+const publishable = process.env.SUPABASE_PUBLISHABLE_KEY;
 const base = process.env.SUPABASE_URL;
 const authenticatedHeaders = {
-  apikey: anon,
-  Authorization: `Bearer ${anon}`,
+  apikey: publishable,
+  Authorization: `Bearer ${publishable}`,
 };
 
 async function main() {
 const checks = [
   ['auth', `${base}/auth/v1/health`, { headers: authenticatedHeaders }],
+  ['jwks', `${base}/auth/v1/.well-known/jwks.json`, {}],
   ['rest', `${base}/rest/v1/`, { headers: authenticatedHeaders }],
   ['graphql', `${base}/graphql/v1`, {
     method: 'POST',
@@ -169,6 +171,13 @@ for (const [name, url, options] of checks) {
     const payload = JSON.parse(body);
     if (!payload.message) {
       throw new Error(`edge-function: unexpected response: ${body.slice(0, 200)}`);
+    }
+  }
+  if (name === 'jwks') {
+    const payload = JSON.parse(body);
+    const ecKeys = (payload.keys || []).filter(key => key.kty === 'EC' && key.alg === 'ES256');
+    if (ecKeys.length < 1 || ecKeys.some(key => key.d)) {
+      throw new Error(`jwks: missing public ES256 key or private material exposed`);
     }
   }
   results.push({ name, status: response.status });
@@ -221,6 +230,7 @@ def main():
         "SUPABASE_KONG_CONTAINER_NAME",
         "SUPABASE_EDGE_RUNTIME_CONTAINER_NAME",
         "SUPABASE_INBUCKET_CONTAINER_NAME",
+        "SUPABASE_PUBLISHABLE_KEY",
     ]
     missing = [name for name in required if not env.get(name)]
     if missing:
@@ -231,6 +241,7 @@ def main():
     check_database(env)
     check_http(env)
     print("Supabase is ready.")
+    print("Client API key: make action supabase api-keys")
     print_functions_secrets_notice()
     return 0
 
