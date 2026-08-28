@@ -7,6 +7,13 @@ that work into articles with BlogGenius. Treat the reasoning, failed attempts,
 tradeoffs, operational lessons, and user-facing outcomes as potential material,
 not only the final code.
 
+The durable backlog for these ideas is `docs/blog-seeds.md`. Read that file
+before proposing or recording a seed. At a natural checkpoint, update an
+existing entry with better evidence or add a new entry when the subject is
+distinct and substantial. The conversation suggestion is a short notification;
+the document is the detailed source of truth. Mention material backlog changes
+to the user, but do not turn every minor update into a blog suggestion.
+
 Proactively suggest blog seeds at a natural checkpoint even when the user does
 not explicitly request them. Good checkpoints include:
 
@@ -45,6 +52,24 @@ actual OpenDock work. Strong seeds usually include several of these elements:
 - verification status, operational cautions, and concrete usage commands;
 - a lesson applicable to other self-hosted or Docker-based projects.
 
+Entries in `docs/blog-seeds.md` should be detailed enough to prevent a generic
+article. For each seed, record:
+
+- a working topic and the specific reader question or angle;
+- the OpenDock-specific context, symptoms, attempts, decisions, and tradeoffs;
+- evidence such as related commits, files, commands, or generalized log clues;
+- what was verified locally, what the user verified in a real environment, and
+  what remains unverified;
+- concrete lessons and cautions that BlogGenius should preserve.
+
+Focus detail on our distinctive experience and reasoning. Do not spend many
+lines restating general Docker, Git, reverse-proxy, or Supabase background that
+BlogGenius can supply. Merge overlapping entries instead of creating several
+thin variations. Use backlog states `seed`, `ready`, `drafted`, and `published`;
+do not advance an entry beyond `seed` without the user's direction. When an
+article is drafted or published, preserve the seed and add its status and link
+instead of deleting the historical material.
+
 Maintain editorial and security discipline:
 
 - Do not invent events, test results, motivations, or lessons.
@@ -55,6 +80,8 @@ Maintain editorial and security discipline:
 - Do not frame an unresolved incident as a success story.
 - Keep titles and summaries distinct enough that each seed can become a useful
   standalone article; combine overlapping ideas instead of padding the list.
+- Treat commit messages as evidence pointers, not as complete history. Inspect
+  the relevant diff and documentation before recording detailed claims.
 - Respect the user's request to defer, shorten, or stop journal suggestions.
 
 Suggesting a seed does not authorize creating a full article, modifying a
