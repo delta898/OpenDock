@@ -1,8 +1,4 @@
-# Default n8n route for the home server stack.
-#
-# The default route is:
-#   {$N8N_SUBDOMAIN:n8n}.{$STACK_DOMAIN:localhost}
-
+# n8n proxy behavior for domain mappings.
 (n8n_proxy) {
     import common_proxy
     import security_headers
@@ -11,14 +7,4 @@
     reverse_proxy n8n:5678 {
         import forwarded_https
     }
-}
-
-# Cloudflare Tunnel origin or local HTTP testing.
-http://{$N8N_SUBDOMAIN:n8n}.{$STACK_DOMAIN:localhost} {
-    import n8n_proxy
-}
-
-# Direct HTTPS when exposing Caddy with port forwarding.
-https://{$N8N_SUBDOMAIN:n8n}.{$STACK_DOMAIN:localhost} {
-    import n8n_proxy
 }

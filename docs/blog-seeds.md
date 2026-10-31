@@ -331,3 +331,47 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     sync, UI mount 등 모든 이동 경로를 함께 점검해야 한다.
 - 검증 상태: dry-run/apply 명령과 제외 정책이 구현되어 있으며 Supabase
   Functions Secret example 포함·실파일 제외를 필터 테스트로 확인했다.
+
+## OD-011. 도메인 라우팅을 앱 종류와 분리한 OpenDock 설계
+
+- 상태: `seed`
+- 관련 이력: `codex/feature/multi-domain-static-sites`,
+  `scripts/opendock-domains.py`, `scripts/publish-cloudflare.py`,
+  `gateway/caddy/conf.d/`, `static-sites/`
+- 주제: `특정 정적 사이트 도구에 묶이지 않는 도메인 라우팅 설계`
+- 독자 질문: 한 서버에서 Docker 앱과 정적 파일 사이트를 여러 도메인으로
+  연결하면서 도메인·실행 방식·Gateway 설정을 어떻게 분리할 수 있는가?
+- 참고할 사항:
+  - 요구의 출발점은 이미 Docker WordPress를 쓰는 저사양 서버에 정적 사이트를
+    추가하고 기존 사이트와 다른 도메인으로 공개하는 것이었다. 첫 구현안은
+    Hugo 전용 설정으로 좁혀졌지만, 사용자가 요구를 “도메인별로 Docker 서비스나
+    일반 static 서비스를 연결하는 OpenDock spec”으로 일반화했다. 특정 생성
+    도구 대신 요구와 route target을 모델링한 판단을 중심으로 다룬다.
+  - 내부 구현은 `domains.conf` 한 행에 hostname과 Docker 서비스 또는 static
+    유형을 저장한다. `make setup`은 기본 도메인만 설정하고 hostname route는
+    `make route show/add/remove`로 관리한다.
+    `make launch <hostname>`이 신규 기본 UX이며, 서비스명 launch는 legacy다.
+    파일이 없으면 기존 `STACK_DOMAIN`·subdomain 기반 라우팅을 유지한다.
+  - 서비스별 Caddy 파일은 Docker upstream 동작을 정의하고,
+    `opendock-domains.py`가 호스트별 Caddy site block을 생성한다. static target은
+    Docker나 별도 웹서버 없이 Caddy가 read-only mount된
+    `static-sites/<hostname>/` 파일을 직접 전달한다.
+  - Cloudflare publishing은 hostname에 맞는 zone을 찾아 Tunnel ingress와 DNS를
+    동기화한다. route remove는 해당 Tunnel ingress만 제거하고 DNS는 현재 Tunnel
+    CNAME과 일치할 때만 지운다. Cloudflare 설정이 없으면 원격 정리는 건너뛴다.
+    한 Tunnel에 연결하는 zone들은 같은 account여야 하며 token에 각 zone 권한이
+    필요하다.
+  - `domains.conf`와 static web root는 host-owned 데이터로 보고 일반
+    `make sync`에서 제외한다. 코드 배포 rsync가 원격 route 설정이나 사이트
+    파일을 `--delete`로 지우지 않도록 한 경계다. 정적 콘텐츠는 서버에 별도로
+    배포한다.
+- 보존할 교훈:
+  - 사용자 예시는 요구를 설명하지만 예시에 등장한 런타임이나 도구를 제품 계약에
+    고정할 이유는 없다. 도메인과 route target을 먼저 모델링하면 Docker 앱과
+    static 파일을 한 Gateway에서 일관되게 다룰 수 있다.
+  - 자동 생성 설정은 기존 기본 동작을 보존하는 경로와 명시적 편집을 시작하는
+    전환점을 함께 제공해야 한다.
+- 검증 상태: hostname 중심 CLI와 문서 변경은
+  `codex/feature/multi-domain-static-sites`에서 진행 중이다. `make help`와
+  `git diff --check`는 확인했지만 테스트나 Caddy 설정 검증을 실행하지 않았으며,
+  로컬 runtime 및 실제 Cloudflare zone/Tunnel 경로는 아직 검증되지 않았다.

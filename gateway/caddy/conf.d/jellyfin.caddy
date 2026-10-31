@@ -1,8 +1,4 @@
-# Default Jellyfin route for the home server stack.
-#
-# The default route is:
-#   {$JELLYFIN_SUBDOMAIN:media}.{$STACK_DOMAIN:localhost}
-
+# Jellyfin proxy behavior for domain mappings.
 (jellyfin_proxy) {
     import common_proxy
     import security_headers
@@ -11,14 +7,4 @@
     reverse_proxy jellyfin:8096 {
         import forwarded_https
     }
-}
-
-# Cloudflare Tunnel origin or local HTTP testing.
-http://{$JELLYFIN_SUBDOMAIN:media}.{$STACK_DOMAIN:localhost} {
-    import jellyfin_proxy
-}
-
-# Direct HTTPS when exposing Caddy manually.
-https://{$JELLYFIN_SUBDOMAIN:media}.{$STACK_DOMAIN:localhost} {
-    import jellyfin_proxy
 }

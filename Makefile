@@ -2,11 +2,14 @@ ROOT := $(CURDIR)
 GROUPS_FILE := $(ROOT)/services/groups.conf
 CHECKED_COMMANDS := up restart start build config
 UNCHECKED_COMMANDS := down stop ps pull
-COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch setup secrets action wp-multisite sync sync-dry-run
+COMMANDS := list check-config $(CHECKED_COMMANDS) $(UNCHECKED_COMMANDS) logs publish launch setup secrets action wp-multisite sync sync-dry-run route
 COMMAND := $(firstword $(MAKECMDGOALS))
 REQUESTED_TARGET := $(word 2,$(MAKECMDGOALS))
 TARGET := $(if $(REQUESTED_TARGET),$(REQUESTED_TARGET),$(if $(filter config ps,$(COMMAND)),all))
 ACTION := $(word 3,$(MAKECMDGOALS))
+ROUTE_ACTION := $(word 2,$(MAKECMDGOALS))
+ROUTE_ARG1 := $(word 3,$(MAKECMDGOALS))
+ROUTE_ARG2 := $(word 4,$(MAKECMDGOALS))
 
 -include .sync.env
 .EXPORT_ALL_VARIABLES:
@@ -19,12 +22,12 @@ help:
 		"" \
 		"Quick start:" \
 		"  make setup                     Create/review local config and generate secrets" \
-		"  make launch [target]           Recommended: prepare, start, check, and publish" \
+		"  make launch <hostname>         Recommended: start and publish one hostname" \
 		"  make list                      Show every discovered service and group" \
 		"" \
 		"Target syntax:" \
-		"  [target]  optional; omitted means all where supported" \
-		"  <target>  required" \
+		"  launch target is a hostname; service names remain legacy-compatible" \
+		"  Other lifecycle commands use service/group targets as documented" \
 		"  <service> one services/<name>/compose.yml project (example: supabase)" \
 		"  <group>   purpose-based alias from services/groups.conf (example: media)" \
 		"  services  every application service; excludes infra and gateway" \
@@ -40,7 +43,8 @@ help:
 		"  make secrets [target]          Generate only missing passwords and keys" \
 		"" \
 		"Start and lifecycle:" \
-		"  make launch [target]           Starts infra, target, service hooks, gateway, and routes" \
+		"  make launch <hostname>         Start/publish one hostname (Docker or static)" \
+		"  make launch <service>          Compatibility: launch a service by name" \
 		"  make up <target>               Compose up/create/recreate; no prerequisites or publishing" \
 		"  make start <target>            Start existing stopped containers" \
 		"  make restart <target>          Restart existing containers; does not apply env/config changes" \
@@ -57,7 +61,9 @@ help:
 		"" \
 		"Routing and publishing:" \
 		"  make publish [target]          Sync/print routes only; does not start containers" \
-		"  make launch [target]           Start and publish in one workflow" \
+		"  make route show [hostname]     Show hostname-to-service routes" \
+		"  make route add <host> <service|static> Add a service or static site" \
+		"  make route remove <hostname>  Remove route and matching Cloudflare entries" \
 		"" \
 		"Service-specific actions:" \
 		"  make action <service>          List actions available for that service" \
@@ -73,8 +79,7 @@ help:
 		"  make sync <name>               Apply rsync to the named remote" \
 		"" \
 		"Common examples:" \
-		"  make launch supabase           Launch one service with prerequisites" \
-		"  make launch media              Launch the Immich + Jellyfin group" \
+		"  make launch blog.example.com   Launch one hostname" \
 		"  make logs wordpress            Follow WordPress logs" \
 		"  make ps all                    Show status across the whole stack" \
 		"" \
@@ -148,6 +153,9 @@ run_compose() { \
 	test -f "$(ROOT)/common.env" || { printf '%s\n' "Missing required file: common.env" "" "To continue:" "  cp common.env.example common.env" "  nano common.env" "  make check-config"; exit 1; }; \
 	env_files="--env-file $(ROOT)/common.env"; \
 	if [ -f "$$dir/.env" ]; then env_files="$$env_files --env-file $$dir/.env"; fi; \
+	if [ "$$compose_target" = gateway ] && { [ "$$1" = up ] || [ "$$1" = start ] || [ "$$1" = restart ]; }; then \
+		python3 "$(ROOT)/scripts/opendock-domains.py" render || exit $$?; \
+	fi; \
 	docker compose --project-directory "$$dir" $$env_files -f "$$dir/compose.yml" -p "$$compose_target" "$$@"; \
 }; run_compose
 endef
@@ -166,6 +174,7 @@ endef
 
 define reload_gateway
 	if [ -f "$(ROOT)/gateway/compose.yml" ]; then \
+		python3 "$(ROOT)/scripts/opendock-domains.py" render || exit $$?; \
 		if docker ps --format '{{.Names}}' | grep -qx caddy; then \
 			echo "==> gateway: caddy reload"; \
 			docker exec caddy caddy reload --config /etc/caddy/Caddyfile || exit $$?; \
@@ -173,6 +182,13 @@ define reload_gateway
 			echo "==> gateway: docker compose up"; \
 			$(call compose_cmd) "gateway" up -d || exit $$?; \
 		fi; \
+	fi
+endef
+
+define ensure_shared_network
+	if ! docker network inspect shared-net >/dev/null 2>&1; then \
+		echo "==> network: create shared-net"; \
+		docker network create shared-net >/dev/null || exit $$?; \
 	fi
 endef
 
@@ -301,9 +317,41 @@ publish:
 	if [ -z "$$target" ]; then target="all"; fi; \
 	"$(ROOT)/scripts/publish-cloudflare.sh" "$$target"
 
+route:
+	@case "$(ROUTE_ACTION)" in \
+		show) python3 "$(ROOT)/scripts/opendock-domains.py" list "$(ROUTE_ARG1)" ;; \
+		add) python3 "$(ROOT)/scripts/opendock-domains.py" add "$(ROUTE_ARG1)" "$(ROUTE_ARG2)" ;; \
+		remove) python3 "$(ROOT)/scripts/opendock-domains.py" lookup "$(ROUTE_ARG1)" >/dev/null && python3 "$(ROOT)/scripts/publish-cloudflare.py" remove "$(ROUTE_ARG1)" && python3 "$(ROOT)/scripts/opendock-domains.py" remove "$(ROUTE_ARG1)" && python3 "$(ROOT)/scripts/opendock-domains.py" render && if docker ps --format '{{.Names}}' | grep -qx caddy; then docker exec caddy caddy reload --config /etc/caddy/Caddyfile; else echo "Caddy is not running; updated route config will apply when it starts."; fi ;; \
+		*) printf '%s\n' "Usage: make route show [hostname] | add <hostname> <service|static> | remove <hostname>"; exit 1 ;; \
+	esac
+
 launch:
 	@launch_target="$(TARGET)"; \
 	if [ -z "$$launch_target" ]; then launch_target="all"; fi; \
+	route_info=$$(python3 "$(ROOT)/scripts/opendock-domains.py" lookup "$$launch_target" 2>/dev/null || true); \
+	if [ -n "$$route_info" ]; then \
+		route_type=$${route_info%%:*}; route_service=$${route_info#*:}; \
+		if [ "$$route_type" = static ]; then \
+			web_root="$(ROOT)/static-sites/$$route_service"; mkdir -p "$$web_root"; \
+			echo "Static site: $$launch_target"; echo "Web root: $$web_root/"; \
+			echo "Place the site's files there. Caddy and Cloudflare routing will now be applied."; \
+			$(call ensure_shared_network); \
+			$(MAKE) --no-print-directory up gateway || exit $$?; \
+			$(call reload_gateway) || exit $$?; \
+			"$(ROOT)/scripts/publish-cloudflare.sh" "$$launch_target"; \
+		else \
+			launch_target="$$route_service"; \
+			$(MAKE) --no-print-directory up infra || exit $$?; \
+			$(MAKE) --no-print-directory up "$$launch_target" || exit $$?; \
+			$(call run_post_launch_hooks,$$launch_target); \
+			$(call reload_gateway) || exit $$?; \
+			"$(ROOT)/scripts/publish-cloudflare.sh" "$(TARGET)"; \
+		fi; \
+	elif printf '%s' "$(TARGET)" | grep -q '\.'; then \
+		echo "No route is configured for hostname: $(TARGET)"; \
+		echo "Add one with: make route add $(TARGET) <service|static>"; exit 1; \
+	else \
+	python3 "$(ROOT)/scripts/opendock-domains.py" legacy-check "$(TARGET)" || exit $$?; \
 	if [ "$$launch_target" != "all" ] && [ "$$launch_target" != "infra" ]; then \
 		echo "==> infra: launch prerequisite"; \
 		$(MAKE) --no-print-directory up infra || exit $$?; \
@@ -313,7 +361,8 @@ launch:
 	if [ "$$launch_target" != "infra" ]; then \
 		$(call reload_gateway); \
 	fi; \
-	$(MAKE) --no-print-directory publish "$$launch_target" || exit $$?
+	$(MAKE) --no-print-directory publish "$$launch_target" || exit $$?; \
+	fi
 
 setup:
 	@target="$(TARGET)"; \
@@ -351,6 +400,9 @@ sync sync-dry-run:
 		--exclude=".git/" \
 		--exclude=".sync.env" \
 		--exclude="common.env" \
+		--exclude="domains.conf" \
+		--exclude="gateway/caddy/conf.d/zz-opendock-routes.caddy" \
+		--exclude="static-sites/" \
 		--include="common.env.example" \
 		--exclude="cloudflare.env" \
 		--include="cloudflare.env.example" \

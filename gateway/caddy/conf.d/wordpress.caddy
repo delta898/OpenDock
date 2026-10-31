@@ -1,7 +1,4 @@
-# Default WordPress route for the home server stack.
-#
-# The default route is:
-#   {$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost}
+# WordPress upstream behavior. Hostname bindings are generated from domains.conf.
 
 (wordpress_proxy) {
     import common_proxy
@@ -16,14 +13,4 @@
     reverse_proxy wordpress:80 {
         import forwarded_https
     }
-}
-
-# Cloudflare Tunnel origin or local HTTP testing.
-http://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
-    import wordpress_proxy
-}
-
-# Direct HTTPS when exposing Caddy with port forwarding.
-https://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
-    import wordpress_proxy
 }

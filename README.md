@@ -2,7 +2,7 @@
 
 A Docker Compose based home server stack with sensible defaults, Caddy routing, and Cloudflare Tunnel publishing.
 
-The goal is simple: set one main domain, run one command, and get a small but useful home server online.
+The goal is simple: set a default domain, run one command, and get a small but useful home server online.
 
 OpenDock assumes Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy runs as the internal gateway for routing Cloudflare Tunnel origin traffic to Docker services.
 
@@ -47,12 +47,12 @@ For a typical Cloudflare Tunnel setup:
 3. Create a Cloudflare Tunnel and connect it to your home server.
 4. Create a Cloudflare API token.
 5. Run the Ubuntu bootstrap script.
-6. Copy example env files to real local env files.
-7. Edit the required domain config.
-8. Edit optional Cloudflare config: API token and tunnel ID.
-9. Run `make launch`.
+6. Run `make setup` to configure the primary domain and generate secrets.
+7. Configure optional Cloudflare credentials in `cloudflare.env`.
+8. Run `make launch <hostname>` (for example, `make launch blog.example.com`).
 
-After that, Docker services are started, Cloudflare routes are synced, DNS records are prepared, and public URLs are printed.
+That hostname's Docker service is started (or its static route is applied),
+Cloudflare is synced when configured, and the public URL is printed.
 
 ## Quick Start
 
@@ -148,16 +148,50 @@ N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
 
-Start the stack:
+The default route list uses these subdomains under `STACK_DOMAIN`. Start a
+service by its public hostname. Add extra hostnames with `make route`:
 
 ```sh
-make launch
+make route show
+make route add blog2.example.com wordpress
+make route add docs.example.org static
+make launch docs.example.org
+make route remove docs.example.org
 ```
 
-`make launch` starts the Docker services and then publishes public routes if `cloudflare.env` exists. When launching one service, it also starts `infra` first so the shared Docker network and shared infrastructure are ready:
+Docker targets use their service name. Static routes serve files from
+`static-sites/<hostname>/`; OpenDock creates that directory when the route is
+added. Caddy serves files directly without a separate runtime. `make launch
+<hostname>` starts the mapped Docker service or, for a static route, prints the
+web root and applies Caddy plus Cloudflare routing. The user places static
+content in the printed directory. All mapped Cloudflare zones must belong to
+the Tunnel's account, and the API token needs access to each zone.
+
+`make route remove <hostname>` removes that route from OpenDock and Caddy and,
+when Cloudflare credentials are configured, removes the Tunnel entry plus only
+a DNS CNAME pointing to this Tunnel. Unrelated DNS records are preserved.
+Static files are preserved. `make launch <service>` is
+still supported for compatibility; prefer hostname-based launch for new usage.
+
+`domains.conf` and `static-sites/` are host-owned configuration and content, so
+the general `make sync` code deployment preserves them on the remote server.
+Create the route map and deploy static files on the server.
+
+Start the default WordPress hostname (replace the domain with the value from
+`make setup`):
 
 ```sh
-make launch wordpress
+make launch blog.primary.com
+```
+
+`make launch <hostname>` starts the mapped Docker service, reloads Caddy, and
+publishes the hostname if `cloudflare.env` exists. For a static route, it prints
+the web root and applies routing without starting a Docker service. The legacy
+`make launch <service>` form remains available for compatibility.
+
+```sh
+make route add docs.primary.com static
+make launch docs.primary.com
 ```
 
 Before starting services, OpenDock fills generated secrets and checks `common.env` for required values. This helps catch missing external settings after `git pull` adds a new service.
@@ -195,7 +229,7 @@ Then run:
 make publish
 ```
 
-`make publish` uses `STACK_DOMAIN` to find the Cloudflare zone and account automatically. It then:
+`make publish` locates the Cloudflare zone containing each configured hostname. It then:
 
 - adds or updates Cloudflare Tunnel public hostnames
 - creates missing DNS CNAME records
@@ -215,6 +249,7 @@ chat.<your-domain>    -> http://localhost:80
 supabase.<your-domain> -> http://localhost:80
 n8n.<your-domain>     -> http://localhost:80
 uptime.<your-domain>  -> http://localhost:80
+<any-mapped-domain>   -> http://localhost:80
 ```
 
 Set each Cloudflare Tunnel public hostname's Service URL to `http://localhost:80`. Public users should still open `https://<service>.<your-domain>`.
@@ -319,18 +354,23 @@ make publish n8n
 make publish media
 ```
 
-Start and publish:
+Hostname-first launch:
 
 ```sh
-make launch
-make launch services
-make launch homepage
+make launch blog.example.com
+make route add docs.example.com static
+make launch docs.example.com
+```
+
+The legacy service/group form remains available for compatibility:
+
+```sh
 make launch wordpress
-make launch mattermost
 make launch media
 ```
 
-`make launch <target>` is the higher-level workflow: it prepares `infra` when needed, starts the target, reloads or starts the gateway, and publishes the target routes.
+Prefer hostnames for new usage. A legacy service launch fails if that service
+maps to multiple hostnames; launch the intended hostname instead.
 
 Service groups are defined in `services/groups.conf`. Groups are convenience aliases for multiple services, for example `media` expands to Immich and Jellyfin. Use `make list groups` to see the available groups.
 

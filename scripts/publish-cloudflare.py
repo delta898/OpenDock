@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import importlib.util
 import os
 import re
 import sys
@@ -18,6 +19,11 @@ COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 CLOUDFLARE_ENV = ROOT_DIR / "cloudflare.env"
 ORIGIN_SERVICE_URL = os.environ.get("ORIGIN_SERVICE_URL", "http://localhost:80")
 API_BASE = "https://api.cloudflare.com/client/v4"
+DOMAIN_SPEC = importlib.util.spec_from_file_location(
+    "opendock_domains", ROOT_DIR / "scripts" / "opendock-domains.py"
+)
+DOMAINS = importlib.util.module_from_spec(DOMAIN_SPEC)
+DOMAIN_SPEC.loader.exec_module(DOMAINS)
 
 
 def parse_env_file(path):
@@ -114,31 +120,71 @@ def build_routes(env, services):
     stack_domain = env.get("STACK_DOMAIN", "").strip()
     if not stack_domain:
         raise SystemExit("Missing STACK_DOMAIN in common.env")
-
-    routes = []
-    for service in services:
-        subdomain = service_subdomain(env, service).strip()
-        if not subdomain:
-            continue
-        routes.append(
-            {
-                "service": service,
-                "subdomain": subdomain,
-                "hostname": f"{subdomain}.{stack_domain}",
-                "origin": ORIGIN_SERVICE_URL,
-            }
-        )
-
+    resolved = DOMAINS.resolve_routes()
+    DOMAINS.render_routes(resolved)
+    if TARGET in ("all", "services", "gateway"):
+        selected = resolved
+    elif any(route["hostname"] == TARGET for route in resolved):
+        selected = [route for route in resolved if route["hostname"] == TARGET]
+    else:
+        services = set(services)
+        selected = [
+            route for route in resolved
+            if route["type"] == "docker" and route["target"] in services
+        ]
+    routes = [
+        {"service": route["target"], "type": route["type"], "hostname": route["hostname"], "origin": ORIGIN_SERVICE_URL}
+        for route in selected
+    ]
     return stack_domain, routes
+
+
+def remove_cloudflare_route(hostname):
+    """Remove only this hostname's Tunnel rule and its Tunnel CNAME, if present."""
+    env = load_env()
+    if not CLOUDFLARE_ENV.exists():
+        print("cloudflare.env not found; skipped Cloudflare cleanup.")
+        return
+    cf_env = dict(env)
+    cf_env.update(parse_env_file(CLOUDFLARE_ENV))
+    required_cloudflare_env(cf_env)
+    client = CloudflareClient(cf_env["CLOUDFLARE_API_TOKEN"])
+    zone = lookup_zone(client, hostname)
+    account_id = zone["account_id"]
+    tunnel_id = cf_env["CLOUDFLARE_TUNNEL_ID"]
+    path = f"/accounts/{account_id}/cfd_tunnel/{tunnel_id}/configurations"
+    result = client.request("GET", path) or {}
+    config = dict(result.get("config") or {})
+    ingress = list(config.get("ingress") or [])
+    kept = [rule for rule in ingress if rule.get("hostname") != hostname]
+    if len(kept) != len(ingress):
+        if not any(not rule.get("hostname") for rule in kept):
+            kept.append({"service": "http_status:404"})
+        config["ingress"] = kept
+        client.request("PUT", path, {"config": config})
+        print(f"Removed Tunnel route: {hostname}")
+    else:
+        print(f"Tunnel route not found: {hostname}")
+
+    records = client.request(
+        "GET", f"/zones/{zone['zone_id']}/dns_records", query={"name": hostname}
+    ) or []
+    expected = f"{tunnel_id}.cfargotunnel.com"
+    for record in records:
+        if record.get("type") == "CNAME" and record.get("content") == expected:
+            client.request("DELETE", f"/zones/{zone['zone_id']}/dns_records/{record['id']}")
+            print(f"Removed Tunnel DNS record: {hostname}")
+        else:
+            print(f"Preserved unrelated DNS record for {hostname}: {record.get('type')} {record.get('content')}")
 
 
 def print_publish_plan(stack_domain, routes):
     print(f"Publish target: {TARGET}")
-    print(f"Stack domain: {stack_domain}")
+    print(f"Default domain: {stack_domain}")
     print()
 
     if not routes:
-        print(f"No publishable services for target: {TARGET}")
+        print(f"No public routes for target: {TARGET}")
         return
 
     print("Public routes:")
@@ -190,19 +236,23 @@ def required_cloudflare_env(env):
         raise SystemExit(f"cloudflare.env is present but missing: {' '.join(missing)}")
 
 
-def lookup_zone(client, stack_domain):
-    zones = client.request("GET", "/zones", query={"name": stack_domain}) or []
-    exact_matches = [zone for zone in zones if zone.get("name") == stack_domain]
-
-    if not exact_matches:
+def lookup_zone(client, hostname):
+    labels = hostname.rstrip(".").split(".")
+    for offset in range(len(labels) - 1):
+        candidate = ".".join(labels[offset:])
+        zones = client.request("GET", "/zones", query={"name": candidate}) or []
+        exact_matches = [zone for zone in zones if zone.get("name") == candidate]
+        if exact_matches:
+            break
+    else:
         raise SystemExit(
-            f"Could not find Cloudflare zone for STACK_DOMAIN={stack_domain}. "
+            f"Could not find a Cloudflare zone containing hostname {hostname}. "
             "Make sure the domain is added to Cloudflare and the token can read zones."
         )
 
     if len(exact_matches) > 1:
         raise SystemExit(
-            f"Found multiple Cloudflare zones for STACK_DOMAIN={stack_domain}. "
+            f"Found multiple Cloudflare zones for {candidate}. "
             "This is unexpected; narrow the token scope or check the account."
         )
 
@@ -333,8 +383,16 @@ def print_statuses(title, statuses):
 
 
 def main():
+    if TARGET == "remove":
+        if len(sys.argv) != 3:
+            raise SystemExit("Usage: publish-cloudflare.py remove <hostname>")
+        remove_cloudflare_route(sys.argv[2].rstrip(".").lower())
+        return
     env = load_env()
-    services = target_services(TARGET)
+    is_hostname = any(
+        route["hostname"] == TARGET for route in DOMAINS.resolve_routes()
+    )
+    services = [] if is_hostname else target_services(TARGET)
     stack_domain, routes = build_routes(env, services)
     print_publish_plan(stack_domain, routes)
 
@@ -348,7 +406,7 @@ def main():
     cf_env.update(env)
     cf_env.update(parse_env_file(CLOUDFLARE_ENV))
 
-    if stack_domain == "example.com":
+    if stack_domain == "example.com" and any(route["hostname"].endswith(".example.com") for route in routes):
         raise SystemExit(
             "\nRefusing to sync Cloudflare with STACK_DOMAIN=example.com.\n"
             "Set your real domain in common.env first."
@@ -365,23 +423,45 @@ def main():
 
     print()
     print("Syncing Cloudflare...")
-    zone = lookup_zone(client, stack_domain)
-    print(f"Cloudflare zone: {zone['zone_name']}")
+    zones_by_hostname = {
+        route["hostname"]: lookup_zone(client, route["hostname"]) for route in routes
+    }
+    account_ids = {zone["account_id"] for zone in zones_by_hostname.values()}
+    if len(account_ids) != 1:
+        raise SystemExit(
+            "All Cloudflare zones used by one OpenDock Tunnel must belong to the same account."
+        )
+    for zone in {zone["zone_name"]: zone for zone in zones_by_hostname.values()}.values():
+        print(f"Cloudflare zone: {zone['zone_name']}")
 
-    tunnel_statuses = sync_tunnel(client, zone["account_id"], cf_env, routes)
-    dns_statuses = sync_dns(client, zone["zone_id"], cf_env, routes)
+    tunnel_statuses = sync_tunnel(client, account_ids.pop(), cf_env, routes)
+    dns_statuses = []
+    for route in routes:
+        zone = zones_by_hostname[route["hostname"]]
+        dns_statuses.extend(sync_dns(client, zone["zone_id"], cf_env, [route]))
 
     print()
     print_statuses("Tunnel routes:", tunnel_statuses)
     print()
     print_statuses("DNS records:", dns_statuses)
 
-    conflicts = [status for _, status in dns_statuses if status.startswith("conflict")]
+    conflicts = [
+        (hostname, status)
+        for hostname, status in dns_statuses
+        if status.startswith("conflict")
+    ]
     if conflicts:
-        raise SystemExit(
-            "\nSome DNS records already exist with different values. "
-            "Review them in Cloudflare before rerunning publish."
+        expected_target = f"{cf_env['CLOUDFLARE_TUNNEL_ID']}.cfargotunnel.com"
+        print("\nCloudflare Tunnel routes were synced, but conflicting DNS records were left unchanged.")
+        for hostname, status in conflicts:
+            print(f"  {hostname}: {status}")
+        print(
+            "If these hostnames should point to OpenDock, update or remove only "
+            "the conflicting DNS records in Cloudflare."
         )
+        print(f"Expected CNAME target: {expected_target} (proxied)")
+        print("Then rerun: make launch <hostname>")
+        raise SystemExit(1)
 
     print()
     print("Open:")

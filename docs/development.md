@@ -6,10 +6,11 @@ This document describes the conventions used by OpenDock. It is intended for mai
 
 - Services should be easy to start from the repository root.
 - Adding a service should not require editing the Makefile.
-- A single `STACK_DOMAIN` should produce predictable service hostnames.
+- `STACK_DOMAIN` should produce predictable default hostnames; `domains.conf` can map any hostname to a service or static directory.
 - Public routes should be discoverable from repository structure.
 - Cloudflare Tunnel is the default public exposure layer.
-- Beginner-facing setup should stay small: `common.env`, optional `cloudflare.env`, then `make launch`.
+- Beginner-facing setup should stay small: `make setup`, then
+  `make launch <hostname>`; Cloudflare is optional.
 
 ## Ubuntu Bootstrap
 
@@ -126,7 +127,12 @@ Group names are target aliases for multiple services. They are supported by setu
 
 `setup` is the interactive OpenDock setup workflow. It creates `common.env` when missing, asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and backs up `common.env` before mutation.
 
-`launch` is a higher-level workflow. For `all`, it starts every target in order. For a single service, `services`, or `gateway`, it first starts `infra` so the external `shared-net` network exists, then starts the requested target, reloads or starts Caddy, and publishes matching routes.
+`launch <hostname>` is the primary workflow. It resolves exactly one route,
+starts `infra` and the mapped Docker service when the route is Docker-backed, or
+creates only the shared Docker network for a static route (not the database
+containers), then reloads/starts Caddy and publishes that hostname. The legacy service/group form remains supported; a service-name
+launch must fail before starting containers if that service maps to multiple
+hostnames. `launch all` remains the compatibility workflow for the full stack.
 
 After starting services, `launch` runs service-owned post-launch hooks named `services/<service>/opendock-post-launch.py` when present. Keep service-specific bootstrap logic inside those service directories instead of adding new top-level Make targets.
 
@@ -209,7 +215,8 @@ Mail setup rules:
 
 ## Domain Convention
 
-The stack assumes one main domain:
+The stack uses one default domain to derive service hostnames until a custom
+route map is initialized:
 
 ```env
 STACK_DOMAIN=example.com
@@ -241,7 +248,19 @@ uptime-kuma -> UPTIME_KUMA_SUBDOMAIN
 wordpress   -> WORDPRESS_SUBDOMAIN
 ```
 
-If a subdomain variable is absent, publish automation falls back to the service directory name.
+If a subdomain variable is absent, the default route generator falls back to the service directory name.
+
+`make setup` configures the primary domain and does not ask about optional
+routes. Users manage hostname mappings with `make route show`,
+`make route add <hostname> <service|static>`, and
+`make route remove <hostname>`. `make launch <hostname>` starts the mapped
+Docker service or applies a static route. Static roots use
+`static-sites/<hostname>/` and are served directly by Caddy. Cloudflare
+publishing locates the zone containing each hostname. All zones used by one
+Tunnel must be in the same Cloudflare account, and the API token needs DNS
+permissions for each zone. The legacy `make launch <service>` form remains
+available; if that service has multiple hostnames, it fails with hostname
+commands to avoid ambiguity.
 
 ## Caddy Route Convention
 
@@ -260,7 +279,9 @@ services/<service-name>/compose.yml
 gateway/caddy/conf.d/<service-name>.caddy
 ```
 
-The Caddy route should use the shared domain convention and the reusable snippets from `global.caddy`:
+Each service Caddy file defines a reusable upstream snippet. Hostname site blocks
+are generated from `domains.conf` (or the default domain convention when that
+file is absent):
 
 ```caddy
 (service_proxy) {
@@ -271,16 +292,9 @@ The Caddy route should use the shared domain convention and the reusable snippet
     reverse_proxy service:port
 }
 
-http://{$SERVICE_SUBDOMAIN:service}.{$STACK_DOMAIN:localhost} {
-    import service_proxy
-}
-
-https://{$SERVICE_SUBDOMAIN:service}.{$STACK_DOMAIN:localhost} {
-    import service_proxy
-}
 ```
 
-The HTTP block supports Cloudflare Tunnel origin traffic. The HTTPS block keeps direct TLS routing possible for advanced manual setups.
+The generated file creates both HTTP and HTTPS host blocks for every mapping.
 
 Caddy globally disables automatic HTTP-to-HTTPS redirects. Cloudflare Tunnel uses `http://localhost:80` as its origin, and origin-side HTTPS redirects can create redirect loops. Public browser HTTP-to-HTTPS redirects are expected to happen at Cloudflare.
 
@@ -288,14 +302,16 @@ For direct Caddy exposure without Cloudflare Tunnel, remove the `auto_https disa
 
 ## Publish Discovery
 
-`make publish` publishes only services that have both:
+When `domains.conf` is absent, `make publish` discovers Docker services that have both:
 
 ```text
 services/<service-name>/compose.yml
 gateway/caddy/conf.d/<service-name>.caddy
 ```
 
-This keeps the publish list structure-driven and avoids service mappings in scripts or the Makefile.
+The internal route map connects hostnames to Docker services or the matching
+`static-sites/<hostname>/` root. Users manage it with `make route` commands and
+Cloudflare publishing follows the resolved route list.
 
 ## Cloudflare Sync
 
@@ -317,7 +333,8 @@ CLOUDFLARE_API_TOKEN=
 CLOUDFLARE_TUNNEL_ID=
 ```
 
-The script uses `STACK_DOMAIN` to look up the Cloudflare zone and account automatically.
+The script locates the Cloudflare zone containing each service hostname. When
+multiple zones are used, they must belong to the account that owns the Tunnel.
 
 Sync behavior:
 

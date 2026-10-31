@@ -3,6 +3,7 @@ import os
 import base64
 import hashlib
 import hmac
+import importlib.util
 import json
 import re
 import sys
@@ -14,6 +15,11 @@ from opendock_groups import group_services, validate_services
 ROOT_DIR = Path(__file__).resolve().parents[1]
 COMMON_ENV = ROOT_DIR / "common.env"
 COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
+DOMAIN_SPEC = importlib.util.spec_from_file_location(
+    "opendock_domains", ROOT_DIR / "scripts" / "opendock-domains.py"
+)
+DOMAINS = importlib.util.module_from_spec(DOMAIN_SPEC)
+DOMAIN_SPEC.loader.exec_module(DOMAINS)
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
 QUIET = os.environ.get("CHECK_CONFIG_QUIET") == "1"
 ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -380,7 +386,13 @@ def main():
     example_values = parse_env_file(COMMON_ENV_EXAMPLE)
     targets = resolve_targets(TARGET)
     results = [check_target(target, common_values, example_values) for target in targets]
-    return print_results(results)
+    failed = print_results(results)
+    try:
+        DOMAINS.resolve_routes()
+    except SystemExit as error:
+        print(f"Domain route configuration: {error}")
+        failed = 1
+    return failed
 
 
 if __name__ == "__main__":

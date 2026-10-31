@@ -1,8 +1,4 @@
-# Default Homepage route for the home server stack.
-#
-# The default route is:
-#   {$HOMEPAGE_SUBDOMAIN:home}.{$STACK_DOMAIN:localhost}
-
+# Homepage proxy behavior for domain mappings.
 (homepage_proxy) {
     import common_proxy
     import security_headers
@@ -11,14 +7,4 @@
     reverse_proxy homepage:3000 {
         import forwarded_https
     }
-}
-
-# Cloudflare Tunnel origin or local HTTP testing.
-http://{$HOMEPAGE_SUBDOMAIN:home}.{$STACK_DOMAIN:localhost} {
-    import homepage_proxy
-}
-
-# Direct HTTPS when exposing Caddy with port forwarding.
-https://{$HOMEPAGE_SUBDOMAIN:home}.{$STACK_DOMAIN:localhost} {
-    import homepage_proxy
 }

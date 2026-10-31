@@ -12,3 +12,9 @@ backups/common-env/
 
 # User-provided Supabase Edge Function secrets. Keep the example in Git.
 services/supabase/functions.env
+
+# Per-host route configuration and static web roots.
+/domains.conf
+/gateway/caddy/conf.d/zz-opendock-routes.caddy
+/static-sites/*/**
+!/static-sites/*/README.md

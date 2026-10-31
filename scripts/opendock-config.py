@@ -382,7 +382,7 @@ def main():
                 chosen[field.name] = result
 
     generate_keys = values_to_generate(fields, values, chosen)
-    generated = SECRETS.generate_values(generate_keys)
+    generated = SECRETS.generate_values(generate_keys, values)
     for field in fields:
         if (
             field.kind == "initial-credential"

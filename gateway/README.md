@@ -10,8 +10,8 @@ This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudf
 make up gateway
 ```
 
-The default WordPress, Nextcloud, Immich, Jellyfin, n8n, Uptime Kuma, and Homepage routes are active under `caddy/conf.d/`.
-Reference snippets can live next to real route files with the `.caddy.example` suffix.
+The default WordPress, Nextcloud, Immich, Jellyfin, n8n, Uptime Kuma, and Homepage routes are generated from `STACK_DOMAIN` and the service subdomains when `domains.conf` is absent.
+Reference snippets can live next to service route files with the `.caddy.example` suffix.
 
 ## Layout
 
@@ -33,15 +33,13 @@ caddy/
 - `Caddyfile` loads all `conf.d/*.caddy` files.
 - Automatic HTTP-to-HTTPS redirects are disabled globally so Cloudflare Tunnel can use `http://localhost:80` as the origin without redirect loops.
 - `global.caddy` contains reusable snippets.
-- `conf.d/homepage.caddy` is the default Homepage route.
-- `conf.d/immich.caddy` is the default Immich route.
-- `conf.d/jellyfin.caddy` is the default Jellyfin route.
-- `conf.d/wordpress.caddy` is the default WordPress route.
-- `conf.d/nextcloud.caddy` is the default Nextcloud route.
-- `conf.d/n8n.caddy` is the default n8n route.
-- `conf.d/uptime-kuma.caddy` is the default Uptime Kuma route.
+- Per-service `conf.d/<service>.caddy` files define proxy behavior for Docker services.
+- `conf.d/zz-opendock-routes.caddy` is generated from `domains.conf` and should not be edited.
 - `*.caddy.example` files are reference snippets and are not loaded by Caddy.
-- Additional site-specific reverse proxy files can be added as `conf.d/<domain>.caddy`.
+
+The per-service Caddy files define reusable proxy snippets. Caddy host blocks
+are generated from `domains.conf`; the route examples below illustrate the
+resulting host-to-upstream behavior.
 
 ## WordPress Route
 
@@ -61,11 +59,11 @@ The repository includes `caddy/conf.d/wordpress.caddy` as the active WordPress r
     reverse_proxy wordpress:80
 }
 
-http://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
+http://blog.example.com {
     import wordpress_proxy
 }
 
-https://{$WORDPRESS_SUBDOMAIN:blog}.{$STACK_DOMAIN:localhost} {
+https://blog.example.com {
     import wordpress_proxy
 }
 ```
@@ -83,7 +81,17 @@ STACK_DOMAIN=example.com
 WORDPRESS_SUBDOMAIN=blog
 ```
 
-The upstream container must be connected to `shared-net`.
+Hostname bindings are managed centrally in the internal route map; the
+WordPress proxy behavior remains in this file. Use
+`make route add <hostname> wordpress`, then `make launch <hostname>` to publish
+another WordPress hostname.
+
+## Static Sites
+
+Use `make route add <hostname> static` to serve files from the read-only mount
+`/srv/static-sites/<hostname>`, backed by `static-sites/<hostname>/` on the
+host. Then `make launch <hostname>` applies the route. Caddy serves the files
+directly without a separate container or runtime.
 
 ## Homepage Route
 
@@ -98,11 +106,11 @@ The repository includes `caddy/conf.d/homepage.caddy` as the active Homepage rou
     reverse_proxy homepage:3000
 }
 
-http://{$HOMEPAGE_SUBDOMAIN:home}.{$STACK_DOMAIN:localhost} {
+http://home.example.com {
     import homepage_proxy
 }
 
-https://{$HOMEPAGE_SUBDOMAIN:home}.{$STACK_DOMAIN:localhost} {
+https://home.example.com {
     import homepage_proxy
 }
 ```
@@ -133,11 +141,11 @@ The repository includes `caddy/conf.d/n8n.caddy` as the active n8n route:
     reverse_proxy n8n:5678
 }
 
-http://{$N8N_SUBDOMAIN:n8n}.{$STACK_DOMAIN:localhost} {
+http://n8n.example.com {
     import n8n_proxy
 }
 
-https://{$N8N_SUBDOMAIN:n8n}.{$STACK_DOMAIN:localhost} {
+https://n8n.example.com {
     import n8n_proxy
 }
 ```
@@ -225,11 +233,11 @@ The repository includes `caddy/conf.d/uptime-kuma.caddy` as the active Uptime Ku
     reverse_proxy uptime-kuma:3001
 }
 
-http://{$UPTIME_KUMA_SUBDOMAIN:uptime}.{$STACK_DOMAIN:localhost} {
+http://uptime.example.com {
     import uptime_kuma_proxy
 }
 
-https://{$UPTIME_KUMA_SUBDOMAIN:uptime}.{$STACK_DOMAIN:localhost} {
+https://uptime.example.com {
     import uptime_kuma_proxy
 }
 ```
