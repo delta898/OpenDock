@@ -274,6 +274,16 @@ Removing that block lets Caddy restore its default HTTP-to-HTTPS redirects. Do n
 
 ## Common Commands
 
+Show configured image tags and Docker's current container state:
+
+```sh
+./opendock info
+./opendock info wordpress
+```
+
+Renovate tracks image and GitHub Actions updates and opens reviewable pull
+requests. To enable the Cloud-Hosted GitHub App, follow [docs/renovate.md](docs/renovate.md).
+
 List available targets:
 
 ```sh

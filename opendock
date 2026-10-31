@@ -3,6 +3,7 @@
 
 import argparse
 import importlib.util
+import json
 import os
 import re
 import shlex
@@ -276,6 +277,89 @@ def list_targets(kind=None):
         print("\n".join(f"  {name}" for name in group_names) if group_names else "  (none)")
 
 
+def parse_dotenv(path):
+    values = {}
+    if not path.is_file():
+        return values
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip().strip("\"'")
+    return values
+
+
+def configured_images(target):
+    directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
+    compose_file = directory / "compose.yml"
+    if not compose_file.is_file():
+        raise CLIError(f"Unknown target or missing compose.yml: {target}")
+    values = parse_dotenv(directory / ".env")
+    values.update(os.environ)
+    result = []
+    service_name = None
+    for line in compose_file.read_text().splitlines():
+        service_match = re.match(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$", line)
+        if service_match:
+            service_name = service_match.group(1)
+        image_match = re.match(r"^\s+image:\s*['\"]?([^'\"\s#]+)", line)
+        if not image_match:
+            continue
+        image = image_match.group(1)
+
+        def substitute(match):
+            variable, default = match.group(1), match.group(2)
+            value = values.get(variable)
+            if value is None or value == "":
+                value = default or ""
+            return value
+
+        image = re.sub(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}", substitute, image)
+        image = re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)", lambda m: values.get(m.group(1), m.group(0)), image)
+        result.append((service_name or "?", image))
+    return result
+
+
+def running_containers():
+    try:
+        output = run(
+            "docker", "ps", "--all", "--format",
+            "{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t{{.Image}}\t{{.Status}}",
+            capture=True,
+        )
+    except CLIError:
+        return {}, "Docker is unavailable; showing configured image tags only."
+    containers = {}
+    for line in output.splitlines():
+        project, service, image, status = (line.split("\t", 3) + [""] * 4)[:4]
+        if project and service:
+            containers.setdefault((project, service), []).append((image, status))
+    return containers, None
+
+
+def show_info(name=None):
+    projects = ["infra"]
+    if (ROOT / "gateway/compose.yml").is_file():
+        projects.append("gateway")
+    projects.extend(services())
+    if name:
+        projects = targets(name)
+    containers, note = running_containers()
+    print(f"{'TARGET':<18} {'SERVICE':<24} {'CONFIGURED IMAGE':<48} {'RUNNING'}")
+    print("-" * 112)
+    for project in projects:
+        for service, image in configured_images(project):
+            found = containers.get((project, service), [])
+            if not found:
+                state = "not running"
+            else:
+                state = "; ".join(f"{status} [{actual}]" for actual, status in found)
+            print(f"{project:<18} {service:<24} {image:<48} {state}")
+    if note:
+        print(f"\n{note}")
+
+
 def print_guide():
     print(textwrap.dedent("""\
         OpenDock — setup, run, and publish services
@@ -303,6 +387,7 @@ def print_guide():
           ./opendock setup [target]                 Set up all or one service/group
           ./opendock check-config [target]          Validate configuration
           ./opendock secrets [target]               Generate missing secrets
+          ./opendock info [target]                  Show image tags and container status
           ./opendock ps [target]                    Show container status (default: all)
           ./opendock logs <service>                 Follow one service's logs
 
@@ -338,6 +423,8 @@ def parser():
     sub.add_parser("help", help="Show this guide")
     l = sub.add_parser("list", help="List services and groups")
     l.add_argument("kind", nargs="?", choices=("services", "groups"))
+    info = sub.add_parser("info", help="Show configured image tags and running containers")
+    info.add_argument("target", nargs="?", help="One service, group, infra, or gateway")
     for command in sorted(LIFECYCLE):
         item = sub.add_parser(command, help=f"Docker Compose {command} for a target")
         if command in ("ps", "config"):
@@ -393,6 +480,8 @@ def main(argv=None):
             print_guide()
         elif command == "list":
             list_targets(args.kind)
+        elif command == "info":
+            show_info(args.target)
         elif command in LIFECYCLE:
             if not args.target:
                 p.error(f"{command} requires a target")
