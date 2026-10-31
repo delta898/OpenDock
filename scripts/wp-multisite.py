@@ -63,7 +63,7 @@ def load_env():
             "To continue:\n"
             "  cp common.env.example common.env\n"
             "  nano common.env\n"
-            "  make check-config"
+            "  ./opendock check-config"
         )
 
     env = {}
@@ -152,14 +152,14 @@ def ensure_runtime(env):
         raise SystemExit(
             f"WordPress container is not running: {wordpress_container}\n\n"
             "Start it first:\n"
-            "  make launch wordpress"
+            "  ./opendock launch wordpress"
         )
 
     if not container_running("mariadb"):
         raise SystemExit(
             "MariaDB container is not running: mariadb\n\n"
             "Start it first:\n"
-            "  make up infra"
+            "  ./opendock up infra"
         )
 
 

@@ -5,12 +5,12 @@ This document describes the conventions used by OpenDock. It is intended for mai
 ## Design Goals
 
 - Services should be easy to start from the repository root.
-- Adding a service should not require editing the Makefile.
+- Adding a service should not require editing the CLI dispatcher.
 - `STACK_DOMAIN` should produce predictable default hostnames; `domains.conf` can map any hostname to a service or static directory.
 - Public routes should be discoverable from repository structure.
 - Cloudflare Tunnel is the default public exposure layer.
-- Beginner-facing setup should stay small: `make setup`, then
-  `make launch <hostname>`; Cloudflare is optional.
+- Beginner-facing setup should stay small: `./opendock setup`, then
+  `./opendock launch <hostname>`; Cloudflare is optional.
 
 ## Ubuntu Bootstrap
 
@@ -28,7 +28,7 @@ Base packages:
 
 ```text
 git
-make
+python3
 curl
 ca-certificates
 ```
@@ -57,7 +57,7 @@ The script intentionally does not:
 - create or edit `common.env`
 - create or edit `cloudflare.env`
 - create a Cloudflare Tunnel
-- run `make launch`
+- run `./opendock launch`
 
 This keeps system preparation separate from stack configuration and avoids hiding important security choices from the user.
 
@@ -87,15 +87,15 @@ services/immich/compose.yml
 services/jellyfin/compose.yml
 ```
 
-## Makefile Target Discovery
+## CLI Target Discovery
 
-The Makefile discovers services at runtime by scanning:
+The CLI discovers services at runtime by scanning:
 
 ```text
 services/*/compose.yml
 ```
 
-This is why new services do not need Makefile changes.
+This is why new services do not need CLI dispatcher changes.
 
 Common target groups:
 
@@ -141,22 +141,22 @@ Do not create initial app accounts in OpenDock when the service provides a first
 `action` is the shared entry point for service-specific manual workflows:
 
 ```sh
-make action <service>
-make action <service> <action>
+./opendock action <service>
+./opendock action <service> <action>
 ```
 
-Actions live at `services/<service>/actions/<action>` and must be executable. `make action <service>` lists executable actions for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_ACTION` to the action process.
+Actions live at `services/<service>/actions/<action>` and must be executable. `./opendock action <service>` lists executable actions for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_ACTION` to the action process.
 
 Supabase Edge Function user secrets follow the same local-template pattern as
-other OpenDock configuration. `make launch supabase` creates the ignored
+other OpenDock configuration. `./opendock launch supabase` creates the ignored
 `services/supabase/functions.env` from `functions.env.example`; the optional
-`make action supabase functions-secrets` action reports configured names and
+`./opendock action supabase functions-secrets` action reports configured names and
 application instructions without revealing values. Keep this file outside
 `config/functions/`, because that source directory is also mounted in Studio.
 
-WordPress multisite is exposed as `make action wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
+WordPress multisite is exposed as `./opendock action wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
 
-`make wp-multisite` remains as a temporary deprecated shortcut for backward compatibility. New service-specific workflows should use `make action <service> <action>` instead of adding new top-level Make targets.
+`./opendock wp-multisite` remains as a temporary deprecated shortcut for backward compatibility. New service-specific workflows should use `./opendock action <service> <action>` instead of adding new top-level CLI commands.
 
 ## Config Validation
 
@@ -167,9 +167,9 @@ For the interactive setup design background, see `docs/smart-config.md`.
 Manual commands:
 
 ```sh
-make check-config
-make check-config services
-make check-config immich
+./opendock check-config
+./opendock check-config services
+./opendock check-config immich
 ```
 
 Automatic validation runs before:
@@ -194,14 +194,14 @@ Validation rules:
 - Required secret-like values ending in `PASSWORD`, `SECRET`, `TOKEN`, or `KEY` fail validation if they still match the placeholder in `common.env.example`.
 - `STACK_DOMAIN=example.com` is treated as a placeholder.
 
-Automatic validation uses quiet mode and prints only failures. Manual `make check-config` also prints optional values that will use defaults.
+Automatic validation uses quiet mode and prints only failures. Manual `./opendock check-config` also prints optional values that will use defaults.
 
 Secret generation rules:
 
-- `make check-config` is read-only and never changes files.
-- `make setup [target]` interactively fills user-facing values and generated secrets.
-- `make secrets [target]` fills generated passwords and app secrets in `common.env`.
-- `make up`, `make services`, and `make launch` run the same generator before validation.
+- `./opendock check-config` is read-only and never changes files.
+- `./opendock setup [target]` interactively fills user-facing values and generated secrets.
+- `./opendock secrets [target]` fills generated passwords and app secrets in `common.env`.
+- `./opendock up`, `./opendock services`, and `./opendock launch` run the same generator before validation.
 - Existing real values are kept. Empty or placeholder values are generated.
 - Before `common.env` is changed, the previous file is backed up under `backups/common-env/`.
 - Do not auto-generate external values such as `STACK_DOMAIN`, Cloudflare tokens, tunnel IDs, or SMTP credentials.
@@ -209,7 +209,7 @@ Secret generation rules:
 
 Mail setup rules:
 
-- `make setup mail` stores common outbound SMTP relay values in `common.env`.
+- `./opendock setup mail` stores common outbound SMTP relay values in `common.env`.
 - Map common SMTP values only into services that support official environment-based core mail configuration.
 - Do not configure plugin-based, UI-only, or notification-provider mail settings from OpenDock.
 
@@ -250,15 +250,15 @@ wordpress   -> WORDPRESS_SUBDOMAIN
 
 If a subdomain variable is absent, the default route generator falls back to the service directory name.
 
-`make setup` configures the primary domain and does not ask about optional
-routes. Users manage hostname mappings with `make route show`,
-`make route add <hostname> <service|static>`, and
-`make route remove <hostname>`. `make launch <hostname>` starts the mapped
+`./opendock setup` configures the primary domain and does not ask about optional
+routes. Users manage hostname mappings with `./opendock route show`,
+`./opendock route add <hostname> <service|static>`, and
+`./opendock route remove <hostname>`. `./opendock launch <hostname>` starts the mapped
 Docker service or applies a static route. Static roots use
 `static-sites/<hostname>/` and are served directly by Caddy. Cloudflare
 publishing locates the zone containing each hostname. All zones used by one
 Tunnel must be in the same Cloudflare account, and the API token needs DNS
-permissions for each zone. The legacy `make launch <service>` form remains
+permissions for each zone. The legacy `./opendock launch <service>` form remains
 available; if that service has multiple hostnames, it fails with hostname
 commands to avoid ambiguity.
 
@@ -302,7 +302,7 @@ For direct Caddy exposure without Cloudflare Tunnel, remove the `auto_https disa
 
 ## Publish Discovery
 
-When `domains.conf` is absent, `make publish` discovers Docker services that have both:
+When `domains.conf` is absent, `./opendock publish` discovers Docker services that have both:
 
 ```text
 services/<service-name>/compose.yml
@@ -310,7 +310,7 @@ gateway/caddy/conf.d/<service-name>.caddy
 ```
 
 The internal route map connects hostnames to Docker services or the matching
-`static-sites/<hostname>/` root. Users manage it with `make route` commands and
+`static-sites/<hostname>/` root. Users manage it with `./opendock route` commands and
 Cloudflare publishing follows the resolved route list.
 
 ## Cloudflare Sync
@@ -399,9 +399,9 @@ PLEX_SUBDOMAIN=media
 Then verify:
 
 ```sh
-make list services
-make check-config <service-name>
-make publish <service-name>
+./opendock list services
+./opendock check-config <service-name>
+./opendock publish <service-name>
 docker compose --project-directory services/<service-name> --env-file common.env.example --env-file services/<service-name>/.env -f services/<service-name>/compose.yml config
 ```
 
@@ -441,10 +441,10 @@ Services should use shared MariaDB, PostgreSQL, or Redis when the generic infras
 Before merging service or routing changes:
 
 ```sh
-make list
-make list services
-make list groups
-make publish
+./opendock list
+./opendock list services
+./opendock list groups
+./opendock publish
 git diff --check
 ```
 

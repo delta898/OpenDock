@@ -29,7 +29,7 @@ def main():
     publishable = values.get("SUPABASE_PUBLISHABLE_KEY", "")
     if not publishable.startswith("sb_publishable_"):
         print("Supabase publishable key has not been generated yet.")
-        print("Run: make secrets supabase")
+        print("Run: ./opendock secrets supabase")
         return 1
 
     subdomain = values.get("SUPABASE_SUBDOMAIN", "supabase")

@@ -1,0 +1,16 @@
+name: CLI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run CLI tests
+        run: python3 -m unittest discover -s tests -p 'test_cli.py'

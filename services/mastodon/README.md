@@ -34,7 +34,7 @@ MASTODON_ADMIN_EMAIL=you@example.com
 MASTODON_ADMIN_PASSWORD=change-mastodon-admin-password
 ```
 
-Use `make setup mastodon` to fill these values interactively.
+Use `./opendock setup mastodon` to fill these values interactively.
 
 Outbound email uses the common SMTP relay values in `common.env`:
 
@@ -46,26 +46,26 @@ SMTP_PASSWORD=change-smtp-password
 SMTP_FROM_ADDRESS=mailer@example.com
 ```
 
-Use `make setup mail` to fill these values interactively. OpenDock maps them into Mastodon's official SMTP environment variables.
+Use `./opendock setup mail` to fill these values interactively. OpenDock maps them into Mastodon's official SMTP environment variables.
 
 Generate and fill the Mastodon-only secrets manually:
 
 ```sh
-make secrets mastodon
+./opendock secrets mastodon
 ```
 
 This creates `common.env` from `common.env.example` if needed, then fills missing or placeholder generated values. Existing real values are kept.
 
-`make secrets`, `make up`, `make services`, and `make launch` also fill missing or placeholder generated values before validation when the target needs them. `make check-config` only reports missing values and never changes files.
+`./opendock secrets`, `./opendock up`, `./opendock services`, and `./opendock launch` also fill missing or placeholder generated values before validation when the target needs them. `./opendock check-config` only reports missing values and never changes files.
 
-Mastodon sends account confirmation and notification emails through SMTP. Configure `make setup mail` before opening registrations.
+Mastodon sends account confirmation and notification emails through SMTP. Configure `./opendock setup mail` before opening registrations.
 
 ## First Launch
 
 Start the shared infrastructure and Mastodon containers:
 
 ```sh
-make launch mastodon
+./opendock launch mastodon
 ```
 
 The `mastodon-db-init` container creates or updates the Mastodon PostgreSQL database and user in the shared `infra` PostgreSQL service. The `mastodon-db-prepare` container then runs Mastodon's database preparation before the web, streaming, and Sidekiq containers start.
@@ -75,8 +75,8 @@ On first launch, OpenDock creates `MASTODON_ADMIN_USERNAME` when no owner exists
 Recommended first-run flow:
 
 ```sh
-make setup mastodon
-make launch mastodon
+./opendock setup mastodon
+./opendock launch mastodon
 ```
 
 Use a real email address for the owner account. If an owner or `MASTODON_ADMIN_USERNAME` already exists, OpenDock does not change its password automatically. Manage existing account passwords in Mastodon.

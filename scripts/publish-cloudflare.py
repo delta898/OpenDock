@@ -106,7 +106,7 @@ def load_env():
             "To continue:\n"
             "  cp common.env.example common.env\n"
             "  nano common.env\n"
-            "  make check-config"
+            "  ./opendock check-config"
         )
 
     env = {}
@@ -460,7 +460,7 @@ def main():
             "the conflicting DNS records in Cloudflare."
         )
         print(f"Expected CNAME target: {expected_target} (proxied)")
-        print("Then rerun: make launch <hostname>")
+        print("Then rerun: ./opendock launch <hostname>")
         raise SystemExit(1)
 
     print()

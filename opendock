@@ -1,0 +1,438 @@
+#!/usr/bin/env python3
+"""OpenDock's repository-local command line interface."""
+
+import argparse
+import importlib.util
+import os
+import re
+import shlex
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parent
+SERVICES = ROOT / "services"
+GROUPS = SERVICES / "groups.conf"
+CHECKED = {"up", "restart", "start", "build", "config"}
+LIFECYCLE = CHECKED | {"down", "stop", "ps", "pull"}
+EXCLUDES = (
+    ".git/", ".sync.env", "common.env", "domains.conf",
+    "gateway/caddy/conf.d/zz-opendock-routes.caddy", "static-sites/",
+    "cloudflare.env", "services/supabase/functions.env",
+    "services/*/data/", "**/data/", ".DS_Store",
+)
+
+
+class CLIError(Exception):
+    pass
+
+
+def run(*args, env=None, capture=False, quiet=False):
+    try:
+        result = subprocess.run(
+            [str(arg) for arg in args], cwd=ROOT, env=env,
+            text=True, stdout=subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None),
+            stderr=subprocess.DEVNULL if quiet else None, check=False,
+        )
+    except FileNotFoundError as exc:
+        raise CLIError(f"Required command not found: {exc.filename}") from exc
+    if result.returncode:
+        raise CLIError(f"Command failed ({result.returncode}): {args[0]}")
+    return result.stdout.strip() if capture else None
+
+
+def services():
+    return sorted(p.parent.name for p in SERVICES.glob("*/compose.yml"))
+
+
+def groups():
+    found = {}
+    if GROUPS.exists():
+        for raw in GROUPS.read_text().splitlines():
+            line = raw.partition("#")[0]
+            if ":" in line:
+                name, members = line.split(":", 1)
+                if name.strip():
+                    found[name.strip()] = members.split()
+    return found
+
+
+def targets(name):
+    known = services()
+    if name == "all":
+        return ["infra"] + (["gateway"] if (ROOT / "gateway/compose.yml").exists() else []) + known
+    if name == "services":
+        if not known:
+            raise CLIError("No services found under services/*/compose.yml")
+        return known
+    if name in ("infra", "gateway") or name in known:
+        return [name]
+    if name in groups():
+        return groups()[name]
+    raise CLIError(f"Unknown target or missing compose.yml: {name}")
+
+
+def script(name, *args, env=None):
+    run(sys.executable, ROOT / "scripts" / name, *args, env=env)
+
+
+def domains_module():
+    path = ROOT / "scripts/opendock-domains.py"
+    spec = importlib.util.spec_from_file_location("opendock_domains", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_config(target, quiet=False):
+    env = os.environ.copy()
+    if quiet:
+        env["CHECK_CONFIG_QUIET"] = "1"
+    run(ROOT / "scripts/check-config.sh", target, env=env)
+
+
+def compose(target, *args):
+    directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
+    if not (directory / "compose.yml").is_file():
+        raise CLIError(f"Unknown target or missing compose.yml: {target}")
+    if not (ROOT / "common.env").is_file():
+        raise CLIError("Missing common.env. Run './opendock setup' or copy common.env.example first.")
+    if target == "gateway" and args[0] in ("up", "start", "restart"):
+        script("opendock-domains.py", "render")
+    command = ["docker", "compose", "--project-directory", str(directory),
+               "--env-file", str(ROOT / "common.env")]
+    if (directory / ".env").is_file():
+        command += ["--env-file", str(directory / ".env")]
+    run(*command, "-f", directory / "compose.yml", "-p", target, *args)
+
+
+def lifecycle(command, target):
+    for item in targets(target):
+        if command in CHECKED:
+            if command == "up":
+                env = os.environ.copy()
+                env["OPEN_DOCK_QUIET_SECRETS"] = "1"
+                script("opendock-secrets.py", item, env=env)
+            check_config(item, quiet=True)
+        print(f"==> {item}: docker compose {command}", flush=True)
+        compose(item, command, *(["-d"] if command == "up" else []))
+
+
+def post_launch(target):
+    selected = services() if target in ("all", "services") else (
+        [] if target in ("infra", "gateway") else targets(target))
+    for item in selected:
+        hook = SERVICES / item / "opendock-post-launch.py"
+        if hook.is_file():
+            print(f"==> {item}: post-launch", flush=True)
+            run(sys.executable, hook)
+
+
+def reload_gateway():
+    if not (ROOT / "gateway/compose.yml").is_file():
+        return
+    script("opendock-domains.py", "render")
+    try:
+        names = run("docker", "ps", "--format", "{{.Names}}", capture=True)
+    except CLIError:
+        names = ""
+    if "caddy" in names.splitlines():
+        print("==> gateway: caddy reload", flush=True)
+        run("docker", "exec", "caddy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile")
+    else:
+        print("==> gateway: docker compose up", flush=True)
+        compose("gateway", "up", "-d")
+
+
+def publish(target):
+    run(ROOT / "scripts/publish-cloudflare.sh", target)
+
+
+def launch(target):
+    # Reuse the route resolver, including validation of host-owned domains.conf.
+    domains = domains_module()
+    routes = domains.resolve_routes()
+    route = next((r for r in routes if r["hostname"] == target.lower().rstrip(".")), None)
+    if route and route["type"] == "static":
+        web_root = ROOT / "static-sites" / route["target"]
+        web_root.mkdir(parents=True, exist_ok=True)
+        print(f"Static site: {target}\nWeb root: {web_root}/\n"
+              "Place the site's files there. Caddy and Cloudflare routing will now be applied.", flush=True)
+        try:
+            run("docker", "network", "inspect", "shared-net", quiet=True)
+        except CLIError:
+            print("==> network: create shared-net", flush=True)
+            run("docker", "network", "create", "shared-net", quiet=True)
+        lifecycle("up", "gateway")
+        reload_gateway()
+        publish(target)
+        return
+    if route:
+        service = route["target"]
+        lifecycle("up", "infra")
+        lifecycle("up", service)
+        post_launch(service)
+        reload_gateway()
+        publish(target)
+        return
+    if "." in target:
+        raise CLIError(f"No route is configured for hostname: {target}\n"
+                       f"Add one with: ./opendock route add {target} <service|static>")
+    matches = [r["hostname"] for r in routes if r["type"] == "docker" and r["target"] == target]
+    if len(matches) > 1:
+        raise CLIError(f"'{target}' has multiple hostnames; use one of:\n" +
+                       "\n".join(f"  ./opendock launch {host}" for host in matches))
+    if target not in ("all", "infra"):
+        print("==> infra: launch prerequisite", flush=True)
+        lifecycle("up", "infra")
+    lifecycle("up", target)
+    post_launch(target)
+    if target != "infra":
+        reload_gateway()
+    publish(target)
+
+
+def route(command, hostname=None, service=None):
+    if command == "show":
+        script("opendock-domains.py", "list", *([hostname] if hostname else []))
+    elif command == "add":
+        script("opendock-domains.py", "add", hostname, service)
+    else:
+        # Keep the same ordering: remove Cloudflare entries before deleting local mapping.
+        domains = domains_module()
+        if not any(r["hostname"] == hostname.lower().rstrip(".") for r in domains.resolve_routes()):
+            raise CLIError(f"No route is configured for hostname: {hostname}")
+        script("publish-cloudflare.py", "remove", hostname)
+        script("opendock-domains.py", "remove", hostname)
+        script("opendock-domains.py", "render")
+        try:
+            names = run("docker", "ps", "--format", "{{.Names}}", capture=True)
+        except CLIError:
+            names = ""
+        if "caddy" in names.splitlines():
+            run("docker", "exec", "caddy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile")
+        else:
+            print("Caddy is not running; updated route config will apply when it starts.")
+
+
+def sync(name, dry_run=False):
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        raise CLIError("Sync target must contain only letters, digits, '_' or '-'.")
+    values = {}
+    config = ROOT / ".sync.env"
+    if config.is_file():
+        for raw in config.read_text().splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            parts = shlex.split(value, comments=True)
+            values[key.strip()] = parts[0] if parts else ""
+    prefix = f"SYNC_{name.upper().replace('-', '_')}_"
+    remote = os.environ.get(prefix + "REMOTE", values.get(prefix + "REMOTE", ""))
+    path = os.environ.get(prefix + "PATH", values.get(prefix + "PATH", ""))
+    port = os.environ.get(prefix + "SSH_PORT", values.get(prefix + "SSH_PORT", ""))
+    if not remote or not path:
+        raise CLIError(f"Set {prefix}REMOTE and {prefix}PATH in .sync.env")
+    if port and not port.isdigit():
+        raise CLIError(f"{prefix}SSH_PORT must be a port number")
+    env = os.environ.copy()
+    if port:
+        env["RSYNC_RSH"] = f"ssh -p {port}"
+    print(f"Sync target: {name}\nSource: {ROOT}/\nDestination: {remote}:{path}/", flush=True)
+    if dry_run:
+        print("Mode: dry-run", flush=True)
+    options = ["-azih", "--delete"] + (["--dry-run"] if dry_run else [])
+    for value in EXCLUDES:
+        options.append(f"--exclude={value}")
+    options += ["--include=common.env.example", "--include=cloudflare.env.example",
+                "--include=services/supabase/functions.env.example"]
+    run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/", env=env)
+    print("Done.")
+
+
+def list_targets(kind=None):
+    found = services()
+    group_names = groups()
+    if kind == "services":
+        if not found:
+            raise CLIError("No services found under services/*/compose.yml")
+        print("\n".join(found))
+    elif kind == "groups":
+        if not GROUPS.is_file():
+            print("No service groups found.")
+        else:
+            for name, members in group_names.items():
+                print(f"{name}: {' '.join(members)}")
+    else:
+        print("Core:\n  infra")
+        if (ROOT / "gateway/compose.yml").exists():
+            print("  gateway")
+        print("\nServices:")
+        print("\n".join(f"  {name}" for name in found) if found else "  (none)")
+        print("\nGroups:")
+        print("\n".join(f"  {name}" for name in group_names) if group_names else "  (none)")
+
+
+def print_guide():
+    print(textwrap.dedent("""\
+        OpenDock — setup, run, and publish services
+
+        Start here
+          ./opendock setup                         Configure your primary domain
+          ./opendock launch blog.example.com       Start and publish one hostname
+          ./opendock list                          See available services and groups
+
+        Domains and static sites
+          ./opendock route show [hostname]         Show configured routes
+          ./opendock route add <hostname> <service|static>
+                                                   Add a Docker service or static site
+          ./opendock launch <hostname>              Apply the route and show static web root
+          ./opendock route remove <hostname>        Remove the route and its Cloudflare entries
+
+          Examples:
+            ./opendock route add blog.example.org wordpress
+            ./opendock launch blog.example.org
+            ./opendock route add docs.example.org static
+            ./opendock launch docs.example.org
+          Static files go in static-sites/docs.example.org/.
+
+        Configuration and inspection
+          ./opendock setup [target]                 Set up all or one service/group
+          ./opendock check-config [target]          Validate configuration
+          ./opendock secrets [target]               Generate missing secrets
+          ./opendock ps [target]                    Show container status (default: all)
+          ./opendock logs <service>                 Follow one service's logs
+
+        Docker operations
+          ./opendock up <target>                    Create or recreate containers
+          ./opendock start|stop|restart <target>    Control existing containers
+          ./opendock down <target>                  Remove containers, keep data
+          ./opendock pull|build|config <target>     Image and Compose operations
+          ./opendock publish [target]              Sync routes without starting services
+
+        Other
+          ./opendock action <service>               List that service's actions
+          ./opendock action <service> <action>      Run one service-specific action
+          Examples: action wordpress → multisite
+                    action supabase  → api-keys, functions-secrets
+          ./opendock sync <name> --dry-run          Preview deployment to a remote
+          ./opendock sync <name>                    Deploy code to a remote
+
+        Targets: a service (wordpress), group (media), infra, gateway,
+                 services (all apps), or all (core and apps).
+        Run './opendock <command> --help' for exact arguments.
+        Existing 'make ...' commands remain available for compatibility.
+        """))
+
+
+def parser():
+    p = argparse.ArgumentParser(
+        prog="./opendock", description="Configure, run, and publish OpenDock services.",
+        epilog="Start here: ./opendock setup, then ./opendock launch blog.example.com. "
+               "Use './opendock <command> --help' for command options.",
+    )
+    sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("help", help="Show this guide")
+    l = sub.add_parser("list", help="List services and groups")
+    l.add_argument("kind", nargs="?", choices=("services", "groups"))
+    for command in sorted(LIFECYCLE):
+        item = sub.add_parser(command, help=f"Docker Compose {command} for a target")
+        if command in ("ps", "config"):
+            item.add_argument("target", nargs="?", default="all")
+        else:
+            item.add_argument("target")
+    for command in ("setup", "secrets", "check-config", "publish", "launch"):
+        item = sub.add_parser(command)
+        item.add_argument("target", nargs="?", default="all")
+    logs = sub.add_parser("logs", help="Follow logs for one service")
+    logs.add_argument("target")
+    action = sub.add_parser("action", help="Run a service-specific action")
+    action.add_argument("service")
+    action.add_argument("name", nargs="?", default="")
+    route_cmd = sub.add_parser("route", help="Manage hostname routes")
+    route_sub = route_cmd.add_subparsers(dest="route_command", required=True)
+    show = route_sub.add_parser("show")
+    show.add_argument("hostname", nargs="?")
+    add = route_sub.add_parser(
+        "add", description="Map a full hostname to an installed Docker service or a static site.",
+        epilog=("Examples:\n"
+                "  ./opendock route add blog.example.org wordpress\n"
+                "  ./opendock route add docs.example.org static\n\n"
+                "Then run './opendock launch <hostname>' to apply the route. "
+                "Static files go in static-sites/<hostname>/."),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add.add_argument("hostname", help="Full public hostname, e.g. docs.example.org")
+    add.add_argument("service", metavar="service|static",
+                     help="Installed service name (e.g. wordpress) or static")
+    remove = route_sub.add_parser("remove")
+    remove.add_argument("hostname")
+    sync_cmd = sub.add_parser("sync", help="Deploy code to a named remote")
+    sync_cmd.add_argument("name")
+    sync_cmd.add_argument("--dry-run", action="store_true")
+    old_sync = sub.add_parser("sync-dry-run", help="Compatibility alias for sync --dry-run")
+    old_sync.add_argument("name")
+    sub.add_parser("services", help="Compatibility alias for up services")
+    sub.add_parser("wp-multisite", help="Deprecated WordPress action alias")
+    return p
+
+
+def main(argv=None):
+    p = parser()
+    arguments = sys.argv[1:] if argv is None else argv
+    if arguments in ([], ["--help"], ["-h"], ["help"]):
+        print_guide()
+        return 0
+    args = p.parse_args(argv)
+    try:
+        command = args.command
+        if command == "help":
+            print_guide()
+        elif command == "list":
+            list_targets(args.kind)
+        elif command in LIFECYCLE:
+            if not args.target:
+                p.error(f"{command} requires a target")
+            lifecycle(command, args.target)
+        elif command == "logs":
+            if args.target in ("all", "services") or args.target in groups():
+                raise CLIError("logs requires one service, infra, or gateway target")
+            target = targets(args.target)
+            compose(target[0], "logs", "-f")
+        elif command == "setup":
+            script("opendock-config.py", args.target)
+        elif command == "secrets":
+            script("opendock-secrets.py", args.target)
+        elif command == "check-config":
+            try:
+                check_config(args.target)
+            except CLIError as exc:
+                raise CLIError("Configuration is not ready. No services were changed.") from exc
+        elif command == "publish":
+            publish(args.target)
+        elif command == "launch":
+            launch(args.target)
+        elif command == "route":
+            route(args.route_command, getattr(args, "hostname", None), getattr(args, "service", None))
+        elif command == "action":
+            script("opendock-action.py", args.service, args.name)
+        elif command == "sync":
+            sync(args.name, args.dry_run)
+        elif command == "sync-dry-run":
+            sync(args.name, True)
+        elif command == "services":
+            lifecycle("up", "services")
+        elif command == "wp-multisite":
+            print("Deprecated: use './opendock action wordpress multisite'.\n")
+            script("opendock-action.py", "wordpress", "multisite")
+    except (CLIError, OSError, ValueError) as exc:
+        print(f"OpenDock: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

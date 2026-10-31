@@ -31,14 +31,14 @@ SMTP_PASSWORD=change-smtp-password
 SMTP_FROM_ADDRESS=mailer@example.com
 ```
 
-Use `make setup mail` to fill these values interactively. OpenDock maps them into n8n's official SMTP environment variables.
+Use `./opendock setup mail` to fill these values interactively. OpenDock maps them into n8n's official SMTP environment variables.
 
 Then start the stack:
 
 ```sh
-make up infra
-make up n8n
-make up gateway
+./opendock up infra
+./opendock up n8n
+./opendock up gateway
 ```
 
 ## Image Policy

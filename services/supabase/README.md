@@ -4,7 +4,7 @@ OpenDock runs a complete single-project Supabase stack behind Caddy and Kong.
 No Supabase-specific setup is required before the first launch:
 
 ```sh
-make launch supabase
+./opendock launch supabase
 ```
 
 The command starts the shared network prerequisite, generates all database,
@@ -17,7 +17,7 @@ repairs required API schemas on an existing compatible database as well as on
 a fresh installation, so users do not need to run SQL manually after updates.
 After the stack becomes healthy, OpenDock automatically smoke-tests the
 containers, database contract, Auth, REST, GraphQL, Storage, Realtime, Studio,
-and the included Edge Function. A failed check makes `make launch supabase`
+and the included Edge Function. A failed check makes `./opendock launch supabase`
 fail with the affected component instead of reporting a partial deployment as
 ready.
 
@@ -60,7 +60,7 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 Print the client URL and publishable key without exposing any elevated key:
 
 ```sh
-make action supabase api-keys
+./opendock action supabase api-keys
 ```
 
 Server-only administrative applications may use `SUPABASE_SECRET_KEY`. It
@@ -87,12 +87,12 @@ is private JWT signing material, not a publishable credential.
 Email accounts are auto-confirmed by default so a fresh zero-config deployment
 is immediately usable. To require email confirmation, set
 `SUPABASE_EMAIL_AUTOCONFIRM=false` in `services/supabase/.env`, configure the
-shared SMTP relay with `make setup mail`, and recreate the Auth container.
+shared SMTP relay with `./opendock setup mail`, and recreate the Auth container.
 
 ## Edge Functions
 
 Functions live at `services/supabase/config/functions/<name>/index.ts`.
-On the first `make launch supabase`, OpenDock also copies
+On the first `./opendock launch supabase`, OpenDock also copies
 `services/supabase/functions.env.example` to
 `services/supabase/functions.env` with mode `0600`. The generated file may be
 left unchanged when functions do not need additional secrets, so it never
@@ -108,21 +108,21 @@ WEBHOOK_SIGNING_SECRET=replace-with-a-real-secret
 Then recreate the changed Edge Runtime configuration:
 
 ```sh
-make up supabase
+./opendock up supabase
 ```
 
 Use the service action to create the file on demand, check its permissions,
 and list configured variable names without printing their values:
 
 ```sh
-make action supabase functions-secrets
+./opendock action supabase functions-secrets
 ```
 
-A successful `make launch supabase` also prints a short summary containing the
+A successful `./opendock launch supabase` also prints a short summary containing the
 file location, the number of loaded user variables, and these management and
 application commands. Secret values are never printed.
 
-`functions.env` is ignored by Git, excluded from `make sync`, and injected
+`functions.env` is ignored by Git, excluded from `./opendock sync`, and injected
 only into the Edge Runtime; it is not part of the function source directory
 mounted in Studio. Every Edge Function in this single runtime receives the
 same variables, so only functions trusted with those secrets should share the
@@ -143,7 +143,7 @@ curl "https://${SUPABASE_SUBDOMAIN}.${STACK_DOMAIN}/functions/v1/hello" \
 Restart Supabase after adding or changing function source code:
 
 ```sh
-make restart supabase
+./opendock restart supabase
 ```
 
 ## Backups
@@ -168,11 +168,11 @@ If the old local data is disposable, archive it and let OpenDock initialize a
 new database:
 
 ```sh
-make stop supabase
+./opendock stop supabase
 mkdir -p services/supabase/backups
 mv services/supabase/data/db \
   "services/supabase/backups/db-pg15-$(date +%Y%m%d-%H%M%S)"
-make launch supabase
+./opendock launch supabase
 ```
 
 The move is recoverable and does not delete the PostgreSQL 15 files. If the old

@@ -34,9 +34,9 @@ The default WordPress upstream is `wordpress:80`, matching the `WORDPRESS_CONTAI
 Then start the stack:
 
 ```sh
-make up infra
-make up wordpress
-make up gateway
+./opendock up infra
+./opendock up wordpress
+./opendock up gateway
 ```
 
 ## HTTPS Behind Caddy
@@ -48,7 +48,7 @@ OpenDock publishes WordPress as `https://blog.<STACK_DOMAIN>` through Cloudflare
 OpenDock can convert the WordPress site to subdirectory multisite mode:
 
 ```sh
-make wp-multisite
+./opendock wp-multisite
 ```
 
 The command uses `STACK_DOMAIN` and `WORDPRESS_SUBDOMAIN` to configure the network host. With the default subdomain, the network uses URLs like:
@@ -72,7 +72,7 @@ services/wordpress/backups/wordpress-multisite-<timestamp>.sql
 For non-interactive automation:
 
 ```sh
-make wp-multisite YES=1
+YES=1 ./opendock wp-multisite
 ```
 
 ## Image Policy
@@ -107,7 +107,7 @@ Upload processing time: 300 seconds
 The committed configuration lives at `services/wordpress/php/uploads.ini` and is mounted read-only into the WordPress container. Recreate the WordPress container after changing it:
 
 ```sh
-make up wordpress
+./opendock up wordpress
 ```
 
 ## Notes

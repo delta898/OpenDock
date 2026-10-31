@@ -40,7 +40,7 @@ def require_env(env, names):
             "Mastodon owner account is not configured.\n\n"
             f"Missing values: {' '.join(missing)}\n\n"
             "Run:\n"
-            "  make setup mastodon"
+            "  ./opendock setup mastodon"
         )
 
 
@@ -53,7 +53,7 @@ def validate_username(env):
             "Set a different username, for example:\n"
             "  MASTODON_ADMIN_USERNAME=opendock\n\n"
             "Then run:\n"
-            "  make launch mastodon"
+            "  ./opendock launch mastodon"
         )
 
 

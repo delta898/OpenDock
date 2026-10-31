@@ -375,3 +375,40 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   `codex/feature/multi-domain-static-sites`에서 진행 중이다. `make help`와
   `git diff --check`는 확인했지만 테스트나 Caddy 설정 검증을 실행하지 않았으며,
   로컬 runtime 및 실제 Cloudflare zone/Tunnel 경로는 아직 검증되지 않았다.
+
+## OD-012. Make를 호환 계층으로 줄이고 Python CLI를 사용자 접점으로 만든 이유
+
+- 상태: `seed`
+- 관련 이력: `codex/feature/python-cli`, `Makefile`, `opendock`,
+  `tests/test_cli.py`, `.github/workflows/cli.yml`
+- 주제: `Makefile 421줄에서 ./opendock으로: 홈서버 운영 명령의 경계 재설계`
+- 독자 질문: Docker Compose, 도메인 라우팅, Cloudflare, 배포를 한 명령 체계로
+  다룰 때 Make는 어디까지 적합하고 언제 전용 CLI가 필요한가?
+- 참고할 사항:
+  - 사용자 접점이 `make setup`, `make route add <host> <type>`, `make launch
+    <hostname>`, `make sync <remote>`로 늘었다. Make의 목표를 위치 인자로
+    해석하고 나머지 목표를 no-op으로 삼는 구조는 명령 검증과 오류 안내를
+    어렵게 했다. 실패할 때 OpenDock 안내 뒤에 Make 자체의 Error 문구가
+    붙는 경험도 문제를 선명하게 했다.
+  - just와 Task는 작업 실행기 대안이지만, 사용자가 원하는 계층적 명령과
+    인자 검증에는 이미 프로젝트가 사용하는 Python 표준 라이브러리
+    argparse가 더 맞는다고 판단했다. 저장소 루트의 실행 파일로 두어 별도
+    설치 단계 없이 `./opendock`을 사용한다.
+  - 기존 설정·도메인·Cloudflare Python 스크립트를 재사용하며 Compose
+    호출 순서, post-launch hook, host-owned sync 제외 규칙을 CLI로 옮겼다.
+    Makefile은 과거 명령을 새 CLI로 전달하는 호환 계층으로 남겼다.
+  - Linux와 macOS를 모두 목표로 하므로 Ubuntu bootstrap에 Python 3를
+    명시하고, 두 OS에서 실행할 CLI 테스트 matrix를 추가했다. shebang만으로
+    Python 설치나 외부 명령의 가용성이 보장되는 것은 아니다.
+  - 첫 CLI의 argparse 기본 도움말은 모든 명령을 한 줄에 나열해 시작 흐름이
+    보이지 않았다. 사용자 피드백 후 `--help`, `help`, 인자 없는 실행은
+    `setup → launch → list`와 도메인·운영·배포 용도별 안내를 먼저 보여주고,
+    개별 명령의 `--help`는 argparse의 정확한 인자 설명을 유지했다.
+- 보존할 교훈:
+  - zero-config CLI는 명령어를 짧게 만드는 일뿐 아니라 의존성 안내,
+    오류 상태, 기존 명령과의 전환 경로까지 포함한다.
+  - task runner를 교체하는 문제와 운영 제품의 사용자 인터페이스를 설계하는
+    문제를 구별해야 한다.
+- 검증 상태: macOS에서 CLI 단위 테스트, 재구성된 도움말, 목록 및 호환 Make 호출을
+  로컬 검증했다. Ubuntu CI matrix는 추가했지만 아직 실행 결과를 확인하지
+  않았다. Docker 기동과 실제 Cloudflare 게시의 새 CLI 경로는 실환경 검증 전이다.

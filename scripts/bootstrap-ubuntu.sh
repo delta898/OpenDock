@@ -147,7 +147,7 @@ install_packages() {
 	run_sudo apt-get update
 
 	log "Installing base prerequisites"
-	run_sudo apt-get install -y git make curl ca-certificates
+	run_sudo apt-get install -y git python3 curl ca-certificates
 
 	if need_command docker && docker compose version >/dev/null 2>&1; then
 		log "Docker and Docker Compose are already installed"
@@ -253,8 +253,8 @@ EOF
   cp cloudflare.env.example cloudflare.env
   nano cloudflare.env
 
-  make check-config
-  make launch
+  ./opendock check-config
+  ./opendock launch <hostname>
 
 Optional:
   Run sudo apt upgrade later if you want to update the whole OS.

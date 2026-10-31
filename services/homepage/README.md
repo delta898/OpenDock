@@ -22,8 +22,8 @@ https://home.example.com/
 Then start the stack:
 
 ```sh
-make up homepage
-make up gateway
+./opendock up homepage
+./opendock up gateway
 ```
 
 ## Image Policy

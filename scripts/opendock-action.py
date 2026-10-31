@@ -34,11 +34,11 @@ def action_files(name):
 
 
 def print_usage():
-    print("Usage: make action <service> [action]")
+    print("Usage: ./opendock action <service> [action]")
     print()
     print("Examples:")
-    print("  make action wordpress")
-    print("  make action wordpress multisite")
+    print("  ./opendock action wordpress")
+    print("  ./opendock action wordpress multisite")
 
 
 def list_actions(target):

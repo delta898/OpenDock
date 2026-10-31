@@ -22,8 +22,8 @@ https://uptime.example.com/
 Then start the stack:
 
 ```sh
-make up uptime-kuma
-make up gateway
+./opendock up uptime-kuma
+./opendock up gateway
 ```
 
 ## Image Policy

@@ -357,8 +357,8 @@ def print_results(results):
 
     if failed:
         print("Set external values such as STACK_DOMAIN in common.env.")
-        print(f"Run `make setup {TARGET}` to review and fill user-facing values.")
-        print("Run `make secrets` to fill generated passwords and app secrets.")
+        print(f"Run `./opendock setup {TARGET}` to review and fill user-facing values.")
+        print("Run `./opendock secrets` to fill generated passwords and app secrets.")
         return 1
 
     return 0
@@ -368,13 +368,13 @@ def print_missing_common_env():
     print("Missing required file: common.env")
     print()
     print("To continue:")
-    print("  make setup")
-    print("  make check-config")
+    print("  ./opendock setup")
+    print("  ./opendock check-config")
     print()
     print("Or configure manually:")
     print("  cp common.env.example common.env")
     print("  nano common.env  # set STACK_DOMAIN")
-    print("  make secrets")
+    print("  ./opendock secrets")
 
 
 def main():

@@ -29,14 +29,14 @@ SMTP_PASSWORD=change-smtp-password
 SMTP_FROM_ADDRESS=mailer@example.com
 ```
 
-Use `make setup mail` to fill these values interactively. OpenDock maps them into Mattermost's SMTP environment variables.
+Use `./opendock setup mail` to fill these values interactively. OpenDock maps them into Mattermost's SMTP environment variables.
 
 ## First Launch
 
 Start Mattermost with:
 
 ```sh
-make launch mattermost
+./opendock launch mattermost
 ```
 
 The `mattermost-db-init` container creates or updates the Mattermost PostgreSQL database and user in the shared `infra` PostgreSQL service. Mattermost then creates its schema on first start.
@@ -46,12 +46,12 @@ Mattermost provides a first-run web setup flow. OpenDock does not create the sys
 Recommended first-run flow:
 
 ```sh
-make setup mattermost
-make setup mail
-make launch mattermost
+./opendock setup mattermost
+./opendock setup mail
+./opendock launch mattermost
 ```
 
-Configure `make setup mail` before inviting users or relying on password reset emails.
+Configure `./opendock setup mail` before inviting users or relying on password reset emails.
 
 ## Image Policy
 

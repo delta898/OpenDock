@@ -175,9 +175,9 @@ def add_route(hostname, target_value, routes=None):
     if route_type == "static":
         print(f"Web root: {STATIC_ROOT / hostname}/")
         print("Place the site's files there, then run:")
-        print(f"  make launch {hostname}")
+        print(f"  ./opendock launch {hostname}")
     else:
-        print(f"Apply the route with: make launch {hostname}")
+        print(f"Apply the route with: ./opendock launch {hostname}")
 
 
 def remove_route(hostname):
@@ -231,9 +231,9 @@ def main():
         hostnames = [route["hostname"] for route in resolve_routes()
                      if route["type"] == "docker" and route["target"] == service]
         if len(hostnames) > 1:
-            print(f"'{service}' has multiple hostnames; use 'make launch <hostname>':")
+            print(f"'{service}' has multiple hostnames; use './opendock launch <hostname>':")
             for hostname in hostnames:
-                print(f"  make launch {hostname}")
+                print(f"  ./opendock launch {hostname}")
             raise SystemExit(2)
         return
     routes = resolve_routes()

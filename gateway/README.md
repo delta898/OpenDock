@@ -7,7 +7,7 @@ This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudf
 ## Setup
 
 ```sh
-make up gateway
+./opendock up gateway
 ```
 
 The default WordPress, Nextcloud, Immich, Jellyfin, n8n, Uptime Kuma, and Homepage routes are generated from `STACK_DOMAIN` and the service subdomains when `domains.conf` is absent.
@@ -83,14 +83,14 @@ WORDPRESS_SUBDOMAIN=blog
 
 Hostname bindings are managed centrally in the internal route map; the
 WordPress proxy behavior remains in this file. Use
-`make route add <hostname> wordpress`, then `make launch <hostname>` to publish
+`./opendock route add <hostname> wordpress`, then `./opendock launch <hostname>` to publish
 another WordPress hostname.
 
 ## Static Sites
 
-Use `make route add <hostname> static` to serve files from the read-only mount
+Use `./opendock route add <hostname> static` to serve files from the read-only mount
 `/srv/static-sites/<hostname>`, backed by `static-sites/<hostname>/` on the
-host. Then `make launch <hostname>` applies the route. Caddy serves the files
+host. Then `./opendock launch <hostname>` applies the route. Caddy serves the files
 directly without a separate container or runtime.
 
 ## Homepage Route
@@ -280,8 +280,8 @@ Use `https://<service>.<domain>` for public access. Browser HTTP-to-HTTPS redire
 When changing `common.env` or Caddy route files, reload or recreate the gateway container:
 
 ```sh
-make down gateway
-make up gateway
+./opendock down gateway
+./opendock up gateway
 ```
 
 For Cloudflare Tunnel, set the tunnel Service URL to:
