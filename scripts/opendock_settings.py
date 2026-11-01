@@ -27,7 +27,7 @@ SERVICE_PREFIXES = {
     for service in SERVICE_NAMES
 }
 INFRA_KEYS = set(SERVICE_CATALOG.platform.get("infra").setting_keys)
-GATEWAY_KEYS = {"CADDY_VERSION", "HTTP_PORT", "HTTPS_PORT"}
+GATEWAY_KEYS = set(SERVICE_CATALOG.platform.get("gateway").setting_keys)
 MAIL_PREFIX = "SMTP_"
 DATABASE_SHARED_DEPENDENCIES = {"MARIADB_CLIENT_VERSION": "mariadb"}
 

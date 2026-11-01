@@ -103,14 +103,16 @@ services/*/compose.yml
 
 This is why new services do not need CLI dispatcher changes.
 
-Shared platform components such as `infra/` have a separate catalog and
-descriptor. `infra/opendock.toml` owns the shared setting keys, setup fields,
-secret generator declarations, and dependency groups such as `mariadb` and
-`postgres`. A service declares only the shared groups it needs in
+Shared platform components such as `infra/` and `gateway/` have a separate
+catalog and descriptor. `infra/opendock.toml` owns the shared setting keys,
+setup fields, secret generator declarations, and dependency groups such as
+`mariadb` and `postgres`; `gateway/opendock.toml` owns gateway setting keys. A
+service declares only the shared groups it needs in
 `services/<service>/opendock.toml`; the common setup and secret coordinators
 resolve those declarations. Platform config ownership is also derived from the
-component descriptor, while gateway and shared-concern ownership remain their
-own platform interfaces until they have equivalent descriptors.
+component descriptors. Shared mail and database concerns remain registered in
+the common settings interface because they span multiple services and have
+their own configuration and migration behavior.
 
 ## Contributing a service
 

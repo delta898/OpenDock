@@ -62,11 +62,13 @@ configuring, launch creates missing values before checking configuration, and
 generators, secure persistence, and consistent output; it must not enumerate
 service-specific generator types, secret relationships, or validation rules.
 Shared platform settings and shared setup groups belong to the corresponding
-platform component descriptor (currently `infra/opendock.toml`). Services
-declare only the shared groups they require; config prompting, secret
-generation, setup dependency validation, and setting ownership must derive
-those shared declarations instead of keeping duplicate per-group registries in
-central scripts.
+platform component descriptor (`infra/opendock.toml`, `gateway/opendock.toml`).
+Services declare only the shared groups they require; config prompting, secret
+generation, setup dependency validation, and platform setting ownership must
+derive those shared declarations instead of keeping duplicate registries in
+central scripts. Shared concerns such as mail or database client configuration
+may remain in the common settings interface when they span services and have
+their own migration behavior.
 
 Do not add new values to legacy root `common.env`. Its one-time migration must
 preserve known values, keep a restrictive backup, and stop without changing the
