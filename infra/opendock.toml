@@ -11,6 +11,16 @@ setting_keys = [
 ]
 shared_groups = ["mariadb", "postgres"]
 
+[[shared_databases]]
+shared_group = "mariadb"
+engine = "mariadb"
+container = "mariadb"
+
+[[shared_databases]]
+shared_group = "postgres"
+engine = "postgres"
+container = "postgres"
+
 [[shared_settings]]
 name = "MARIADB_CLIENT_VERSION"
 owner_file = "config/shared/database.env"

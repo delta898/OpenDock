@@ -75,3 +75,13 @@ Mattermost stores local app data in Docker named volumes:
 Mattermost stores PostgreSQL data in the shared Docker volume `infra_postgres_data`.
 
 Back up the Mattermost volumes and PostgreSQL volume together.
+
+## Remove
+
+Preview the removal plan with `./opendock remove mattermost --dry-run`.
+Complete removal asks for explicit confirmation and deletes Mattermost's
+containers, named volumes, image, configured public route, service-local
+settings, and only the configured Mattermost database and role from shared
+PostgreSQL. The PostgreSQL container, volume, and other databases remain. This
+permanently deletes Mattermost messages, files, users, and settings stored in
+its volumes or database.

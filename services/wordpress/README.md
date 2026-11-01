@@ -117,3 +117,13 @@ The committed configuration lives at `services/wordpress/php/uploads.ini` and is
 The `wordpress-db-init` service is safe to run repeatedly. It uses `CREATE DATABASE IF NOT EXISTS` and `CREATE USER IF NOT EXISTS`.
 
 Generated password values are stored in their owner files: the MariaDB administrator password in `config/infra.env` and the WordPress database password in `services/wordpress/.env`. The `wordpress-db-init` service keeps existing database users and updates only when the generated values are still placeholders before startup.
+
+## Remove
+
+Preview the removal plan with `./opendock remove wordpress --dry-run`.
+Complete removal asks for explicit confirmation and deletes the WordPress
+containers, image, configured public route, service-local settings, and
+`services/wordpress/data/webroot/`. It also removes only the configured
+WordPress database and role from shared MariaDB; the MariaDB container, volume,
+and other databases remain. The webroot and database contain site files,
+uploads, accounts, and content, so this permanently deletes the WordPress site.

@@ -171,18 +171,21 @@ Runtime cleanup and code registration are separate lifecycles. `remove
 available in the checkout. Removing a contribution from OpenDock source must
 not silently delete runtime data on a user's host.
 
-Removal is currently enabled for Hermes, Homepage, Immich, Jellyfin, n8n,
-Supabase, and Uptime Kuma. Declare service-owned bind data paths, private config
+Removal is currently enabled for every bundled service: Hermes, Homepage,
+Immich, Jellyfin, Mastodon, Mattermost, n8n, Nextcloud, Supabase, Uptime Kuma,
+and WordPress. Declare service-owned bind data paths, private config
 files, extra images, and labeled
 non-Compose containers under `[removal]` in the service descriptor. Private
 config files are backed up with restrictive permissions before deletion.
 Declared `preserve_paths` inside removable directories are listed and retained.
 Every orphan container must be tied to a declared data path and is selected
 only when its mount source is inside that path. The common remover handles
-Compose containers, volumes, configured images, routes, and
-the service's private configuration. Do not enable removal for a service until
-its shared database objects, user data, backups, and preservation boundaries
-have been audited. Uptime Kuma has no bind paths or shared database objects;
+Compose containers, volumes, configured images, routes, and the service's
+private configuration. Removal contracts must account for shared database
+objects, user data, backups, and preservation boundaries. All current service
+targets now declare a contract, but declaration and static validation do not
+replace the isolated-host acceptance pass below. Uptime Kuma has no bind paths
+or shared database objects;
 its persistent application data is held in its Compose-managed named volume,
 which complete removal deletes after confirmation.
 Homepage has no persistent runtime volume; its mounted YAML configuration is
@@ -196,13 +199,17 @@ Edge Function secrets; the secret file is backed up with restrictive
 permissions, while tracked configuration and function source are preserved.
 Jellyfin complete removal deletes the user media library after showing its path;
 tracked directory placeholders beneath that path remain in the checkout.
+Mastodon, Mattermost, Nextcloud, and WordPress declare their own database and
+role names. The common remover checks for collisions with other services and
+drops only those objects, leaving the shared database containers, volumes, and
+unrelated databases intact.
 
-After every current service has a removal contract, the final acceptance pass
-must use a clean, isolated host. For each service, configure and launch it,
-repeat launch to confirm idempotence, inspect its removal plan, remove it, and
+The final acceptance pass must use a clean, isolated host. For each service,
+configure and launch it, repeat launch to confirm idempotence, inspect its
+removal plan, remove it, and
 confirm that its declared resources are gone while shared infrastructure and
-unrelated services remain. The full pass is a future rollout gate; Hermes being
-the first supported service does not complete it.
+unrelated services remain. This full pass remains outstanding; removal support
+must not be described as end-to-end verified until it passes.
 
 Common target groups:
 

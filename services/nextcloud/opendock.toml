@@ -21,3 +21,11 @@ kind = "initial-credential"
 note = "Used only during first installation. Changing this setting later does not reset an installed Nextcloud account."
 change_notice = "Nextcloud initial admin password is stored in services/nextcloud/.env. Changing it later will not reset an installed Nextcloud password."
 generated_notice = "Nextcloud initial admin password was generated in services/nextcloud/.env. Login user: NEXTCLOUD_ADMIN_USER. Login password: NEXTCLOUD_ADMIN_PASSWORD. Changing it later will not reset an installed Nextcloud password."
+
+[removal]
+data_paths = []
+
+[removal.shared_database]
+shared_group = "mariadb"
+database_key = "NEXTCLOUD_DB_NAME"
+role_key = "NEXTCLOUD_DB_USER"

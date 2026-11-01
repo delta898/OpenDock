@@ -70,3 +70,11 @@ generator = "mastodon-vapid"
 name = "MASTODON_VAPID_PUBLIC_KEY"
 kind = "generated-secret"
 generator = "mastodon-vapid"
+
+[removal]
+data_paths = ["data/public/system"]
+
+[removal.shared_database]
+shared_group = "postgres"
+database_key = "MASTODON_DB_NAME"
+role_key = "MASTODON_DB_USER"

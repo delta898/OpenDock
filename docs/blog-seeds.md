@@ -751,7 +751,7 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     라우트, 서비스 설정과 함께 계획한다. 다음으로 Uptime Kuma는 영속 데이터가
     Compose named volume 하나에 있고 host bind path나 shared DB가 없음을 확인해 두 번째
     제거 대상으로 등록했다. complete remove가 monitor와 notification 설정을 지운다는
-    안내를 README에 추가했다. shared DB 오브젝트를 가진 다른 서비스는 아직 미지원이다.
+    안내를 README에 추가했다. 이 시점에는 shared DB 오브젝트 처리가 미지원이었다.
     Homepage는 Compose bind mount가 삭제하면 안 되는 Git 관리 설정임을 확인해
     data deletion 목록에서 제외했다. 제거 시 Homepage config는 보존되고 컨테이너,
     이미지, route, private 설정만 제거하도록 세 번째 계약을 등록했다.
@@ -767,6 +767,13 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     Jellyfin media 디렉터리에는 Git 관리 `.gitkeep` placeholder가 있어 사용자 미디어를
     삭제하면서도 checkout을 변경하지 않도록 descriptor `preserve_paths`와 공통 선택적
     tree cleanup을 추가했다.
+    마지막 네 서비스는 shared MariaDB/PostgreSQL을 함께 쓰므로 infra descriptor에 DB
+    실행 어댑터를 선언하고, 각 서비스 descriptor에 자기 database/role setting key를
+    선언했다. 공통 계획은 다른 dependent service의 선언과 이름 충돌을 확인하고, 실행은
+    해당 database/role만 삭제해 shared volume과 다른 DB를 보존한다. 이로써 현재 11개
+    Compose 서비스 모두 removal contract를 선언했다. 이는 코드/메타데이터 상의 범위이며,
+    실제 clean host에서 서비스별 삭제 전후와 타 서비스 보존을 확인하는 전체 acceptance pass는
+    아직 수행하지 않았다.
   - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
     `[[commands]]`로 옮겼다. Hermes, WordPress, Supabase가 자신의 명령 이름,
     설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.

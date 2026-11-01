@@ -14,3 +14,11 @@ default = "chat"
 [[setup.fields]]
 name = "MATTERMOST_DB_PASSWORD"
 kind = "generated-secret"
+
+[removal]
+data_paths = []
+
+[removal.shared_database]
+shared_group = "postgres"
+database_key = "MATTERMOST_DB_NAME"
+role_key = "MATTERMOST_DB_USER"

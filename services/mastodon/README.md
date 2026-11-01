@@ -92,3 +92,13 @@ services/mastodon/data/public/system
 Mastodon stores PostgreSQL data in the shared Docker volume `infra_postgres_data`.
 
 Back up the media directory and PostgreSQL volume together. If you later enable object storage with `MASTODON_S3_ENABLED=true`, migrate media deliberately before removing local files.
+
+## Remove
+
+Preview the removal plan with `./opendock remove mastodon --dry-run`. Complete
+removal asks for explicit confirmation and deletes Mastodon's containers,
+uploaded media under `services/mastodon/data/public/system/`, image, configured
+public route, and service-local settings. It removes only the configured
+`MASTODON_DB_NAME` database and `MASTODON_DB_USER` role from shared PostgreSQL;
+the PostgreSQL container, volume, and other services' databases remain. This
+permanently deletes Mastodon posts, accounts, and uploaded media.

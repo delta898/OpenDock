@@ -4,6 +4,7 @@
 import errno
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -11,7 +12,9 @@ from datetime import datetime
 from pathlib import Path
 
 from opendock_catalog import ServiceCatalog
-from opendock_settings import CONFIG, LEGACY_ENV, compose_env_files, initialize
+from opendock_settings import (
+    CONFIG, LEGACY_ENV, compose_env_files, initialize, load_values,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,12 +24,12 @@ class RemovalError(Exception):
     pass
 
 
-def run_command(args, *, capture=False, check=True):
+def run_command(args, *, capture=False, check=True, input_text=None):
     try:
         result = subprocess.run(
             [str(arg) for arg in args], cwd=ROOT, text=True,
             stdout=subprocess.PIPE if capture else None,
-            stderr=subprocess.PIPE if capture else None, check=False,
+            stderr=subprocess.PIPE if capture else None, input=input_text, check=False,
         )
     except FileNotFoundError as exc:
         raise RemovalError(f"Required command not found: {exc.filename}") from exc
@@ -63,6 +66,70 @@ def compose_prefix(service):
     for env_file in compose_env_files(service):
         command += ["--env-file", env_file]
     return command + ["-f", directory / "compose.yml", "-p", service]
+
+
+def infra_compose_prefix():
+    directory = ROOT / "infra"
+    command = ["docker", "compose", "--project-directory", directory]
+    for env_file in compose_env_files("infra"):
+        command += ["--env-file", env_file]
+    return command + ["-f", directory / "compose.yml", "-p", "infra"]
+
+
+def resolve_shared_database(service, catalog, settings):
+    definition = catalog.get(service)
+    declaration = definition.removal.get("shared_database")
+    if not declaration:
+        return None
+    group = declaration["shared_group"]
+    database_name = settings.get(declaration["database_key"], "").strip()
+    role_name = settings.get(declaration["role_key"], "").strip()
+    if not database_name or not role_name:
+        raise RemovalError(
+            f"{definition.display_name} database ownership settings are incomplete; "
+            "cannot safely remove shared database objects."
+        )
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,63}", database_name) or not re.fullmatch(
+        r"[A-Za-z0-9_]{1,63}", role_name
+    ):
+        raise RemovalError(
+            f"{definition.display_name} database or role name contains unsupported characters; "
+            "cannot safely build a scoped removal statement."
+        )
+
+    for other in catalog.services:
+        if other.name == service or group not in other.setup_dependencies:
+            continue
+        other_declaration = other.removal.get("shared_database")
+        if not other_declaration or other_declaration.get("shared_group") != group:
+            raise RemovalError(
+                f"Cannot safely remove the {group} database for {definition.display_name}: "
+                f"{other.display_name} also uses this shared database group but has no "
+                "audited database removal declaration yet."
+            )
+        other_settings = load_values(service=other.name, process_env=False)
+        other_database = other_settings.get(other_declaration["database_key"], "").strip()
+        other_role = other_settings.get(other_declaration["role_key"], "").strip()
+        if (
+            database_name.casefold() == other_database.casefold()
+            or role_name.casefold() == other_role.casefold()
+        ):
+            raise RemovalError(
+                f"Cannot safely remove {database_name}/{role_name}: it is also configured "
+                f"for {other.display_name}. Choose distinct database and role names first."
+            )
+
+    infra = catalog.platform.get("infra")
+    adapter = next(
+        item for item in infra.shared_databases if item["shared_group"] == group
+    )
+    return {
+        "group": group,
+        "engine": adapter["engine"],
+        "container": adapter["container"],
+        "database": database_name,
+        "role": role_name,
+    }
 
 
 def routes_for_removal(domains):
@@ -130,7 +197,8 @@ def inspect_orphan_containers(service, declarations, compose_ids):
 
 
 def build_plan(service):
-    definition = ServiceCatalog(ROOT).get(service)
+    catalog = ServiceCatalog(ROOT)
+    definition = catalog.get(service)
     removal = definition.removal
     if not removal:
         raise RemovalError(
@@ -203,6 +271,8 @@ def build_plan(service):
         for key in source if key.startswith(prefix)
     )
     configured_keys = sorted(set(configured_keys))
+    settings = load_values(service=service, process_env=False)
+    shared_database = resolve_shared_database(service, catalog, settings)
     custom_data = [
         relative for relative, path in paths.items() if path.exists()
     ]
@@ -218,6 +288,7 @@ def build_plan(service):
         "data_paths": custom_data,
         "preserve_paths": preserved_paths,
         "config_files": config_files,
+        "shared_database": shared_database,
         "configured_keys": configured_keys,
         "remove_service_config": service_config.exists() or legacy_service_config.exists(),
         "migrate_legacy_config": LEGACY_ENV.is_file(),
@@ -250,6 +321,14 @@ def print_plan(plan):
         print(f"    {route['hostname']}")
     if not (ROOT / "cloudflare.env").is_file():
         print("    Cloudflare API cleanup unavailable; cloudflare.env is absent")
+    if plan["shared_database"]:
+        database = plan["shared_database"]
+        print(
+            f"  Remove only this service's {database['engine']} database and role "
+            f"from shared {database['group']}:"
+        )
+        print(f"    database: {database['database']}")
+        print(f"    role: {database['role']}")
     for relative in plan["data_paths"]:
         print(f"  Delete declared service data: services/{name}/{relative}/")
         for preserved in plan["preserve_paths"]:
@@ -268,6 +347,46 @@ def print_plan(plan):
     if plan["migrate_legacy_config"]:
         print("  Migrate remaining common.env values to their owner files and retain its backup.")
     print("  Preserve OpenDock code, core/shared settings, shared infra, and Caddy state.")
+
+
+def remove_shared_database(plan):
+    database = plan["shared_database"]
+    if not database:
+        return
+    container = database["container"]
+    running = run_command(
+        ["docker", "inspect", "--format", "{{.State.Running}}", container],
+        capture=True,
+        check=False,
+    )
+    if running.returncode or running.stdout.strip().lower() != "true":
+        run_command([*infra_compose_prefix(), "up", "-d", container])
+
+    name = database["database"]
+    role = database["role"]
+    if database["engine"] == "postgres":
+        sql = f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE);\nDROP ROLE IF EXISTS "{role}";\n'
+        command = [
+            "docker", "exec", "-i", container, "sh", "-c",
+            'exec psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1',
+        ]
+    elif database["engine"] == "mariadb":
+        sql = (
+            f"DROP DATABASE IF EXISTS `{name}`;\n"
+            f"DROP USER IF EXISTS '{role}'@'%';\n"
+            "FLUSH PRIVILEGES;\n"
+        )
+        command = [
+            "docker", "exec", "-i", container, "sh", "-c",
+            'exec mariadb --user=root --password="$MYSQL_ROOT_PASSWORD" --batch',
+        ]
+    else:
+        raise RemovalError(f"Unsupported shared database engine: {database['engine']}")
+    run_command(command, capture=True, input_text=sql)
+    print(
+        f"Removed shared {database['group']} database objects for "
+        f"{plan['service'].display_name}: {name}, {role}."
+    )
 
 
 def backup_service_config(service, service_config):
@@ -368,6 +487,10 @@ def remove_resources(plan):
     definition = plan["service"]
     service = definition.name
     initialize()
+    if plan["shared_database"]:
+        if plan["compose_ids"]:
+            run_command([*compose_prefix(service), "stop"])
+        remove_shared_database(plan)
     remove_routes(service, plan)
     run_command([*compose_prefix(service), "down", "--volumes", "--remove-orphans"])
 

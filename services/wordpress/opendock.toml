@@ -20,3 +20,11 @@ default = "blog"
 [[setup.fields]]
 name = "WORDPRESS_DB_PASSWORD"
 kind = "generated-secret"
+
+[removal]
+data_paths = ["data/webroot"]
+
+[removal.shared_database]
+shared_group = "mariadb"
+database_key = "WORDPRESS_DB_NAME"
+role_key = "WORDPRESS_DB_USER"

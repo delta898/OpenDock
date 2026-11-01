@@ -115,6 +115,10 @@ changes.
 - Services that use shared databases must remove only their own database or
   schema through a service-aware operation; removing the shared database
   volume is not a service reset.
+- Describe shared database adapters in the platform descriptor and each
+  service's exact database/role keys in its removal descriptor. Refuse removal
+  if another dependent service has no audited declaration or if configured
+  database/role names collide.
 - A new service must declare how its service-scoped settings, containers,
   images, persistent data, database objects, and routes are removed. Reuse the
   common `remove <service>` interface and keep service-specific cleanup logic

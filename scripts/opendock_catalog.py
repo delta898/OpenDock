@@ -90,6 +90,10 @@ class PlatformComponentDefinition:
     def shared_settings(self) -> tuple[Mapping[str, object], ...]:
         return tuple(self.descriptor.get("shared_settings", ()))
 
+    @property
+    def shared_databases(self) -> tuple[Mapping[str, object], ...]:
+        return tuple(self.descriptor.get("shared_databases", ()))
+
 
 class PlatformCatalog:
     """Discover root-level platform descriptors independently of app services."""
@@ -184,6 +188,36 @@ class PlatformCatalog:
             raise CatalogError(f"Platform descriptor {path} has invalid shared_groups.")
         if len(shared_groups) != len(set(shared_groups)):
             raise CatalogError(f"Platform descriptor {path} repeats a shared group.")
+
+        shared_databases = descriptor.get("shared_databases", [])
+        if not isinstance(shared_databases, list):
+            raise CatalogError(f"Platform descriptor {path} shared_databases must be a list.")
+        seen_database_groups = set()
+        for database in shared_databases:
+            if not isinstance(database, dict):
+                raise CatalogError(f"Platform descriptor {path} has an invalid shared database.")
+            group = database.get("shared_group")
+            engine = database.get("engine")
+            container = database.get("container")
+            if (
+                not isinstance(group, str)
+                or group not in shared_groups
+                or group in seen_database_groups
+            ):
+                raise CatalogError(
+                    f"Platform descriptor {path} has an invalid shared database group."
+                )
+            if not isinstance(engine, str) or engine not in {"mariadb", "postgres"}:
+                raise CatalogError(
+                    f"Platform descriptor {path} has an unsupported shared database engine."
+                )
+            if not isinstance(container, str) or not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.-]*", container
+            ):
+                raise CatalogError(
+                    f"Platform descriptor {path} has an invalid shared database container."
+                )
+            seen_database_groups.add(group)
 
         shared_settings = descriptor.get("shared_settings", [])
         if not isinstance(shared_settings, list):
@@ -540,7 +574,7 @@ class ServiceCatalog:
             set(removal)
             - {
                 "data_paths", "preserve_paths", "config_files",
-                "extra_images", "orphan_containers",
+                "extra_images", "orphan_containers", "shared_database",
             }
         )
         if unknown_removal:
@@ -553,6 +587,49 @@ class ServiceCatalog:
         config_files = removal.get("config_files", [])
         extra_images = removal.get("extra_images", [])
         orphan_containers = removal.get("orphan_containers", [])
+        shared_database = removal.get("shared_database")
+        if shared_database is not None:
+            if not isinstance(shared_database, dict):
+                raise CatalogError(
+                    f"Service descriptor {path} has an invalid removal.shared_database declaration."
+                )
+            unknown_database_fields = sorted(
+                set(shared_database) - {"shared_group", "database_key", "role_key"}
+            )
+            if unknown_database_fields:
+                raise CatalogError(
+                    f"Service descriptor {path} has unsupported shared database fields: "
+                    + ", ".join(unknown_database_fields)
+                )
+            group = shared_database.get("shared_group")
+            database_key = shared_database.get("database_key")
+            role_key = shared_database.get("role_key")
+            known_database_groups = {
+                item["shared_group"]
+                for component in self.platform.components
+                for item in component.shared_databases
+            }
+            if not isinstance(group, str) or group not in setup_dependencies:
+                raise CatalogError(
+                    f"Service descriptor {path} removal.shared_database must use a declared setup dependency."
+                )
+            if group not in known_database_groups:
+                raise CatalogError(
+                    f"Service descriptor {path} references a shared database group without a platform adapter."
+                )
+            for key_name, key in (("database_key", database_key), ("role_key", role_key)):
+                if (
+                    not isinstance(key, str)
+                    or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
+                    or not key.startswith(prefix)
+                ):
+                    raise CatalogError(
+                        f"Service descriptor {path} shared database {key_name} must use the {prefix} prefix."
+                    )
+            if database_key == role_key:
+                raise CatalogError(
+                    f"Service descriptor {path} must declare different database and role keys."
+                )
         for key, entries in (
             ("data_paths", data_paths),
             ("preserve_paths", preserve_paths),

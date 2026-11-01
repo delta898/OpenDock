@@ -37,3 +37,13 @@ This stack uses Docker named volumes:
 - `nextcloud_data` for uploaded user files
 
 Named volumes avoid common host filesystem permission problems. For external disks or host bind mounts, adjust the volume section carefully and back up before changing an existing installation.
+
+## Remove
+
+Preview the removal plan with `./opendock remove nextcloud --dry-run`.
+Complete removal asks for explicit confirmation and deletes the Nextcloud
+containers, `nextcloud_html` and `nextcloud_data` volumes, image, configured
+public route, service-local settings, and only the configured Nextcloud
+database and role from shared MariaDB. The MariaDB container, volume, and other
+databases remain. This permanently deletes uploaded files, installed apps, and
+Nextcloud account data.
