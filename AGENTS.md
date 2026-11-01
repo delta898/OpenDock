@@ -61,6 +61,12 @@ configuring, launch creates missing values before checking configuration, and
 `secrets` provides an explicit repair path. The common layer owns generic
 generators, secure persistence, and consistent output; it must not enumerate
 service-specific generator types, secret relationships, or validation rules.
+Shared platform settings and shared setup groups belong to the corresponding
+platform component descriptor (currently `infra/opendock.toml`). Services
+declare only the shared groups they require; config prompting, secret
+generation, setup dependency validation, and setting ownership must derive
+those shared declarations instead of keeping duplicate per-group registries in
+central scripts.
 
 Do not add new values to legacy root `common.env`. Its one-time migration must
 preserve known values, keep a restrictive backup, and stop without changing the

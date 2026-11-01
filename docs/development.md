@@ -95,13 +95,22 @@ capability, use that contract to decide whether it belongs in the common
 workflow or under `services/<name>/`; do not add service-specific branches to
 the central dispatcher.
 
-The shared service catalog discovers services at runtime by scanning:
+The service catalog discovers services at runtime by scanning:
 
 ```text
 services/*/compose.yml
 ```
 
 This is why new services do not need CLI dispatcher changes.
+
+Shared platform components such as `infra/` have a separate catalog and
+descriptor. `infra/opendock.toml` owns the shared setting keys, setup fields,
+secret generator declarations, and dependency groups such as `mariadb` and
+`postgres`. A service declares only the shared groups it needs in
+`services/<service>/opendock.toml`; the common setup and secret coordinators
+resolve those declarations. Platform config ownership is also derived from the
+component descriptor, while gateway and shared-concern ownership remain their
+own platform interfaces until they have equivalent descriptors.
 
 ## Contributing a service
 

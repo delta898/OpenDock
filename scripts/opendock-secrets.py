@@ -89,27 +89,14 @@ def selected_secrets(target):
         selected[key] = SelectedSecret(owner, MappingProxyType(dict(definition)))
 
     shared_groups = set()
+    infra = catalog.platform.get("infra")
     if target in ("all", "infra"):
-        shared_groups.update(("mariadb", "postgres"))
+        shared_groups.update(infra.shared_groups)
     for service in services:
         shared_groups.update(catalog.get(service).setup_dependencies)
-
-    shared_definitions = {
-        "mariadb": {
-            "name": "MARIADB_ROOT_PASSWORD",
-            "kind": "generated-secret",
-            "generator": "url-safe",
-            "length": 36,
-        },
-        "postgres": {
-            "name": "POSTGRES_ADMIN_PASSWORD",
-            "kind": "generated-secret",
-            "generator": "url-safe",
-            "length": 36,
-        },
-    }
-    for group in shared_groups:
-        add("infra", shared_definitions[group])
+    for field in infra.setup_fields:
+        if field["shared_group"] in shared_groups:
+            add("infra", field)
 
     for name in services:
         for field in catalog.get(name).setup_fields:

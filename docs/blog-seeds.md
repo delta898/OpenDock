@@ -753,6 +753,13 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
     `[[commands]]`로 옮겼다. Hermes, WordPress, Supabase가 자신의 명령 이름,
     설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.
+  - 공통 MariaDB/PostgreSQL secret 정의와 setup target 분기를 중앙 스크립트에서
+    반복하지 않도록 `infra/opendock.toml`에 infra 소유 setting key, shared group,
+    setup field와 secret generator를 선언했다. Service catalog는 platform descriptor의
+    shared group을 기준으로 service dependency를 검증하고, setup/secrets는 서비스가
+    선언한 group에서 infra field를 선택한다. 설정 owner 경로도 infra descriptor의
+    setting key 목록에서 파생된다. Gateway/shared mail 같은 다른 platform 설정은 아직
+    같은 방식으로 이동하지 않았다.
   - 설정 migration의 WordPress·Nextcloud 조건은 서비스 이름을 직접 비교하는 대신
     각 서비스 descriptor의 shared MariaDB dependency를 기준으로 일반화했다.
     Mastodon 예약 username 판정은 setup helper에서 제거해 Mastodon validator가
@@ -788,4 +795,6 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   removal, service command help metadata, 설정 migration 일반화는 코드에 반영됐지만
   실환경에서는 확인되지 않았다. 자동화 테스트,
   깨끗한 데이터의 첫 onboarding, 모든 서비스 removal 후의 깨끗한 환경 전체 실행,
-  Linux/macOS 양쪽 동작도 미검증이다.
+    Linux/macOS 양쪽 동작도 미검증이다. 이번 infra descriptor 이동은 정적
+    구문/차이 검토까지만 했으며 setup/secrets 실행과 설정 migration 영향은
+    아직 검증하지 않았다.

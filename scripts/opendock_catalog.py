@@ -60,6 +60,166 @@ class ServiceDefinition:
         return tuple(self.descriptor.get("commands", ()))
 
 
+@dataclass(frozen=True)
+class PlatformComponentDefinition:
+    """Declarative configuration owned by a root-level platform component."""
+
+    name: str
+    directory: Path
+    descriptor_file: Path
+    descriptor: Mapping[str, object]
+
+    @property
+    def setting_keys(self) -> tuple[str, ...]:
+        return tuple(self.descriptor.get("setting_keys", ()))
+
+    @property
+    def shared_groups(self) -> tuple[str, ...]:
+        return tuple(self.descriptor.get("shared_groups", ()))
+
+    @property
+    def setup_fields(self) -> tuple[Mapping[str, object], ...]:
+        setup = self.descriptor.get("setup", {})
+        return tuple(setup.get("fields", ()))
+
+
+class PlatformCatalog:
+    """Discover root-level platform descriptors independently of app services."""
+
+    DESCRIPTOR_VERSION = 1
+
+    def __init__(self, root: Path):
+        self.root = Path(root).resolve()
+        self._components = {}
+        for path in sorted(self.root.glob("*/opendock.toml")):
+            if not (path.parent / "compose.yml").is_file():
+                continue
+            component = self._load(path, path.parent.name)
+            self._components[component.name] = component
+        groups = [
+            group for component in self.components for group in component.shared_groups
+        ]
+        if len(groups) != len(set(groups)):
+            raise CatalogError("Platform descriptors declare duplicate shared groups.")
+        keys = [key for component in self.components for key in component.setting_keys]
+        if len(keys) != len(set(keys)):
+            raise CatalogError("Platform descriptors declare duplicate setting ownership.")
+
+    @property
+    def components(self) -> tuple[PlatformComponentDefinition, ...]:
+        return tuple(self._components.values())
+
+    def get(self, name: str) -> PlatformComponentDefinition:
+        try:
+            return self._components[name]
+        except KeyError as exc:
+            raise CatalogError(f"Unknown platform component: {name}") from exc
+
+    def _load(self, path: Path, name: str) -> PlatformComponentDefinition:
+        if tomllib is None:
+            raise CatalogError(
+                f"Reading {path.relative_to(self.root)} requires Python 3.11 or newer."
+            )
+        try:
+            with path.open("rb") as stream:
+                descriptor = tomllib.load(stream)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise CatalogError(f"Invalid platform descriptor {path}: {exc}") from exc
+        if descriptor.get("schema_version") != self.DESCRIPTOR_VERSION:
+            raise CatalogError(
+                f"Unsupported schema_version in platform descriptor {path}."
+            )
+        if descriptor.get("component_id") != name:
+            raise CatalogError(
+                f"Platform descriptor {path} must declare component_id = {name!r}."
+            )
+
+        setting_keys = descriptor.get("setting_keys", [])
+        if not isinstance(setting_keys, list) or any(
+            not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
+            for key in setting_keys
+        ):
+            raise CatalogError(f"Platform descriptor {path} has invalid setting_keys.")
+        if len(setting_keys) != len(set(setting_keys)):
+            raise CatalogError(f"Platform descriptor {path} repeats a setting key.")
+
+        shared_groups = descriptor.get("shared_groups", [])
+        if not isinstance(shared_groups, list) or any(
+            not isinstance(group, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", group)
+            for group in shared_groups
+        ):
+            raise CatalogError(f"Platform descriptor {path} has invalid shared_groups.")
+        if len(shared_groups) != len(set(shared_groups)):
+            raise CatalogError(f"Platform descriptor {path} repeats a shared group.")
+
+        setup = descriptor.get("setup", {})
+        if not isinstance(setup, dict):
+            raise CatalogError(f"Platform descriptor {path} has an invalid [setup] section.")
+        fields = setup.get("fields", [])
+        if not isinstance(fields, list):
+            raise CatalogError(f"Platform descriptor {path} setup.fields must be an array.")
+        seen = set()
+        for field in fields:
+            if not isinstance(field, dict):
+                raise CatalogError(f"Platform descriptor {path} has an invalid setup field.")
+            key = field.get("name")
+            kind = field.get("kind")
+            group = field.get("shared_group")
+            if (
+                not isinstance(key, str)
+                or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
+                or key not in setting_keys
+                or key in seen
+            ):
+                raise CatalogError(
+                    f"Platform setup field {key!r} in {path} must be a unique owned setting key."
+                )
+            seen.add(key)
+            if (
+                not isinstance(kind, str)
+                or kind not in ServiceCatalog.SETUP_FIELD_KINDS
+            ):
+                raise CatalogError(
+                    f"Platform setup field {key!r} in {path} has unsupported kind {kind!r}."
+                )
+            if kind == "defaulted-choice" and not isinstance(field.get("default"), str):
+                raise CatalogError(
+                    f"Platform setup field {key!r} in {path} needs a string default."
+                )
+            if not isinstance(group, str) or group not in shared_groups:
+                raise CatalogError(
+                    f"Platform setup field {key!r} in {path} needs a declared shared_group."
+                )
+            if kind == "generated-secret":
+                generator = field.get("generator", "url-safe")
+                if (
+                    not isinstance(generator, str)
+                    or generator not in ServiceCatalog.BUILTIN_GENERATORS
+                ):
+                    raise CatalogError(
+                        f"Platform setup field {key!r} in {path} has unsupported generator."
+                    )
+            for attribute in ("default", "note", "change_notice", "generated_notice"):
+                value = field.get(attribute)
+                if value is not None and not isinstance(value, str):
+                    raise CatalogError(
+                        f"Platform setup field {key!r} in {path} has invalid {attribute}."
+                    )
+            length = field.get("length")
+            if length is not None and (
+                not isinstance(length, int) or isinstance(length, bool) or length < 1
+            ):
+                raise CatalogError(
+                    f"Platform setup field {key!r} in {path} has invalid length."
+                )
+        return PlatformComponentDefinition(
+            name=name,
+            directory=path.parent,
+            descriptor_file=path,
+            descriptor=MappingProxyType(descriptor),
+        )
+
+
 class ServiceCatalog:
     """Read-only catalog derived from services/<name>/compose.yml."""
 
@@ -70,7 +230,6 @@ class ServiceCatalog:
         "required-user", "defaulted-choice", "initial-credential",
         "secret-user", "generated-secret",
     })
-    SETUP_DEPENDENCIES = frozenset({"mariadb", "postgres"})
     # Add a capability here only when its handler contract and common dispatcher
     # are implemented. Unknown declarations must fail instead of being ignored.
     CAPABILITIES = frozenset({
@@ -81,6 +240,12 @@ class ServiceCatalog:
 
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
+        self.platform = PlatformCatalog(self.root)
+        self.shared_setup_groups = frozenset(
+            group
+            for component in self.platform.components
+            for group in component.shared_groups
+        )
         self.services_dir = self.root / "services"
         self._services = self._discover()
         self._by_name = {service.name: service for service in self._services}
@@ -248,9 +413,7 @@ class ServiceCatalog:
             raise CatalogError(
                 f"Service descriptor {path} setup.dependencies must be a string list."
             )
-        unknown_setup_dependencies = sorted(
-            set(setup_dependencies) - self.SETUP_DEPENDENCIES
-        )
+        unknown_setup_dependencies = sorted(set(setup_dependencies) - self.shared_setup_groups)
         if unknown_setup_dependencies:
             raise CatalogError(
                 f"Service descriptor {path} declares unsupported setup dependencies: "

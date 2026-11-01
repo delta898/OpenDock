@@ -42,13 +42,6 @@ CONFIG_FIELDS = {
     "global": [
         Field("STACK_DOMAIN", "required-user"),
     ],
-    "mariadb": [
-        Field("MARIADB_ROOT_PASSWORD", "generated-secret"),
-    ],
-    "postgres": [
-        Field("POSTGRES_ADMIN_USER", "defaulted-choice", default="opendock"),
-        Field("POSTGRES_ADMIN_PASSWORD", "generated-secret"),
-    ],
     "mail": [
         Field("SMTP_HOST", "required-user"),
         Field("SMTP_PORT", "defaulted-choice", default="587"),
@@ -83,16 +76,16 @@ def resolve_sections(target):
         services = group
 
     sections = [] if target == "mail" else ["global"]
+    infra = catalog.platform.get("infra")
     shared_setup = {
         dependency
         for service in services
         for dependency in catalog.get(service).setup_dependencies
     }
     if target in ("infra", "all"):
-        shared_setup.update(("mariadb", "postgres"))
-    for dependency in ("mariadb", "postgres"):
-        if dependency in shared_setup:
-            sections.append(dependency)
+        shared_setup.update(infra.shared_groups)
+    if shared_setup:
+        sections.extend(f"infra:{group}" for group in sorted(shared_setup))
     if target == "mail":
         sections.append("mail")
 
@@ -107,9 +100,20 @@ def selected_fields(sections):
     seen = set()
     services = set(service_targets())
     catalog = ServiceCatalog(ROOT_DIR)
+    infra = catalog.platform.get("infra")
     for section in sections:
         if section in services:
             declared = [Field(**field) for field in catalog.get(section).setup_fields]
+        elif section.startswith("infra:"):
+            group = section.split(":", 1)[1]
+            declared = [
+                Field(**{
+                    key: value for key, value in field.items()
+                    if key in Field.__dataclass_fields__
+                })
+                for field in infra.setup_fields
+                if field["shared_group"] == group
+            ]
         else:
             declared = CONFIG_FIELDS.get(section, [])
         for field in declared:
