@@ -9,7 +9,10 @@
     {
       "customType": "regex",
       "description": "Track Docker image tags declared in OpenDock dotenv files",
-      "managerFilePatterns": ["/(^|/)\\.env$/", "/(^|/)common\\.env\\.example$/"],
+      "managerFilePatterns": [
+        "/(^|/)\\.env$/",
+        "/(^|/)\\.env\\.default$/"
+      ],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+(?<variable>[A-Z0-9_]+)=(?<currentValue>[^\\s#]+)"
       ],

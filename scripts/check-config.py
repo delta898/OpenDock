@@ -10,11 +10,10 @@ import sys
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+from opendock_settings import load_values
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-COMMON_ENV = ROOT_DIR / "common.env"
-COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 DOMAIN_SPEC = importlib.util.spec_from_file_location(
     "opendock_domains", ROOT_DIR / "scripts" / "opendock-domains.py"
 )
@@ -361,7 +360,7 @@ def print_results(results):
             print()
 
     if failed:
-        print("Set external values such as STACK_DOMAIN in common.env.")
+        print("Set external values with `./opendock setup` or `./opendock setup <service>`.")
         print(f"Run `./opendock setup {TARGET}` to review and fill user-facing values.")
         print("Run `./opendock secrets` to fill generated passwords and app secrets.")
         return 1
@@ -369,26 +368,9 @@ def print_results(results):
     return 0
 
 
-def print_missing_common_env():
-    print("Missing required file: common.env")
-    print()
-    print("To continue:")
-    print("  ./opendock setup")
-    print("  ./opendock check-config")
-    print()
-    print("Or configure manually:")
-    print("  cp common.env.example common.env")
-    print("  nano common.env  # set STACK_DOMAIN")
-    print("  ./opendock secrets")
-
-
 def main():
-    if not COMMON_ENV.exists():
-        print_missing_common_env()
-        return 1
-
-    common_values = parse_env_file(COMMON_ENV)
-    example_values = parse_env_file(COMMON_ENV_EXAMPLE)
+    common_values = load_values(process_env=False)
+    example_values = load_values(examples=True)
     targets = resolve_targets(TARGET)
     results = [check_target(target, common_values, example_values) for target in targets]
     failed = print_results(results)

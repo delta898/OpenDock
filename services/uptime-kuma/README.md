@@ -6,10 +6,13 @@ This service uses Uptime Kuma's official Docker image and stores persistent data
 
 ## Setup
 
-Set the main stack domain in `common.env`:
+Set the main stack domain in `config/core.env` and the service hostname in `config/services/uptime-kuma.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# config/services/uptime-kuma.env
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
 

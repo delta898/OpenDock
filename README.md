@@ -122,14 +122,16 @@ Create and review the local env file:
 
 `./opendock setup` asks for values that need your intent, such as the main domain, and keeps existing values when you press Enter. It also generates local passwords and app secrets without printing them.
 
-If you prefer to edit by hand, copy the example file and set at least the main domain:
+Local settings are created by `./opendock setup`. To edit them by hand, use the
+owner-specific local files after setup:
 
 ```sh
-cp common.env.example common.env
-nano common.env
+nano config/core.env
+nano config/services/wordpress.env
+nano services/hermes/.env
 ```
 
-OpenDock also generates local passwords and app secrets automatically before `./opendock up` and `./opendock launch`. Existing real values in `common.env` are kept. If `common.env` must be updated, the previous file is backed up under `backups/common-env/`.
+OpenDock also generates local passwords and app secrets automatically before `./opendock up` and `./opendock launch`. Existing values are kept. Before a config file changes, its previous version is backed up under `backups/config/`. Existing installations using `common.env` are migrated automatically the next time OpenDock setup or startup initializes configuration; the original file is retained in that backup directory.
 
 You can also generate values explicitly:
 
@@ -138,9 +140,11 @@ You can also generate values explicitly:
 ./opendock secrets nextcloud
 ```
 
-Nextcloud's generated admin password is the initial login password for the first installation. The value is stored in `NEXTCLOUD_ADMIN_PASSWORD` in `common.env`; changing it later does not reset an already installed Nextcloud account.
+Nextcloud's generated admin password is the initial login password for the first installation. The value is stored in `config/services/nextcloud.env`; changing it later does not reset an already installed Nextcloud account.
 
-The default subdomains are already defined in `common.env.example`:
+Default subdomains are defined in the relevant service defaults. Hermes uses
+`services/hermes/.env.default`; services not yet migrated keep their current
+`config/services/*.env.example` values:
 
 ```env
 HOMEPAGE_SUBDOMAIN=home
@@ -202,7 +206,7 @@ the web root and applies routing without starting a Docker service. The legacy
 ./opendock launch docs.primary.com
 ```
 
-Before starting services, OpenDock fills generated secrets and checks `common.env` for required values. This helps catch missing external settings after `git pull` adds a new service.
+Before starting services, OpenDock fills generated secrets and checks the layered configuration for required values. This helps catch missing external settings after `git pull` adds a new service.
 
 ## Cloudflare Publishing
 
@@ -325,7 +329,7 @@ Review or update local setup interactively:
 ./opendock setup media
 ```
 
-`./opendock setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon, Mattermost, and n8n.
+`./opendock setup mail` stores shared SMTP relay settings in `config/shared/mail.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon, Mattermost, and n8n.
 
 Run a service-specific command:
 
@@ -415,10 +419,12 @@ The WordPress service includes practical PHP defaults for media, theme, and plug
 
 ## Configuration Files
 
+Configuration ownership and precedence are documented in [`config/README.md`](config/README.md).
+
 Local files ignored by Git:
 
 ```text
-common.env       required local stack settings and secrets
+config/          private core, infrastructure, shared, and service settings
 cloudflare.env   optional Cloudflare API settings
 .sync.env.toml   optional rsync test-machine settings
 ```
@@ -426,14 +432,16 @@ cloudflare.env   optional Cloudflare API settings
 Committed defaults:
 
 ```text
-common.env.example
+config/**/*.env.default
+config/services/*.env.example  # defaults for services not yet migrated
+services/hermes/.env.default
 cloudflare.env.example
 infra/.env
 gateway/.env
-services/*/.env
+services/*/.env  # existing services only; Hermes local settings are ignored
 ```
 
-When you update the repository with `git pull`, compare new values in `common.env.example` with your local `common.env`. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
+When you update the repository with `git pull`, OpenDock reads updated defaults from tracked `.env.default` files. Services not yet migrated continue using their tracked `config/services/*.env.example` files. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
 
 ## Directory Layout
 
@@ -491,7 +499,8 @@ Sync mirrors tracked files and non-ignored untracked files from the working tree
 so you can test new files before `git add` or commit. Untracked files ignored by
 Git are not sent. Runtime data, backups, static site contents, host configuration,
 and local secrets such as `.git/`, `services/*/data/`, `services/*/backups/`,
-`static-sites/` contents, `common.env`, `cloudflare.env`, `.sync.env.toml`,
+`static-sites/` contents, private `config/*.env` files (and the legacy
+`common.env` migration input), `cloudflare.env`, `.sync.env.toml`,
 `*.env` files, `domains.conf`, the generated Caddy routes file, and
 `services/supabase/functions.env` are protected on the destination. The tracked
 `static-sites/README.md` and other committed examples remain deployable.

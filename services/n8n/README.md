@@ -6,10 +6,10 @@ This service uses n8n's official Docker image and stores persistent data in a Do
 
 ## Setup
 
-Set the main stack domain in `common.env`:
+Set the main stack domain with `./opendock setup`. n8n-specific hostname
+settings live in `config/services/n8n.env`:
 
 ```sh
-STACK_DOMAIN=example.com
 N8N_SUBDOMAIN=n8n
 ```
 
@@ -21,7 +21,7 @@ https://n8n.example.com/
 
 n8n receives this URL automatically as `WEBHOOK_URL`.
 
-Outbound user-management email uses the common SMTP relay values in `common.env`:
+Outbound user-management email uses the shared SMTP relay values in `config/shared/mail.env`:
 
 ```env
 SMTP_HOST=smtp.example.com

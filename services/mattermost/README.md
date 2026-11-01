@@ -12,14 +12,15 @@ https://chat.<STACK_DOMAIN>
 
 Service defaults live in `services/mattermost/.env`.
 
-Generated secrets live in the repository-level `common.env`:
+Mattermost's database password lives in `config/services/mattermost.env`;
+the PostgreSQL administrator password is shared infrastructure config in
+`config/infra.env`:
 
 ```env
-POSTGRES_ADMIN_PASSWORD=change-postgres-admin-password
 MATTERMOST_DB_PASSWORD=change-mattermost-db-password
 ```
 
-Outbound email uses the common SMTP relay values in `common.env`:
+Outbound email uses the shared SMTP relay values in `config/shared/mail.env`:
 
 ```env
 SMTP_HOST=smtp.example.com

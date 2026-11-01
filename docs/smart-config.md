@@ -1,6 +1,12 @@
 # Smart Config Design Notes
 
-This document captures the next configuration direction for OpenDock. It is a working design note so the work can continue from another machine without losing context.
+> Historical design record. These notes describe the original `common.env`-based
+> implementation and use older `make` command examples. The current owner-based
+> configuration layout, default/local file pairs, migration behavior, and current
+> CLI commands are documented in [`config/README.md`](../config/README.md),
+> [`docs/development.md`](development.md), and the root `AGENTS.md`.
+
+This document preserves the early smart-config design decisions for context.
 
 ## Current Context
 

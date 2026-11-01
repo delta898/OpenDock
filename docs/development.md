@@ -54,7 +54,7 @@ The script also:
 The script intentionally does not:
 
 - run `apt upgrade`
-- create or edit `common.env`
+- initialize or edit the owner-specific files under `config/`
 - create or edit `cloudflare.env`
 - create a Cloudflare Tunnel
 - run `./opendock launch`
@@ -125,7 +125,7 @@ Group names are target aliases for multiple services. They are supported by setu
 
 `up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
 
-`setup` is the interactive OpenDock setup workflow. It creates `common.env` when missing, asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and backs up `common.env` before mutation.
+`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default`, Hermes defaults from `services/hermes/.env.default`, and defaults for services not yet migrated from `config/services/*.env.example`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env` installations are split into owner files on initialization, with the original retained in the backup directory.
 
 `launch <hostname>` is the primary workflow. It resolves exactly one route,
 starts `infra` and the mapped Docker service when the route is Docker-backed, or
@@ -187,11 +187,11 @@ launch
 
 Validation rules:
 
-- `common.env` must exist.
+- `config/core.env` must contain the main stack domain.
 - Compose variables without defaults, such as `${IMMICH_DB_PASSWORD}`, are required.
 - Compose variables with defaults, such as `${JELLYFIN_SUBDOMAIN:-media}`, are optional.
 - Required values that are empty fail validation.
-- Required secret-like values ending in `PASSWORD`, `SECRET`, `TOKEN`, or `KEY` fail validation if they still match the placeholder in `common.env.example`.
+- Required secret-like values ending in `PASSWORD`, `SECRET`, `TOKEN`, or `KEY` fail validation if they still match their corresponding tracked defaults (`.env.default` or legacy `.env.example`).
 - `STACK_DOMAIN=example.com` is treated as a placeholder.
 
 Automatic validation uses quiet mode and prints only failures. Manual `./opendock check-config` also prints optional values that will use defaults.
@@ -200,16 +200,16 @@ Secret generation rules:
 
 - `./opendock check-config` is read-only and never changes files.
 - `./opendock setup [target]` interactively fills user-facing values and generated secrets.
-- `./opendock secrets [target]` fills generated passwords and app secrets in `common.env`.
+- `./opendock secrets [target]` fills generated passwords and app secrets in their owner-specific configuration files.
 - `./opendock up <target>`, `./opendock up services`, and `./opendock launch` run the same generator before validation.
 - Existing real values are kept. Empty or placeholder values are generated.
-- Before `common.env` is changed, the previous file is backed up under `backups/common-env/`.
+- Before a configuration file is changed, its previous version is backed up under `backups/config/`.
 - Do not auto-generate external values such as `STACK_DOMAIN`, Cloudflare tokens, tunnel IDs, or SMTP credentials.
-- Initial login passwords, such as `NEXTCLOUD_ADMIN_PASSWORD`, may be generated, but docs must explain where to find them and whether changing `common.env` later affects an installed app.
+- Initial login passwords, such as `NEXTCLOUD_ADMIN_PASSWORD`, may be generated, but docs must explain where to find them and whether changing the value later affects an installed app.
 
 Mail setup rules:
 
-- `./opendock setup mail` stores common outbound SMTP relay values in `common.env`.
+- `./opendock setup mail` stores shared outbound SMTP relay values in `config/shared/mail.env`.
 - Map common SMTP values only into services that support official environment-based core mail configuration.
 - Do not configure plugin-based, UI-only, or notification-provider mail settings from OpenDock.
 
@@ -222,7 +222,7 @@ route map is initialized:
 STACK_DOMAIN=example.com
 ```
 
-Each service may define a subdomain variable in `common.env`:
+Each service may define a subdomain variable in its configuration owner file. Hermes and future migrated services use `services/<service>/.env`; services not yet migrated use `config/services/<service>.env`:
 
 ```env
 WORDPRESS_SUBDOMAIN=blog
@@ -320,7 +320,7 @@ Cloudflare publishing follows the resolved route list.
 Inputs:
 
 ```text
-common.env
+config/
 cloudflare.env
 services/*/compose.yml
 gateway/caddy/conf.d/*.caddy
@@ -390,7 +390,7 @@ services/<service-name>/README.md
 gateway/caddy/conf.d/<service-name>.caddy
 ```
 
-Add a default subdomain to `common.env.example` if the desired public name differs from the service directory name:
+For a new or migrated service, add defaults to `services/<service>/.env.default` and keep local overrides in the ignored `services/<service>/.env`. For a service not yet migrated, add a default subdomain to `config/services/<service>.env.example`:
 
 ```env
 PLEX_SUBDOMAIN=media
@@ -402,7 +402,7 @@ Then verify:
 ./opendock list services
 ./opendock check-config <service-name>
 ./opendock publish <service-name>
-docker compose --project-directory services/<service-name> --env-file common.env.example --env-file services/<service-name>/.env -f services/<service-name>/compose.yml config
+./opendock config <service-name>
 ```
 
 ## Storage Policy
@@ -451,8 +451,15 @@ git diff --check
 For changed Compose projects:
 
 ```sh
-docker compose --project-directory <dir> --env-file common.env.example --env-file <dir>/.env -f <dir>/compose.yml config
+./opendock config <service-name>
 ```
+
+OpenDock resolves tracked platform defaults, their private owner files, then
+the selected service defaults and private override, followed by process
+environment. Hermes uses `services/hermes/.env.default` and
+`services/hermes/.env`; unmigrated services retain their legacy example and
+tracked runtime `.env` inputs. Direct `docker compose config` calls must pass
+the applicable files in that same order.
 
 For Caddy changes:
 

@@ -13,13 +13,11 @@ from datetime import datetime
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+import opendock_settings as SETTINGS
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-COMMON_ENV = ROOT_DIR / "common.env"
-COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 MASTODON_ENV = ROOT_DIR / "services" / "mastodon" / ".env"
-BACKUP_DIR = ROOT_DIR / "backups" / "common-env"
 SUPABASE_FUNCTIONS_ENV = ROOT_DIR / "services" / "supabase" / "functions.env"
 SUPABASE_FUNCTIONS_ENV_EXAMPLE = (
     ROOT_DIR / "services" / "supabase" / "functions.env.example"
@@ -389,18 +387,9 @@ def generate_values(needed, existing):
     return generated
 
 
-def ensure_common_env():
-    if COMMON_ENV.exists():
-        COMMON_ENV.chmod(0o600)
-        return False
-
-    if not COMMON_ENV_EXAMPLE.exists():
-        raise SystemExit("Missing common.env and common.env.example.")
-
-    shutil.copyfile(COMMON_ENV_EXAMPLE, COMMON_ENV)
-    COMMON_ENV.chmod(0o600)
-    print("Created common.env from common.env.example")
-    return True
+def ensure_config():
+    SETTINGS.initialize()
+    return False
 
 
 def ensure_supabase_functions_env():
@@ -420,60 +409,11 @@ def ensure_supabase_functions_env():
     return True
 
 
-def backup_common_env():
-    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = BACKUP_DIR / f"common.env.{timestamp}.bak"
-    shutil.copy2(COMMON_ENV, backup)
-    backup.chmod(0o600)
-    return backup
-
-
-def update_common_env(generated, force_update, selected_keys, should_backup):
-    lines = COMMON_ENV.read_text().splitlines()
-    changed = []
-    kept = []
-    seen = set()
-    updated_lines = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            updated_lines.append(line)
-            continue
-
-        key, current = line.split("=", 1)
-        key = key.strip()
-        if key not in selected_keys:
-            updated_lines.append(line)
-            continue
-
-        seen.add(key)
-        if key in generated and (is_placeholder(current) or key in force_update):
-            updated_lines.append(f"{key}={generated[key]}")
-            changed.append(key)
-        else:
-            updated_lines.append(line)
-            kept.append(key)
-
-    missing = sorted(selected_keys - seen)
-    if missing:
-        if updated_lines and updated_lines[-1].strip():
-            updated_lines.append("")
-        updated_lines.append("# OpenDock generated secrets.")
-        for key in missing:
-            if key in generated:
-                updated_lines.append(f"{key}={generated[key]}")
-                changed.append(key)
-
-    if changed and should_backup:
-        backup = backup_common_env()
-    else:
-        backup = None
-
-    COMMON_ENV.write_text("\n".join(updated_lines) + "\n")
-    COMMON_ENV.chmod(0o600)
-    return changed, kept, backup
+def update_config(generated, force_update, selected_keys):
+    updates = {key: value for key, value in generated.items() if key in selected_keys}
+    changed = SETTINGS.write_values(updates)
+    kept = sorted(selected_keys - set(updates))
+    return changed, kept, SETTINGS.BACKUPS_CREATED[:]
 
 
 def print_nextcloud_notice(changed):
@@ -481,22 +421,22 @@ def print_nextcloud_notice(changed):
         return
 
     print()
-    print("Nextcloud initial admin password was generated in common.env.")
+    print("Nextcloud initial admin password was generated in config/services/nextcloud.env.")
     print("Login user: NEXTCLOUD_ADMIN_USER")
     print("Login password: NEXTCLOUD_ADMIN_PASSWORD")
-    print("Changing common.env later will not reset an installed Nextcloud password.")
+    print("Changing it later will not reset an installed Nextcloud password.")
 
 
 def print_supabase_notice(changed):
     if "SUPABASE_DASHBOARD_PASSWORD" in changed:
         print()
-        print("Supabase Studio dashboard password was generated in common.env.")
+        print("Supabase Studio dashboard password was generated in config/services/supabase.env.")
         print("Login user: SUPABASE_DASHBOARD_USER (default: opendock)")
         print("Login password: SUPABASE_DASHBOARD_PASSWORD")
 
     if "SUPABASE_PUBLISHABLE_KEY" in changed:
         print()
-        print("Supabase publishable API key was generated in common.env.")
+        print("Supabase publishable API key was generated in config/services/supabase.env.")
         print("Client key: SUPABASE_PUBLISHABLE_KEY")
         print("Legacy anon/service-role keys were retained for internal compatibility.")
 
@@ -506,10 +446,10 @@ def main():
     quiet = os.environ.get("OPEN_DOCK_QUIET_SECRETS") == "1"
     selected_keys = target_keys(target)
 
-    created = ensure_common_env()
+    ensure_config()
     if target_includes_service(target, "supabase"):
         ensure_supabase_functions_env()
-    existing = parse_env(COMMON_ENV)
+    existing = SETTINGS.load_values(process_env=False)
     needed = keys_needing_update(existing, selected_keys)
     force_update = set()
     if needed & VAPID_KEYS:
@@ -519,32 +459,31 @@ def main():
 
     if not needed:
         if not quiet:
-            print("Generated secrets already exist in common.env. Nothing changed.")
+            print("Generated secrets already exist in OpenDock config. Nothing changed.")
         return 0
 
     generated = generate_values(needed, existing)
-    changed, kept, backup = update_common_env(
-        generated, force_update, selected_keys, should_backup=not created
-    )
+    changed, kept, backup = update_config(generated, force_update, selected_keys)
 
     print()
     if changed:
-        print("Updated common.env:")
+        print("Updated OpenDock configuration:")
         for key in sorted(changed):
             print(f"  {key}")
     if kept and not quiet:
-        print("Kept existing common.env values:")
+        print("Kept existing configuration values:")
         for key in sorted(kept):
             print(f"  {key}")
     if backup:
         print()
-        print(f"Backup: {backup.relative_to(ROOT_DIR)}")
+        for path in backup:
+            print(f"Backup: {path.relative_to(ROOT_DIR)}")
 
     print_nextcloud_notice(changed)
     print_supabase_notice(changed)
 
     print()
-    print("Done. Generated values were not printed; see common.env when needed.")
+    print("Done. Generated values were not printed; see the corresponding config/*.env file.")
     return 0
 
 

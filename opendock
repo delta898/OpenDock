@@ -20,6 +20,7 @@ except ModuleNotFoundError:  # Python < 3.11 can use the rest of the CLI, but no
 
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "scripts"))
 SERVICES = ROOT / "services"
 GROUPS = SERVICES / "groups.conf"
 SYNC_CONFIG = ROOT / ".sync.env.toml"
@@ -212,6 +213,14 @@ def targets(name):
     raise CLIError(f"Unknown target or missing compose.yml: {name}")
 
 
+def includes_hermes(name):
+    if name in services():
+        return name == "hermes"
+    if name in ("all", "services") or name in groups():
+        return "hermes" in targets(name)
+    return False
+
+
 def script(name, *args, env=None):
     run(sys.executable, ROOT / "scripts" / name, *args, env=env)
 
@@ -224,6 +233,14 @@ def domains_module():
     return module
 
 
+def settings_module():
+    path = ROOT / "scripts" / "opendock_settings.py"
+    spec = importlib.util.spec_from_file_location("opendock_settings", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def check_config(target, quiet=False):
     env = os.environ.copy()
     if quiet:
@@ -231,17 +248,18 @@ def check_config(target, quiet=False):
     run(ROOT / "scripts/check-config.sh", target, env=env)
 
 
-def compose(target, *args):
+def compose(target, *args, capture=False, quiet=False):
     directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
     if not (directory / "compose.yml").is_file():
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
-    if not (ROOT / "common.env").is_file():
-        raise CLIError("Missing common.env. Run './opendock setup' or copy common.env.example first.")
+    settings = settings_module()
+    settings.initialize()
     if target == "gateway" and args[0] in ("up", "start", "restart"):
         script("opendock-domains.py", "render")
-    command = ["docker", "compose", "--project-directory", str(directory),
-               "--env-file", str(ROOT / "common.env")]
-    if (directory / ".env").is_file():
+    command = ["docker", "compose", "--project-directory", str(directory)]
+    for env_file in settings.compose_env_files(target if target not in ("infra", "gateway") else None):
+        command += ["--env-file", str(env_file)]
+    if target in ("infra", "gateway") and (directory / ".env").is_file():
         command += ["--env-file", str(directory / ".env")]
     env = os.environ.copy()
     if target == "hermes":
@@ -251,7 +269,8 @@ def compose(target, *args):
         sandbox_path = ROOT / "services" / "hermes" / "data" / "sandboxes"
         sandbox_path.mkdir(parents=True, exist_ok=True)
         env["HERMES_SANDBOX_DIR"] = str(sandbox_path)
-    run(*command, "-f", directory / "compose.yml", "-p", target, *args, env=env)
+    return run(*command, "-f", directory / "compose.yml", "-p", target, *args,
+               env=env, capture=capture, quiet=quiet)
 
 
 def lifecycle(command, target):
@@ -296,7 +315,99 @@ def publish(target):
     run(ROOT / "scripts/publish-cloudflare.sh", target)
 
 
+def hermes_model_is_configured():
+    """Read Hermes' configured default model without exposing its value."""
+    try:
+        output = compose(
+            "hermes", "run", "--rm", "--no-deps", "hermes",
+            "config", "get", "model", capture=True,
+        )
+    except CLIError:
+        return None
+    if not output.strip():
+        return False
+    default = re.search(r"(?m)^\s*default:\s*(.*?)\s*$", output)
+    if default:
+        value = default.group(1).strip().strip("\"'")
+        return bool(value) and value.lower() not in {"null", "none", "unset"}
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+
+    def configured(item):
+        if isinstance(item, str):
+            return bool(item.strip()) and item.strip().lower() not in {"null", "none", "unset"}
+        if isinstance(item, dict):
+            if "default" in item:
+                return configured(item["default"])
+            if "model" in item:
+                return configured(item["model"])
+        if isinstance(item, list):
+            return any(configured(child) for child in item)
+        return False
+
+    return configured(value)
+
+
+def hermes_data_volume_exists():
+    """Return whether Hermes' persistent Compose volume exists before probing it."""
+    volumes = run("docker", "volume", "ls", "--format", "{{.Name}}", capture=True)
+    return "hermes_hermes_data" in volumes.splitlines()
+
+
+def ensure_hermes_ready():
+    """Configure Hermes and run its interactive first-run setup only as needed."""
+    settings = settings_module()
+    settings.initialize()
+    needs_config = not (ROOT / "config" / "core.env").is_file()
+    if not needs_config:
+        try:
+            check_config("hermes", quiet=True)
+        except CLIError:
+            needs_config = True
+    if needs_config:
+        print("==> hermes: configuration required", flush=True)
+        script("opendock-config.py", "hermes")
+        check_config("hermes", quiet=True)
+
+    print("==> infra: launch prerequisite", flush=True)
+    lifecycle("up", "infra")
+    # `docker compose run` creates declared named volumes even for a read-only
+    # config query. On a clean install, that probe itself can seed Hermes state
+    # and make the following model check look like onboarding already happened.
+    # Detect a missing volume first and go straight to the wizard.
+    if hermes_data_volume_exists():
+        print("==> hermes: checking onboarding status", flush=True)
+        model_ready = hermes_model_is_configured()
+        if model_ready is None:
+            raise CLIError(
+                "Could not inspect Hermes' model configuration. "
+                "Run './opendock service hermes onboard' to open its setup manually."
+            )
+    else:
+        print("==> hermes: no data volume found; first-run onboarding required", flush=True)
+        model_ready = False
+    if model_ready:
+        print("==> hermes: onboarding already complete; skipping", flush=True)
+        return
+
+    print("==> hermes: onboarding required", flush=True)
+    print("==> hermes: first-run onboarding", flush=True)
+    compose("hermes", "run", "--rm", "hermes", "setup")
+    if hermes_model_is_configured() is not True:
+        raise CLIError(
+            "Hermes onboarding did not configure a default model. "
+            "Run './opendock setup hermes' and complete the Hermes setup prompts."
+        )
+
+
 def launch(target):
+    infra_started = False
+    if includes_hermes(target):
+        ensure_hermes_ready()
+        infra_started = True
+
     # Reuse the route resolver, including validation of host-owned domains.conf.
     domains = domains_module()
     routes = domains.resolve_routes()
@@ -317,7 +428,11 @@ def launch(target):
         return
     if route:
         service = route["target"]
-        lifecycle("up", "infra")
+        if service == "hermes" and not infra_started:
+            ensure_hermes_ready()
+            infra_started = True
+        if not infra_started:
+            lifecycle("up", "infra")
         lifecycle("up", service)
         post_launch(service)
         reload_gateway()
@@ -330,9 +445,16 @@ def launch(target):
     if len(matches) > 1:
         raise CLIError(f"'{target}' has multiple hostnames; use one of:\n" +
                        "\n".join(f"  ./opendock launch {host}" for host in matches))
+    if target in services() and not matches:
+        default = next((r for r in domains.default_routes()
+                        if r["type"] == "docker" and r["target"] == target), None)
+        if default:
+            print(f"==> route: add default hostname {default['hostname']}", flush=True)
+            script("opendock-domains.py", "add", default["hostname"], target)
     if target not in ("all", "infra"):
-        print("==> infra: launch prerequisite", flush=True)
-        lifecycle("up", "infra")
+        if not infra_started:
+            print("==> infra: launch prerequisite", flush=True)
+            lifecycle("up", "infra")
     lifecycle("up", target)
     post_launch(target)
     if target != "infra":
@@ -424,7 +546,7 @@ def sync(name, dry_run=False):
         options.append("--dry-run")
     for value in EXCLUDES:
         options.append(f"--exclude={value}")
-    options += ["--include=common.env.example", "--include=cloudflare.env.example",
+    options += ["--include=cloudflare.env.example",
                 "--include=services/supabase/functions.env.example"]
     run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/",
         env=env, input_data=file_list)
@@ -476,8 +598,8 @@ def configured_images(target):
     compose_file = directory / "compose.yml"
     if not compose_file.is_file():
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
-    values = parse_dotenv(ROOT / "common.env.example")
-    values.update(parse_dotenv(ROOT / "common.env"))
+    settings = settings_module()
+    values = settings.load_values(process_env=True)
     values.update(parse_dotenv(directory / ".env"))
     values.update(os.environ)
     result = []
@@ -550,6 +672,7 @@ def print_guide():
         Start here
           ./opendock setup                         Configure your primary domain
           ./opendock launch blog.example.com       Start and publish one hostname
+          ./opendock launch hermes                 Configure, onboard, and launch Hermes
           ./opendock list                          See available services and groups
 
         Domains and static sites
@@ -582,12 +705,14 @@ def print_guide():
           ./opendock publish [target]              Sync routes without starting services
 
         Other
+          ./opendock remove <service>                 Remove all owned resources (confirms first)
+          ./opendock remove hermes --dry-run           Preview removal without changes
           ./opendock service <service>              List service-specific commands
           ./opendock service <service> <command>    Run one service-specific command
           Examples: service wordpress multisite
                     service supabase  api-keys
                     service supabase  functions-secrets
-                    service hermes    onboard
+                    service hermes    onboard  (re-run Hermes' interactive setup)
           ./opendock sync <name> --dry-run          Preview deployment to a remote
           ./opendock sync <name>                    Deploy code to a remote
 
@@ -619,6 +744,10 @@ def parser():
     for command in ("setup", "secrets", "check-config", "publish", "launch"):
         item = sub.add_parser(command)
         item.add_argument("target", nargs="?", default="all")
+    remove_cmd = sub.add_parser("remove", help="Remove a service and its owned resources")
+    remove_cmd.add_argument("target", help="One registered service (currently: hermes)")
+    remove_cmd.add_argument("--dry-run", action="store_true",
+                            help="Show removal targets without changing anything")
     logs = sub.add_parser("logs", help="Follow logs for one service")
     logs.add_argument("target")
     service_cmd = sub.add_parser("service", help="Run a service-specific command")
@@ -677,6 +806,8 @@ def main(argv=None):
             compose(target[0], "logs", "-f")
         elif command == "setup":
             script("opendock-config.py", args.target)
+            if includes_hermes(args.target):
+                ensure_hermes_ready()
         elif command == "secrets":
             script("opendock-secrets.py", args.target)
         elif command == "check-config":
@@ -688,6 +819,9 @@ def main(argv=None):
             publish(args.target)
         elif command == "launch":
             launch(args.target)
+        elif command == "remove":
+            run(sys.executable, ROOT / "scripts" / "opendock-remove.py",
+                args.target, *( ["--dry-run"] if args.dry_run else [] ))
         elif command == "route":
             route(args.route_command, getattr(args, "hostname", None), getattr(args, "service", None))
         elif command == "service":

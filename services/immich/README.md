@@ -12,7 +12,7 @@ https://photos.<STACK_DOMAIN>
 
 Service defaults live in `services/immich/.env`.
 
-Generated secrets live in the repository-level `common.env`:
+Generated secrets live in the repository-level `config/services/immich.env`:
 
 ```env
 IMMICH_DB_PASSWORD=change-immich-db-password

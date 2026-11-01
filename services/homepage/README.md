@@ -6,10 +6,13 @@ This service uses gethomepage's official Docker image and keeps dashboard config
 
 ## Setup
 
-Set the main stack domain in `common.env`:
+Set the main stack domain in `config/core.env` and the service hostname in `config/services/homepage.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# config/services/homepage.env
 HOMEPAGE_SUBDOMAIN=home
 ```
 

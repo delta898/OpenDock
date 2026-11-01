@@ -13,14 +13,16 @@ WORDPRESS_DB_NAME=wordpress
 WORDPRESS_DB_USER=wordpress
 ```
 
-Edit `common.env`:
+Set the main domain with `./opendock setup`. WordPress-specific settings live in
+`config/services/wordpress.env`:
 
 ```sh
-STACK_DOMAIN=example.com
 WORDPRESS_SUBDOMAIN=blog
 ```
 
-`MARIADB_ROOT_PASSWORD` and `WORDPRESS_DB_PASSWORD` are generated automatically before WordPress starts. Existing real values in `common.env` are kept.
+`MARIADB_ROOT_PASSWORD` belongs to shared infrastructure in `config/infra.env`;
+`WORDPRESS_DB_PASSWORD` belongs to WordPress in `config/services/wordpress.env`.
+Both are generated automatically before WordPress starts, and existing values are kept.
 
 The matching Caddy route lives in `gateway/caddy/conf.d/wordpress.caddy`.
 By default, WordPress is published as:
@@ -114,4 +116,4 @@ The committed configuration lives at `services/wordpress/php/uploads.ini` and is
 
 The `wordpress-db-init` service is safe to run repeatedly. It uses `CREATE DATABASE IF NOT EXISTS` and `CREATE USER IF NOT EXISTS`.
 
-Generated password values are stored in `common.env`. The `wordpress-db-init` service keeps existing database users and updates only when the generated values are still placeholders before startup.
+Generated password values are stored in their owner files: the MariaDB administrator password in `config/infra.env` and the WordPress database password in `config/services/wordpress.env`. The `wordpress-db-init` service keeps existing database users and updates only when the generated values are still placeholders before startup.

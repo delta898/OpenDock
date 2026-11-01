@@ -1,10 +1,12 @@
 """Checks for the public CLI without starting Docker or contacting Cloudflare."""
 
 import importlib.util
+import io
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -26,6 +28,7 @@ class CLITests(unittest.TestCase):
             self.assertIn("Docker operations", result.stdout)
             self.assertIn("route add blog.example.org wordpress", result.stdout)
             self.assertIn("route add docs.example.org static", result.stdout)
+            self.assertIn("remove hermes --dry-run", result.stdout)
             self.assertIn("service wordpress multisite", result.stdout)
             self.assertLess(result.stdout.index("./opendock setup"),
                             result.stdout.index("./opendock route add"))
@@ -50,6 +53,12 @@ class CLITests(unittest.TestCase):
                                 cwd=ROOT, text=True, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("service", result.stderr)
+
+    def test_remove_is_registered_and_scoped_to_one_service(self):
+        parsed = cli.parser().parse_args(["remove", "hermes", "--dry-run"])
+        self.assertEqual(parsed.command, "remove")
+        self.assertEqual(parsed.target, "hermes")
+        self.assertTrue(parsed.dry_run)
 
     def test_docker_launch_sequence(self):
         route = {"hostname": "blog.example.com", "type": "docker", "target": "wordpress"}
@@ -97,6 +106,37 @@ class CLITests(unittest.TestCase):
             domains.return_value.resolve_routes.return_value = routes
             with self.assertRaisesRegex(cli.CLIError, "multiple hostnames"):
                 cli.launch("wordpress")
+
+    def test_hermes_model_probe_leaves_compose_progress_visible(self):
+        with mock.patch.object(cli, "compose", return_value='default: "openai/gpt-4o"') as compose:
+            self.assertTrue(cli.hermes_model_is_configured())
+        self.assertEqual(
+            compose.call_args.args,
+            ("hermes", "run", "--rm", "--no-deps", "hermes", "config", "get", "model"),
+        )
+        self.assertTrue(compose.call_args.kwargs["capture"])
+        self.assertFalse(compose.call_args.kwargs.get("quiet", False))
+
+    def test_fresh_hermes_volume_runs_onboarding_without_model_probe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "config").mkdir()
+            (root / "config" / "core.env").touch()
+            settings = mock.Mock()
+            output = io.StringIO()
+            with mock.patch.object(cli, "ROOT", root), \
+                 mock.patch.object(cli, "settings_module", return_value=settings), \
+                 mock.patch.object(cli, "check_config"), \
+                 mock.patch.object(cli, "lifecycle"), \
+                 mock.patch.object(cli, "hermes_data_volume_exists", return_value=False), \
+                 mock.patch.object(cli, "hermes_model_is_configured", return_value=True) as probe, \
+                 mock.patch.object(cli, "compose") as compose, \
+                 redirect_stdout(output):
+                cli.ensure_hermes_ready()
+
+        probe.assert_called_once_with()
+        compose.assert_called_once_with("hermes", "run", "--rm", "hermes", "setup")
+        self.assertIn("first-run onboarding required", output.getvalue())
 
 
 if __name__ == "__main__":

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 import subprocess
 from pathlib import Path
+import sys
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-COMMON_ENV = ROOT_DIR / "common.env"
+sys.path.insert(0, str(ROOT_DIR / "scripts"))
+from opendock_settings import load_values, compose_env_files
+
 SERVICE_DIR = ROOT_DIR / "services" / "mastodon"
 SERVICE_ENV = SERVICE_DIR / ".env"
 COMPOSE_FILE = SERVICE_DIR / "compose.yml"
@@ -27,10 +30,7 @@ def parse_env(path):
 
 
 def load_env():
-    env = {}
-    env.update(parse_env(COMMON_ENV))
-    env.update(parse_env(SERVICE_ENV))
-    return env
+    return load_values(service="mastodon", process_env=False)
 
 
 def require_env(env, names):
@@ -63,10 +63,10 @@ def compose_run(env, *command, capture_output=False):
         "compose",
         "--project-directory",
         str(SERVICE_DIR),
-        "--env-file",
-        str(COMMON_ENV),
-        "--env-file",
-        str(SERVICE_ENV),
+    ]
+    for env_file in compose_env_files("mastodon"):
+        compose += ["--env-file", str(env_file)]
+    compose += [
         "-f",
         str(COMPOSE_FILE),
         "run",
@@ -190,7 +190,7 @@ def print_ready(env):
     print("Mastodon owner account is ready.")
     print(f"Login email: {env['MASTODON_ADMIN_EMAIL']}")
     print(f"Login username: {env['MASTODON_ADMIN_USERNAME']}")
-    print("Login password: MASTODON_ADMIN_PASSWORD in common.env")
+    print("Login password: MASTODON_ADMIN_PASSWORD in config/services/mastodon.env")
 
 
 def print_existing_account(env):

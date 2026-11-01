@@ -12,10 +12,10 @@ https://social.<STACK_DOMAIN>
 
 Service defaults live in `services/mastodon/.env`.
 
-Generated secrets live in the repository-level `common.env`:
+Mastodon secrets live in `config/services/mastodon.env`. Shared PostgreSQL
+administrator credentials remain in `config/infra.env`:
 
 ```env
-POSTGRES_ADMIN_PASSWORD=change-postgres-admin-password
 MASTODON_DB_PASSWORD=change-mastodon-db-password
 MASTODON_SECRET_KEY_BASE=change-mastodon-secret-key-base
 MASTODON_OTP_SECRET=change-mastodon-otp-secret
@@ -26,7 +26,7 @@ MASTODON_VAPID_PRIVATE_KEY=change-mastodon-vapid-private-key
 MASTODON_VAPID_PUBLIC_KEY=change-mastodon-vapid-public-key
 ```
 
-The initial owner account is also configured in `common.env`:
+The initial owner account is also configured in `config/services/mastodon.env`:
 
 ```env
 MASTODON_ADMIN_USERNAME=opendock
@@ -36,7 +36,7 @@ MASTODON_ADMIN_PASSWORD=change-mastodon-admin-password
 
 Use `./opendock setup mastodon` to fill these values interactively.
 
-Outbound email uses the common SMTP relay values in `common.env`:
+Outbound email uses the shared SMTP relay values in `config/shared/mail.env`:
 
 ```env
 SMTP_HOST=smtp.example.com
@@ -54,7 +54,7 @@ Generate and fill the Mastodon-only secrets manually:
 ./opendock secrets mastodon
 ```
 
-This creates `common.env` from `common.env.example` if needed, then fills missing or placeholder generated values. Existing real values are kept.
+This reads defaults from `config/services/mastodon.env.example`, stores generated values in the private `config/services/mastodon.env`, and keeps existing real values.
 
 `./opendock secrets`, `./opendock up <target>`, `./opendock up services`, and `./opendock launch` also fill missing or placeholder generated values before validation when the target needs them. `./opendock check-config` only reports missing values and never changes files.
 
@@ -70,7 +70,7 @@ Start the shared infrastructure and Mastodon containers:
 
 The `mastodon-db-init` container creates or updates the Mastodon PostgreSQL database and user in the shared `infra` PostgreSQL service. The `mastodon-db-prepare` container then runs Mastodon's database preparation before the web, streaming, and Sidekiq containers start.
 
-On first launch, OpenDock creates `MASTODON_ADMIN_USERNAME` when no owner exists. The generated password printed by Mastodon's internal tooling is ignored, and OpenDock sets the initial login password to `MASTODON_ADMIN_PASSWORD` from `common.env`.
+On first launch, OpenDock creates `MASTODON_ADMIN_USERNAME` when no owner exists. The generated password printed by Mastodon's internal tooling is ignored, and OpenDock sets the initial login password to `MASTODON_ADMIN_PASSWORD` from `config/services/mastodon.env`.
 
 Recommended first-run flow:
 

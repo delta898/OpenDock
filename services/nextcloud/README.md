@@ -12,7 +12,7 @@ https://cloud.<STACK_DOMAIN>
 
 Service defaults live in `services/nextcloud/.env`.
 
-Generated secrets live in the repository-level `common.env`:
+Generated secrets live in the repository-level `config/services/nextcloud.env`:
 
 ```env
 NEXTCLOUD_DB_PASSWORD=change-nextcloud-db-password

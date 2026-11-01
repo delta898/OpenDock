@@ -10,12 +10,11 @@ import urllib.request
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+from opendock_settings import load_values
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
-COMMON_ENV = ROOT_DIR / "common.env"
-COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 CLOUDFLARE_ENV = ROOT_DIR / "cloudflare.env"
 ORIGIN_SERVICE_URL = os.environ.get("ORIGIN_SERVICE_URL", "http://localhost:80")
 API_BASE = "https://api.cloudflare.com/client/v4"
@@ -100,18 +99,7 @@ def target_services(target):
 
 
 def load_env():
-    if not COMMON_ENV.exists():
-        raise SystemExit(
-            "Missing required file: common.env\n\n"
-            "To continue:\n"
-            "  cp common.env.example common.env\n"
-            "  nano common.env\n"
-            "  ./opendock check-config"
-        )
-
-    env = {}
-    env.update(parse_env_file(COMMON_ENV_EXAMPLE))
-    env.update(parse_env_file(COMMON_ENV))
+    env = load_values(process_env=False)
     env.update(os.environ)
     return env
 
@@ -119,7 +107,7 @@ def load_env():
 def build_routes(env, services):
     stack_domain = env.get("STACK_DOMAIN", "").strip()
     if not stack_domain:
-        raise SystemExit("Missing STACK_DOMAIN in common.env")
+        raise SystemExit("Missing STACK_DOMAIN. Run './opendock setup' to configure the core domain.")
     resolved = DOMAINS.resolve_routes()
     DOMAINS.render_routes(resolved)
     if TARGET in ("all", "services", "gateway"):
@@ -409,7 +397,7 @@ def main():
     if stack_domain == "example.com" and any(route["hostname"].endswith(".example.com") for route in routes):
         raise SystemExit(
             "\nRefusing to sync Cloudflare with STACK_DOMAIN=example.com.\n"
-            "Set your real domain in common.env first."
+            "Set your real domain with './opendock setup' first."
         )
 
     required_cloudflare_env(cf_env)

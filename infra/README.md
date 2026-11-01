@@ -2,7 +2,7 @@
 
 Shared infrastructure services for the home server stack.
 
-MariaDB root credentials and PostgreSQL administrator credentials are read from the repository-level `common.env`. OpenDock generates them automatically before startup when they are empty or still placeholders.
+MariaDB root credentials and PostgreSQL administrator credentials are read from the repository-level `config/infra.env`. OpenDock generates them automatically before startup when they are empty or still placeholders.
 
 MariaDB runs with `READ-COMMITTED` transaction isolation for Nextcloud compatibility.
 

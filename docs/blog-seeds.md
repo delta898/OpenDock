@@ -480,3 +480,165 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   반영했지만 재실행으로 Secret 생성과 onboarding 성공을 확인하기 전이다.
   테스트나 Docker 기동을 실행하지 않았고 macOS/Linux runtime, dashboard 로그인,
   Cloudflare Access, sandbox mount 동작은 미검증이다.
+
+## OD-014. 첫 실행은 자동화하고 재설정은 명시하는 zero-config CLI
+
+- 상태: `seed`
+- 관련 이력: 현재 `codex/feature/hermes-agent` 작업,
+  `AGENTS.md`, `opendock`, `services/hermes/commands/onboard`,
+  `services/hermes/README.md`
+- 주제: `첫 실행은 launch 하나로, 반복 설정은 명시적인 명령으로`
+- 독자 질문: 서비스의 첫 실행 준비를 자동화하면서도, 사용자가 나중에
+  설정을 다시 바꿀 통제권은 어떻게 남길 수 있는가?
+- 참고할 사항:
+  - OpenDock은 Hermes 전용 앱이 아니라 여러 앱과 공유 infra를 운영하는
+    플랫폼이다. Hermes의 Docker sandbox 자체는 별도 사용자 설정이 필요하지만,
+    shared network와 platform infra는 OpenDock이 준비할 수 있는 선행 작업이다.
+  - 초기 안내가 `setup hermes` 다음 별도 `service hermes onboard`, 이어
+    `launch`를 요구해 사용자는 순서와 명령 구분을 이해해야 했다. 목표 흐름은
+    `./opendock launch hermes` 하나가 누락된 OpenDock 설정을 묻고, infra를
+    올리고, 최초 Hermes 설정 후 dashboard 서비스를 시작하는 것이다.
+  - 상세 경로인 `./opendock setup hermes`도 OpenDock 값을 설정한 뒤 최초
+    Hermes onboarding까지 진행한다. 다만 이미 모델이 설정된 경우에는 wizard를
+    반복하지 않는다. 모델 상태 확인은 Hermes의 `config get model`에서
+    기본 모델 항목을 읽도록 설계했다.
+  - 첫 Hermes launch가 infra를 올린 다음 한동안 멈춘 것처럼 보였다. 상태 확인이
+    `docker compose run ... config get model`로 image를 처음 pull할 수 있는데,
+    해당 probe가 Compose stderr까지 숨기고 있었다. launch 전에 probe 단계를
+    출력하고 Compose 진행 상태를 사용자에게 보이도록 바꿨다.
+  - 사용자가 `remove hermes` 결과에서 `hermes_hermes_data` 제거를 확인한 뒤
+    launch했지만 onboarding이 건너뛰어졌다. 로그에는 모델 조회용 `compose run`이
+    새 볼륨을 먼저 만들고, 그 뒤 모델이 이미 설정됐다고 판정한 순서가 남았다.
+    따라서 첫 실행에서는 조회용 컨테이너를 띄우기 전에 볼륨 존재 여부를 확인하고,
+    볼륨이 없으면 곧바로 wizard를 실행하도록 보완했다. 이미지 초기화가 새 상태에
+    무엇을 쓰는지는 실제 서버에서 수정 후 다시 확인해야 한다.
+  - upstream provider나 messaging integration을 나중에 바꾸려는 의도적인
+    재설정 경로로 `./opendock service hermes onboard`를 유지한다. 따라서 보통의
+    첫 실행은 간단하지만 기존 사용자가 다시 설정할 수 있는 수단도 남는다.
+  - 기본 route 파일에 Hermes 항목이 빠져 있어도 `launch hermes`가 서비스의
+    default hostname을 추가하도록 해, launch가 성공했는데 공개 route가 없는
+    상태를 피한다.
+- 보존할 교훈:
+  - zero-config는 설정 질문을 없애는 것이 아니라 사람이 정해야 하는 값만
+    첫 실행에서 묻고, 반복 가능한 준비는 자동화하며, 완료 여부를 저장 상태에서
+    확인하는 것이다.
+  - 최초 setup과 의도적인 재설정은 서로 다른 작업이다. 하나의 명령이 매번
+    인터랙티브 wizard를 띄우면 자동화와 일상적인 설정 변경이 충돌한다.
+  - shared infra는 서비스 내부의 부수 작업이 아니라 플랫폼이 처리하는
+    prerequisite로 보여줘야 한다.
+  - 검증 상태: macOS에서 CLI/unit test 26개가 통과했다. 사용자는 Linux 테스트
+    서버에서 기존 remove/launch를 수행했고 볼륨 제거 및 probe 직후 onboarding skip을
+    관찰했다. 볼륨이 없는 경우 probe를 생략하는 수정은 아직 테스트 서버에서 확인
+    대기 중이며, 반복 launch의 skip 동작과 custom hostname 공개도 재확인이 필요하다.
+
+## OD-015. 서비스 추가만큼 중요한 제거 계약 설계
+
+- 상태: `seed`
+- 관련 이력: 현재 `codex/feature/hermes-agent` 작업, `AGENTS.md`,
+  `config/README.md`, `scripts/opendock_settings.py`, `opendock`,
+  `scripts/opendock-remove.py`, `tests/test_settings.py`, `tests/test_remove.py`,
+  `services/hermes/compose.yml`, `infra/compose.yml`
+- 주제: `up의 반대 명령 하나로는 왜 self-hosted 앱을 안전하게 제거할 수 없나`
+- 독자 질문: 컨테이너, 이미지, 서비스 DB, 업로드 파일, route가 서로 다른
+  소유권과 저장 위치를 가질 때 공통 제거 명령의 안전한 범위를 어떻게 정할까?
+- 참고할 사항:
+  - OpenDock에는 `stop`과 `down`이 있지만 `down`은 컨테이너를 제거하면서
+    persistent data를 보존한다. 서비스의 데이터를 포함해 처음 상태로 되돌리는
+    공통 `remove` 명령은 아직 없다.
+  - Compose 볼륨, 저장소 아래 bind mount, 서비스 전용 database/schema,
+    재생성 가능한 cache는 같은 `data/` 개념이 아니다. 예를 들어 Immich는 사진
+    library와 Postgres data 경로를 함께 두고, Supabase는 DB와 Storage를 bind
+    mount하며 Deno cache를 별도 named volume으로 둔다.
+  - WordPress·Mastodon·Mattermost·Nextcloud는 OpenDock shared database를
+    사용하므로 Compose 프로젝트의 볼륨 제거만으로 앱을 reset할 수 없다.
+    반대로 shared DB volume을 삭제하면 무관한 앱까지 손실된다.
+  - `jellyfin/media`, `immich/data/library`, WordPress webroot와 같은 경로는
+    앱이 관리하는 상태와 사용자가 보관한 콘텐츠가 섞일 수 있어 무조건 삭제할
+    대상으로 취급하지 않는다. route와 static site 콘텐츠도 별도 소유권이다.
+  - 사용자는 provisioning 명령의 대응 동작으로 설정·컨테이너·이미지·볼륨
+    제거를 원했고, 기본 `remove <service>`를 전체 제거로 해석하되 확인을
+    의무화하는 안을 선택했다. `stop`과 `down`은 기존의 좁은 범위 작업으로
+    유지하고, 전체 제거 전 서비스 소유 자원 목록을 보여주는 방향이다.
+    이 계약은 새 서비스뿐 아니라 명령 출시 전에 현재 서비스 모두에 소급
+    적용해야 한다.
+  - `-p hermes` 프로젝트의 Compose logical volume `hermes_data`는 실제 Docker
+    volume 이름에서 project prefix를 받을 수 있다. 이 이름을 사용자에게 직접
+    요구하지 않고 Compose 선언과 서비스별 cleanup metadata로 해석하는 편이
+    안정적이다.
+  - Hermes pilot에서는 `remove hermes`가 전체 제거로 동작하고, 삭제 전에
+    `REMOVE hermes`를 직접 입력하게 했다. `--dry-run`은 동일한 자원 계획을
+    출력하고, 비대화형 호출과 잘못된 확인은 삭제하지 않는다.
+  - Compose project의 컨테이너·named volume과 Compose 해석 이미지 목록을
+    조회한다. Hermes sandbox 컨테이너는 `hermes-task-id` label만으로 전부
+    지우지 않고, OpenDock이 지정한 sandbox bind path를 실제 mount한 컨테이너만
+    제거한다. image는 다른 container에서 사용 중이면 강제로 제거하지 않는다.
+  - Hermes route는 Cloudflare Tunnel/DNS에서 먼저 제거하고 domains.conf와 Caddy를
+    갱신한다. 서비스 기본값은 `services/hermes/.env.default`, 실제 설정과 비밀값은
+    `services/hermes/.env`에 귀속시키고 삭제 전 permission 제한 backup을 남긴다.
+    core domain, shared mail, infra 설정과
+    repository 코드는 보존한다.
+  - 초기에는 root `common.env`가 global domain, SMTP, shared DB 관리자 계정,
+    서비스별 암호와 hostname을 한 파일에 함께 소유했다. 제거 코드가 키 이름으로
+    설정을 지우는 방식은 명시적 소유권이 없으면 실수하기 쉽다는 점을 드러냈다.
+    `scripts/opendock_settings.py`에 key-to-owner 규칙을 두고 core/infra/shared/
+    service 예시와 private override를 나눴으며, 기존 파일은 소유자별로 이전한 뒤
+    제한된 백업으로 보존한다. 모르는 키가 있으면 원본을 변경하지 않고 중단한다.
+  - 지원 등록되지 않은 서비스는 제거를 거부한다. 이 pilot은 Hermes만 켜고,
+    다른 서비스는 각 데이터·공유 DB 범위를 검토한 후 순차적으로 등록한다.
+- 보존할 교훈:
+  - 설치 절차만큼 제거 계약도 서비스 정의의 일부다. 새 서비스는 persistent
+    state, 사용자 콘텐츠, 공유 DB 객체와 route의 소유권을 함께 설명해야 한다.
+  - `remove`는 공통 UX를 제공할 수 있지만 삭제 작업 자체는 service-aware여야
+    한다. `services/<name>/data`를 통째로 지우는 규칙은 안전하지 않다.
+  - 기본 전체 제거는 `down`과 구분되는 명확한 의미를 가져야 하며, 삭제 목록과
+    확인 없이 실행되면 안 된다.
+- 검증 상태: Python 3.15.2에서 21개 CLI/unit test가 통과했다. 설정 owner 분류,
+  기존 `common.env` 이전과 backup, 미등록 키의 fail-safe, Compose env 파일 순서와
+  선택 범위, Hermes 제거 계획·확인·route 분리·임시 디렉터리 내 삭제 순서를
+  검사했다. Docker socket 접근이 거부되어 실제 Compose volume/image 제거,
+  sandbox container discovery, Cloudflare API와 test server 재기동 검증은 남아 있다.
+
+## OD-016. 설정 파일을 기능이 아니라 소유권으로 나누기
+
+- 상태: `seed`
+- 관련 이력: `codex/feature/hermes-agent`, `AGENTS.md`, `config/README.md`,
+  `scripts/opendock_settings.py`, `scripts/opendock-config.py`,
+  `scripts/opendock-secrets.py`, `services/hermes/.env.default`,
+  `tests/test_settings.py`, `renovate.json`
+- 주제: `common.env` 하나를 core·공유 인프라·서비스별 설정으로 나누면서
+  Renovate와 사용자 override를 어떻게 유지할까
+- 독자 질문: 여러 Docker 서비스를 관리하는 CLI에서 기본값, 비밀값, 운영자
+  선택, 공유 인프라 값을 어떤 파일 구조로 소유시키면 업데이트와 제거가 쉬울까?
+- 참고할 사항:
+  - OpenDock의 기존 `common.env`는 primary domain, SMTP, database 관리자
+    credential, 각 서비스의 image/tag·hostname·비밀값을 한데 섞었다. 설정을
+    수집하거나 서비스 제거를 구현할 때 키 소유자가 불분명했다.
+  - 사용자는 서비스 디렉터리에 있는 버전 기본값과 Renovate 동작을 유지하면서,
+    host별 override와 비밀값은 Git/Renovate 밖에 두고 싶어 했다. 합의된 설계는
+    `config/core.env.default`/`config/core.env`, `config/infra.env.default`/
+    `config/infra.env`, `config/shared/<concern>.env.default`/실제 `.env`, 그리고
+    서비스의 `services/<service>/.env.default`/실제 `.env`다.
+  - Hermes를 먼저 옮긴다. `HERMES_*` key owner는 `services/hermes/.env`이고,
+    platform core·infra·mail은 config 계층에 남는다. 그 외 서비스는 아직 기존
+    `config/services/<service>.env.example`, private override, tracked runtime
+    `.env`에 두고 Hermes 검증 이후 하나씩 바꾼다. 기존 tracked `.env`는 전환까지
+    Renovate 대상으로 유지한다. Git ignore 규칙은 migrated local `.env`만 제외한다.
+  - `scripts/opendock_settings.py`를 공통 loader/writer로 두고 setup, secret
+    생성, validation, Compose interpolation 및 route 코드는 같은 계층 병합 규칙을
+    공유한다. Compose는 `.env.default` 다음 실제 `.env`를 명시적으로 전달하며,
+    override를 지우면 다시 업데이트 가능한 default를 쓴다.
+  - root `common.env`는 알려진 key를 owner 파일로 옮기고 제한 권한 백업을 남기는
+    일회성 migration 입력이다. 알 수 없는 key가 있으면 원본을 바꾸지 않는 fail-safe를 둔다.
+- 보존할 교훈:
+  - 계층 이름(core/infra/service)만으로 파일을 나누지 말고 각 key의 소유자와
+    소비자를 먼저 등록해야 한다. 공유 설정과 서비스 설정은 lifecycle도 다르다.
+  - Renovate는 실제 사용자 `.env`를 읽게 하지 말고 tracked default만 갱신해야
+    한다. 이전 중에는 아직 tracked인 legacy service `.env`도 명시적 예외다.
+  - 모든 서비스를 한 번에 이동하지 않고 실제 서비스 하나를 pilot으로 골라
+    setup, secret 생성, config validation, Compose, 제거, Renovate 경로를 확인한
+    뒤 다음 서비스로 넓힌다.
+- 검증 상태: macOS Python 3.15.2에서 CLI/unit test 24개 통과. owner key 검사,
+  legacy `common.env` migration과 backup, unknown key fail-safe, Hermes default/local
+  precedence와 Compose env-file 순서를 확인했다. `py_compile`, Hermes onboard shell
+  syntax, Renovate JSON, `git diff --check`도 통과했다. 컨테이너 기동이나 Linux host의
+  Hermes setup/launch는 이번 설계 변경 후 검증하지 않았으며 다른 서비스는 미이전이다.
