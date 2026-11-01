@@ -2,6 +2,7 @@
 """OpenDock's repository-local command line interface."""
 
 import argparse
+import fnmatch
 import importlib.util
 import json
 import os
@@ -12,29 +13,94 @@ import sys
 import textwrap
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11 can use the rest of the CLI, but not TOML sync config.
+    tomllib = None
+
 
 ROOT = Path(__file__).resolve().parent
 SERVICES = ROOT / "services"
 GROUPS = SERVICES / "groups.conf"
+SYNC_CONFIG = ROOT / ".sync.env.toml"
 CHECKED = {"up", "restart", "start", "build", "config"}
 LIFECYCLE = CHECKED | {"down", "stop", "ps", "pull"}
 EXCLUDES = (
-    ".git/", ".sync.env", "common.env", "domains.conf",
-    "gateway/caddy/conf.d/zz-opendock-routes.caddy", "static-sites/",
-    "cloudflare.env", "services/supabase/functions.env",
-    "services/*/data/", "**/data/", ".DS_Store",
+    ".git/", ".sync.env", ".sync.env.toml", "common.env", "domains.conf",
+    "gateway/caddy/conf.d/zz-opendock-routes.caddy",
+    "cloudflare.env", "*.env", "services/supabase/functions.env",
+    "services/*/data/", "**/data/", "services/*/backups/",
+    "backups/", ".DS_Store",
 )
+REMOTE_SYNC_PRUNE = r'''
+import json, os, sys
+
+mode, root = sys.argv[1:]
+root = os.path.realpath(root)
+data = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+    raise ValueError("invalid OpenDock sync file list")
+current = {os.fsdecode(bytes.fromhex(item)) for item in data}
+protected_files = {
+    ".sync.env", ".sync.env.toml", "common.env", "cloudflare.env", "domains.conf",
+    "gateway/caddy/conf.d/zz-opendock-routes.caddy",
+    "services/supabase/functions.env",
+}
+# Keep these destination protections aligned with EXCLUDES and .gitignore.
+protected_dirs = {".git", "data", "backups"}
+
+def protected(rel):
+    parts = rel.split(os.sep)
+    if (rel in protected_files or any(part in protected_dirs for part in parts)
+            or any(part.endswith(".env") for part in parts)):
+        return True
+    # Preserve static web content, but keep its tracked repository README in sync.
+    if rel.startswith("static-sites/") and rel != "static-sites/README.md":
+        return True
+    return False
+
+def prune(directory, relative=""):
+    removed = 0
+    for entry in sorted(os.scandir(directory), key=lambda item: item.name):
+        rel = os.path.join(relative, entry.name) if relative else entry.name
+        if protected(rel):
+            continue
+        if entry.is_dir(follow_symlinks=False):
+            removed += prune(entry.path, rel)
+            if mode == "apply":
+                try:
+                    os.rmdir(entry.path)
+                except OSError:
+                    pass
+            continue
+        normalized = rel.replace(os.sep, "/")
+        if normalized in current or entry.name == ".DS_Store":
+            continue
+        if mode == "preview":
+            print("Would remove destination-only repository file: " + normalized)
+        elif mode == "apply":
+            os.unlink(entry.path)
+            print("Removed destination-only repository file: " + normalized)
+        else:
+            raise ValueError("unknown OpenDock sync mode")
+        removed += 1
+    return removed
+
+removed = prune(root)
+print("Destination-only repository files removed: {}".format(removed))
+'''
 
 
 class CLIError(Exception):
     pass
 
 
-def run(*args, env=None, capture=False, quiet=False):
+def run(*args, env=None, capture=False, quiet=False, input_data=None):
     try:
         result = subprocess.run(
             [str(arg) for arg in args], cwd=ROOT, env=env,
-            text=True, stdout=subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None),
+            input=input_data, text=not isinstance(input_data, bytes),
+            stdout=subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None),
             stderr=subprocess.DEVNULL if quiet else None, check=False,
         )
     except FileNotFoundError as exc:
@@ -42,6 +108,77 @@ def run(*args, env=None, capture=False, quiet=False):
     if result.returncode:
         raise CLIError(f"Command failed ({result.returncode}): {args[0]}")
     return result.stdout.strip() if capture else None
+
+
+def sync_file_list(raw_paths):
+    """Return safe repository paths selected for deployment."""
+    selected = []
+    for raw_path in raw_paths.split(b"\0"):
+        if not raw_path:
+            continue
+        rel = os.fsdecode(raw_path)
+        parts = rel.split("/")
+        excluded = rel.startswith("static-sites/") and rel != "static-sites/README.md"
+        for pattern in EXCLUDES:
+            if excluded:
+                break
+            if pattern.endswith("/"):
+                directory = pattern[:-1]
+                if directory.startswith("**/"):
+                    directory = directory[3:]
+                    matches = directory in parts[:-1]
+                else:
+                    matches = any(
+                        fnmatch.fnmatchcase("/".join(parts[:index]), directory)
+                        for index in range(1, len(parts))
+                    )
+                if matches:
+                    excluded = True
+                    break
+            elif "*" in pattern:
+                if any(fnmatch.fnmatchcase(part, pattern) for part in parts):
+                    excluded = True
+                    break
+            elif rel == pattern or pattern in parts:
+                excluded = True
+                break
+        if excluded:
+            continue
+        full_path = ROOT / rel
+        try:
+            full_path.lstat()
+        except FileNotFoundError:
+            # A tracked file deleted from the worktree is not part of this deployment.
+            continue
+        if not full_path.is_symlink() and not full_path.is_file():
+            continue
+        selected.append(raw_path)
+    if not selected:
+        raise CLIError("No repository files found to sync after applying safety exclusions.")
+    file_list = b"\0".join(selected) + b"\0"
+    remote_list = json.dumps([path.hex() for path in selected], separators=(",", ":")).encode("utf-8")
+    return file_list, remote_list
+
+
+def remote_sync_prune(remote, path, port, mode, file_list):
+    command = "python3 -c {} {} {}".format(
+        shlex.quote(REMOTE_SYNC_PRUNE), shlex.quote(mode), shlex.quote(path)
+    )
+    args = ["ssh"]
+    if port:
+        args += ["-p", str(port)]
+    args += [remote, command]
+    try:
+        result = subprocess.run(
+            args, cwd=ROOT, input=file_list, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, check=False,
+        )
+    except FileNotFoundError as exc:
+        raise CLIError("Required command not found: ssh") from exc
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise CLIError("Could not reconcile remote files" + (f": {detail}" if detail else "."))
+    return result.stdout
 
 
 def services():
@@ -106,7 +243,15 @@ def compose(target, *args):
                "--env-file", str(ROOT / "common.env")]
     if (directory / ".env").is_file():
         command += ["--env-file", str(directory / ".env")]
-    run(*command, "-f", directory / "compose.yml", "-p", target, *args)
+    env = os.environ.copy()
+    if target == "hermes":
+        socket_path = Path(env.get("DOCKER_SOCKET", "/var/run/docker.sock"))
+        if socket_path.exists():
+            env["DOCKER_SOCKET_GID"] = str(socket_path.stat().st_gid)
+        sandbox_path = ROOT / "services" / "hermes" / "data" / "sandboxes"
+        sandbox_path.mkdir(parents=True, exist_ok=True)
+        env["HERMES_SANDBOX_DIR"] = str(sandbox_path)
+    run(*command, "-f", directory / "compose.yml", "-p", target, *args, env=env)
 
 
 def lifecycle(command, target):
@@ -221,36 +366,72 @@ def route(command, hostname=None, service=None):
 def sync(name, dry_run=False):
     if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
         raise CLIError("Sync target must contain only letters, digits, '_' or '-'.")
-    values = {}
-    config = ROOT / ".sync.env"
-    if config.is_file():
-        for raw in config.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            parts = shlex.split(value, comments=True)
-            values[key.strip()] = parts[0] if parts else ""
-    prefix = f"SYNC_{name.upper().replace('-', '_')}_"
-    remote = os.environ.get(prefix + "REMOTE", values.get(prefix + "REMOTE", ""))
-    path = os.environ.get(prefix + "PATH", values.get(prefix + "PATH", ""))
-    port = os.environ.get(prefix + "SSH_PORT", values.get(prefix + "SSH_PORT", ""))
+    if tomllib is None:
+        raise CLIError("Sync target config uses TOML and requires Python 3.11 or newer.")
+    config = SYNC_CONFIG
+    if not config.is_file():
+        raise CLIError("Missing .sync.env.toml. Copy .sync.env.toml.example and configure a [targets.<name>] section.")
+    try:
+        with config.open("rb") as stream:
+            settings = tomllib.load(stream)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise CLIError(f"Could not read .sync.env.toml: {exc}") from exc
+    targets = settings.get("targets", {})
+    target = targets.get(name) if isinstance(targets, dict) else None
+    if not isinstance(target, dict):
+        available = ", ".join(sorted(targets)) if isinstance(targets, dict) and targets else "none"
+        raise CLIError(f"Unknown sync target '{name}'. Available targets: {available}.")
+    unknown = sorted(set(target) - {"remote", "path", "ssh_port"})
+    if unknown:
+        raise CLIError(f"Unknown key(s) under [targets.{name}]: {', '.join(unknown)}")
+    remote = target.get("remote", "")
+    path = target.get("path", "")
+    port = target.get("ssh_port", 22)
     if not remote or not path:
-        raise CLIError(f"Set {prefix}REMOTE and {prefix}PATH in .sync.env")
-    if port and not port.isdigit():
-        raise CLIError(f"{prefix}SSH_PORT must be a port number")
+        raise CLIError(f"Set both 'remote' and 'path' under [targets.{name}] in .sync.env.toml")
+    if not isinstance(remote, str) or not isinstance(path, str):
+        raise CLIError(f"'remote' and 'path' under [targets.{name}] must be strings")
+    if not path.startswith("/") or ".." in Path(path).parts:
+        raise CLIError(f"'path' under [targets.{name}] must be absolute and contain no '..' components")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise CLIError(f"'ssh_port' under [targets.{name}] must be an integer from 1 to 65535")
     env = os.environ.copy()
-    if port:
-        env["RSYNC_RSH"] = f"ssh -p {port}"
+    env["RSYNC_RSH"] = f"ssh -p {port}"
     print(f"Sync target: {name}\nSource: {ROOT}/\nDestination: {remote}:{path}/", flush=True)
     if dry_run:
         print("Mode: dry-run", flush=True)
-    options = ["-azih", "--delete"] + (["--dry-run"] if dry_run else [])
+    print("Scope: tracked and non-ignored untracked repository files.", flush=True)
+    print("Source-only files are applied; destination-only files are pruned except protected runtime paths.", flush=True)
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise CLIError("Required command not found: git") from exc
+    if listed.returncode:
+        detail = listed.stderr.decode("utf-8", errors="replace").strip()
+        raise CLIError(f"Could not list repository files for sync: {detail}")
+    if not listed.stdout:
+        raise CLIError("No Git-managed or non-ignored repository files found to sync.")
+
+    file_list, remote_list = sync_file_list(listed.stdout)
+    options = ["-azih", "--checksum", "--from0", "--files-from=-"]
+    if dry_run:
+        options.append("--dry-run")
     for value in EXCLUDES:
         options.append(f"--exclude={value}")
     options += ["--include=common.env.example", "--include=cloudflare.env.example",
                 "--include=services/supabase/functions.env.example"]
-    run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/", env=env)
+    run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/",
+        env=env, input_data=file_list)
+    prune_output = remote_sync_prune(
+        remote, path, port, "preview" if dry_run else "apply", remote_list
+    )
+    sys.stdout.write(prune_output.decode("utf-8", errors="replace"))
     print("Done.")
 
 
@@ -295,7 +476,9 @@ def configured_images(target):
     compose_file = directory / "compose.yml"
     if not compose_file.is_file():
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
-    values = parse_dotenv(directory / ".env")
+    values = parse_dotenv(ROOT / "common.env.example")
+    values.update(parse_dotenv(ROOT / "common.env"))
+    values.update(parse_dotenv(directory / ".env"))
     values.update(os.environ)
     result = []
     service_name = None
@@ -399,10 +582,12 @@ def print_guide():
           ./opendock publish [target]              Sync routes without starting services
 
         Other
-          ./opendock action <service>               List that service's actions
-          ./opendock action <service> <action>      Run one service-specific action
-          Examples: action wordpress → multisite
-                    action supabase  → api-keys, functions-secrets
+          ./opendock service <service>              List service-specific commands
+          ./opendock service <service> <command>    Run one service-specific command
+          Examples: service wordpress multisite
+                    service supabase  api-keys
+                    service supabase  functions-secrets
+                    service hermes    onboard
           ./opendock sync <name> --dry-run          Preview deployment to a remote
           ./opendock sync <name>                    Deploy code to a remote
 
@@ -436,9 +621,10 @@ def parser():
         item.add_argument("target", nargs="?", default="all")
     logs = sub.add_parser("logs", help="Follow logs for one service")
     logs.add_argument("target")
-    action = sub.add_parser("action", help="Run a service-specific action")
-    action.add_argument("service")
-    action.add_argument("name", nargs="?", default="")
+    service_cmd = sub.add_parser("service", help="Run a service-specific command")
+    service_cmd.add_argument("service")
+    service_cmd.add_argument("name", nargs="?", default="")
+    service_cmd.add_argument("args", nargs=argparse.REMAINDER)
     route_cmd = sub.add_parser("route", help="Manage hostname routes")
     route_sub = route_cmd.add_subparsers(dest="route_command", required=True)
     show = route_sub.add_parser("show")
@@ -462,8 +648,6 @@ def parser():
     sync_cmd.add_argument("--dry-run", action="store_true")
     old_sync = sub.add_parser("sync-dry-run", help="Compatibility alias for sync --dry-run")
     old_sync.add_argument("name")
-    sub.add_parser("services", help="Compatibility alias for up services")
-    sub.add_parser("wp-multisite", help="Deprecated WordPress action alias")
     return p
 
 
@@ -506,17 +690,17 @@ def main(argv=None):
             launch(args.target)
         elif command == "route":
             route(args.route_command, getattr(args, "hostname", None), getattr(args, "service", None))
-        elif command == "action":
-            script("opendock-action.py", args.service, args.name)
+        elif command == "service":
+            result = subprocess.run(
+                [sys.executable, ROOT / "scripts/opendock-service.py",
+                 args.service, args.name, *args.args],
+                cwd=ROOT,
+            )
+            return result.returncode
         elif command == "sync":
             sync(args.name, args.dry_run)
         elif command == "sync-dry-run":
             sync(args.name, True)
-        elif command == "services":
-            lifecycle("up", "services")
-        elif command == "wp-multisite":
-            print("Deprecated: use './opendock action wordpress multisite'.\n")
-            script("opendock-action.py", "wordpress", "multisite")
     except (CLIError, OSError, ValueError) as exc:
         print(f"OpenDock: {exc}", file=sys.stderr)
         return 1

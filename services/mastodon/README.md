@@ -56,7 +56,7 @@ Generate and fill the Mastodon-only secrets manually:
 
 This creates `common.env` from `common.env.example` if needed, then fills missing or placeholder generated values. Existing real values are kept.
 
-`./opendock secrets`, `./opendock up`, `./opendock services`, and `./opendock launch` also fill missing or placeholder generated values before validation when the target needs them. `./opendock check-config` only reports missing values and never changes files.
+`./opendock secrets`, `./opendock up <target>`, `./opendock up services`, and `./opendock launch` also fill missing or placeholder generated values before validation when the target needs them. `./opendock check-config` only reports missing values and never changes files.
 
 Mastodon sends account confirmation and notification emails through SMTP. Configure `./opendock setup mail` before opening registrations.
 

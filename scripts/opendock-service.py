@@ -13,16 +13,16 @@ def service_dir(name):
     return SERVICES_DIR / name
 
 
-def action_dir(name):
-    return service_dir(name) / "actions"
+def command_dir(name):
+    return service_dir(name) / "commands"
 
 
 def is_service(name):
     return (service_dir(name) / "compose.yml").is_file()
 
 
-def action_files(name):
-    directory = action_dir(name)
+def command_files(name):
+    directory = command_dir(name)
     if not directory.is_dir():
         return []
 
@@ -34,28 +34,28 @@ def action_files(name):
 
 
 def print_usage():
-    print("Usage: ./opendock action <service> [action]")
+    print("Usage: ./opendock service <service> [command]")
     print()
     print("Examples:")
-    print("  ./opendock action wordpress")
-    print("  ./opendock action wordpress multisite")
+    print("  ./opendock service wordpress")
+    print("  ./opendock service wordpress multisite")
 
 
-def list_actions(target):
-    actions = action_files(target)
-    if not actions:
-        print(f"No actions for service: {target}")
+def list_commands(target):
+    commands = command_files(target)
+    if not commands:
+        print(f"No service-specific commands for: {target}")
         return 0
 
-    print(f"Actions for {target}:")
-    for path in actions:
+    print(f"Commands for {target}:")
+    for path in commands:
         print(f"  {path.name}")
     return 0
 
 
 def main():
     target = sys.argv[1].strip() if len(sys.argv) > 1 else ""
-    action = sys.argv[2].strip() if len(sys.argv) > 2 else ""
+    command = sys.argv[2].strip() if len(sys.argv) > 2 else ""
     extra_args = sys.argv[3:]
 
     if not target:
@@ -63,7 +63,7 @@ def main():
         return 0
 
     if target in ("all", "services", "infra", "gateway"):
-        print(f"Actions are service-specific; '{target}' is not a service target.")
+        print(f"Service-specific commands require an installed service; '{target}' is not one.")
         print_usage()
         return 1
 
@@ -71,16 +71,16 @@ def main():
         print(f"Unknown service or missing compose.yml: {target}")
         return 1
 
-    if not action:
-        return list_actions(target)
+    if not command:
+        return list_commands(target)
 
-    script = action_dir(target) / action
+    script = command_dir(target) / command
     if not script.is_file() or not os.access(script, os.X_OK):
-        print(f"Unknown action for {target}: {action}")
-        available = action_files(target)
+        print(f"Unknown command for {target}: {command}")
+        available = command_files(target)
         if available:
             print()
-            print(f"Available actions for {target}:")
+            print(f"Available commands for {target}:")
             for path in available:
                 print(f"  {path.name}")
         return 1
@@ -88,7 +88,7 @@ def main():
     env = os.environ.copy()
     env["OPENDOCK_ROOT"] = str(ROOT_DIR)
     env["OPENDOCK_SERVICE"] = target
-    env["OPENDOCK_ACTION"] = action
+    env["OPENDOCK_SERVICE_COMMAND"] = command
 
     result = subprocess.run([str(script), *extra_args], cwd=ROOT_DIR, env=env)
     return result.returncode

@@ -55,6 +55,10 @@ SUPABASE_KEYS = {
     "SUPABASE_SECRET_KEY_BASE",
     "SUPABASE_PG_META_CRYPTO_KEY",
 } | SUPABASE_JWT_KEYS | SUPABASE_NEW_AUTH_KEYS
+HERMES_KEYS = {
+    "HERMES_DASHBOARD_PASSWORD",
+    "HERMES_DASHBOARD_SECRET",
+}
 INFRA_KEYS = {"MARIADB_ROOT_PASSWORD", "POSTGRES_ADMIN_USER", "POSTGRES_ADMIN_PASSWORD"}
 SERVICE_KEYS = {
     "infra": INFRA_KEYS,
@@ -72,6 +76,7 @@ SERVICE_KEYS = {
         "MATTERMOST_DB_PASSWORD",
     },
     "supabase": SUPABASE_KEYS,
+    "hermes": HERMES_KEYS,
 }
 GENERATED_KEYS = set().union(INFRA_KEYS, *SERVICE_KEYS.values())
 VAPID_KEYS = {"MASTODON_VAPID_PRIVATE_KEY", "MASTODON_VAPID_PUBLIC_KEY"}
@@ -297,6 +302,10 @@ def generate_values(needed, existing):
         generated["MASTODON_DB_PASSWORD"] = generated_password()
     if "MATTERMOST_DB_PASSWORD" in needed:
         generated["MATTERMOST_DB_PASSWORD"] = generated_password()
+    if "HERMES_DASHBOARD_PASSWORD" in needed:
+        generated["HERMES_DASHBOARD_PASSWORD"] = generated_password()
+    if "HERMES_DASHBOARD_SECRET" in needed:
+        generated["HERMES_DASHBOARD_SECRET"] = generated_alnum(48)
     if "SUPABASE_DB_PASSWORD" in needed:
         generated["SUPABASE_DB_PASSWORD"] = generated_password()
     if "SUPABASE_DASHBOARD_PASSWORD" in needed:

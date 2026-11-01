@@ -19,6 +19,7 @@ chat.<your-domain>    -> Mattermost
 supabase.<your-domain> -> Supabase
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
+hermes.<your-domain>  -> Hermes Agent dashboard
 ```
 
 Shared infrastructure:
@@ -32,7 +33,7 @@ Caddy
 
 ## Requirements
 
-- Linux or macOS with Python 3 and Docker Compose
+- Linux or macOS with Python 3.11+ and Docker Compose
 - rsync and SSH for remote sync
 - A domain managed by Cloudflare
 - A Cloudflare Tunnel connected to this server
@@ -67,7 +68,7 @@ The bootstrap script installs base packages from Ubuntu repositories:
 
 ```text
 git
-python3
+python3 (3.11 or newer)
 curl
 ca-certificates
 ```
@@ -95,7 +96,7 @@ After the default bootstrap completes, enter the cloned repository:
 cd ~/OpenDock
 ```
 
-On macOS, install Python 3 and Docker Desktop (with Docker Compose), then clone
+On macOS, install Python 3.11+ and Docker Desktop (with Docker Compose), then clone
 the repository. OpenDock uses the same `./opendock` commands on Linux and macOS.
 Run `./opendock help` to see available commands. GNU Make is only needed if you
 use the older `make ...` compatibility commands.
@@ -150,6 +151,7 @@ JELLYFIN_SUBDOMAIN=media
 MASTODON_SUBDOMAIN=social
 MATTERMOST_SUBDOMAIN=chat
 SUPABASE_SUBDOMAIN=supabase
+HERMES_SUBDOMAIN=hermes
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
@@ -325,18 +327,20 @@ Review or update local setup interactively:
 
 `./opendock setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon, Mattermost, and n8n.
 
-Run a service-specific action:
+Run a service-specific command:
 
 ```sh
-./opendock action supabase api-keys
-./opendock action supabase functions-secrets
-./opendock action wordpress
-./opendock action wordpress multisite
+./opendock list services
+./opendock service supabase api-keys
+./opendock service supabase functions-secrets
+./opendock service wordpress
+./opendock service wordpress multisite
+./opendock service hermes onboard
 ```
 
-`./opendock action <service>` lists available actions for that service. Actions are for service-specific setup helpers that do not belong in the shared command set.
-The Supabase API-key action prints only the client-safe publishable key and
-keeps all elevated keys hidden. The Functions action creates or inspects the
+`./opendock service <service>` lists available commands for that service. These commands provide service-specific helpers without adding every special case to the shared command set.
+The Supabase API-key command prints only the client-safe publishable key and
+keeps all elevated keys hidden. The Functions command creates or inspects the
 local Edge Function secrets file without printing its values; a normal
 `./opendock launch supabase` also creates the empty, usable file automatically.
 
@@ -393,12 +397,10 @@ Service groups are defined in `services/groups.conf`. Groups are convenience ali
 Enable WordPress subdirectory multisite:
 
 ```sh
-./opendock action wordpress multisite
+./opendock service wordpress multisite
 ```
 
 This command converts the launched WordPress site into subdirectory multisite mode, for example `https://blog.example.com/site-name/`. It prints a warning and asks for confirmation before changing anything. Before conversion, it backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database under `services/wordpress/backups/`.
-
-The legacy shortcut `./opendock wp-multisite` is still available temporarily, but it is deprecated.
 
 Inspect or stop:
 
@@ -418,7 +420,7 @@ Local files ignored by Git:
 ```text
 common.env       required local stack settings and secrets
 cloudflare.env   optional Cloudflare API settings
-.sync.env        optional rsync test-machine settings
+.sync.env.toml   optional rsync test-machine settings
 ```
 
 Committed defaults:
@@ -461,14 +463,16 @@ When you update the repository with `git pull`, compare new values in `common.en
 Copy the example sync config and edit it locally:
 
 ```sh
-cp .sync.env.example .sync.env
+cp .sync.env.toml.example .sync.env.toml
 ```
 
-Then set your test machine connection:
+Then set the target connection in TOML:
 
-```env
-SYNC_TEST_REMOTE=user@test-host
-SYNC_TEST_PATH=/home/user/OpenDock
+```toml
+[targets.test]
+remote = "user@test-host"
+path = "/home/user/OpenDock"
+ssh_port = 22 # optional; defaults to 22
 ```
 
 Preview first:
@@ -483,9 +487,20 @@ Then sync:
 ./opendock sync test
 ```
 
-Runtime data and local secrets such as `services/*/data/`, `common.env`,
-`cloudflare.env`, `.sync.env`, and `services/supabase/functions.env` are
-excluded. Their committed example files remain available on the destination.
+Sync mirrors tracked files and non-ignored untracked files from the working tree,
+so you can test new files before `git add` or commit. Untracked files ignored by
+Git are not sent. Runtime data, backups, static site contents, host configuration,
+and local secrets such as `.git/`, `services/*/data/`, `services/*/backups/`,
+`static-sites/` contents, `common.env`, `cloudflare.env`, `.sync.env.toml`,
+`*.env` files, `domains.conf`, the generated Caddy routes file, and
+`services/supabase/functions.env` are protected on the destination. The tracked
+`static-sites/README.md` and other committed examples remain deployable.
+
+Other destination-only files are treated as repository files and removed, so
+the sync destination should be dedicated to an OpenDock checkout. This also
+cleans up stale code from earlier syncs. Use `./opendock sync test --dry-run`
+first to review both file transfers and destination-only files that would be
+removed.
 
 ## Development
 

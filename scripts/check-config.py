@@ -281,6 +281,11 @@ def check_target(target, common_values, example_values):
     env = {}
     env.update(common_values)
 
+    if target == "hermes":
+        env["HERMES_SANDBOX_DIR"] = str(
+            ROOT_DIR / "services" / "hermes" / "data" / "sandboxes"
+        )
+
     service_env = directory / ".env"
     if service_env.exists():
         env.update(parse_env_file(service_env))

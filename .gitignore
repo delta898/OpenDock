@@ -3,6 +3,7 @@
 common.env
 cloudflare.env
 .sync.env
+.sync.env.toml
 *.swp
 __pycache__/
 

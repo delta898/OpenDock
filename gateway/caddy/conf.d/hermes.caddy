@@ -1,0 +1,9 @@
+# Hermes dashboard proxy behavior for domain mappings.
+(hermes_proxy) {
+    import common_proxy
+    import security_headers
+
+    reverse_proxy hermes:9119 {
+        import forwarded_https
+    }
+}

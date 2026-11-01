@@ -213,7 +213,7 @@ def print_functions_secrets_notice():
         print(f"  User variables loaded: {configured} (values hidden)")
     else:
         print("  User variables loaded: none (optional)")
-    print("  Manage: ./opendock action supabase functions-secrets")
+    print("  Manage: ./opendock service supabase functions-secrets")
     print("  Apply changes: ./opendock up supabase")
 
 
@@ -241,7 +241,7 @@ def main():
     check_database(env)
     check_http(env)
     print("Supabase is ready.")
-    print("Client API key: ./opendock action supabase api-keys")
+    print("Client API key: ./opendock service supabase api-keys")
     print_functions_secrets_notice()
     return 0
 

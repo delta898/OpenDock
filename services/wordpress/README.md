@@ -48,7 +48,7 @@ OpenDock publishes WordPress as `https://blog.<STACK_DOMAIN>` through Cloudflare
 OpenDock can convert the WordPress site to subdirectory multisite mode:
 
 ```sh
-./opendock wp-multisite
+./opendock service wordpress multisite
 ```
 
 The command uses `STACK_DOMAIN` and `WORDPRESS_SUBDOMAIN` to configure the network host. With the default subdomain, the network uses URLs like:
@@ -72,7 +72,7 @@ services/wordpress/backups/wordpress-multisite-<timestamp>.sql
 For non-interactive automation:
 
 ```sh
-YES=1 ./opendock wp-multisite
+YES=1 ./opendock service wordpress multisite
 ```
 
 ## Image Policy

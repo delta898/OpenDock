@@ -130,6 +130,16 @@ CONFIG_FIELDS = {
         Field("SUPABASE_STUDIO_DEFAULT_ORGANIZATION", "defaulted-choice", default="OpenDock"),
         Field("SUPABASE_STUDIO_DEFAULT_PROJECT", "defaulted-choice", default="OpenDock"),
     ],
+    "hermes": [
+        Field("HERMES_SUBDOMAIN", "defaulted-choice", default="hermes"),
+        Field("HERMES_DASHBOARD_USERNAME", "defaulted-choice", default="opendock"),
+        Field(
+            "HERMES_DASHBOARD_PASSWORD",
+            "generated-secret",
+            note="Used for the Hermes web dashboard login.",
+        ),
+        Field("HERMES_DASHBOARD_SECRET", "generated-secret"),
+    ],
 }
 
 MARIADB_DEPENDENCIES = {

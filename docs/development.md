@@ -138,25 +138,25 @@ After starting services, `launch` runs service-owned post-launch hooks named `se
 
 Do not create initial app accounts in OpenDock when the service provides a first-run web setup flow. WordPress, Jellyfin, Uptime Kuma, and Mattermost follow this model. Use post-launch account bootstrap only when a service cannot be reached or administered after launch without an initial account created outside the web UI.
 
-`action` is the shared entry point for service-specific manual workflows:
+`service` is the namespace for service-specific manual commands:
 
 ```sh
-./opendock action <service>
-./opendock action <service> <action>
+./opendock service <service>
+./opendock service <service> <command>
 ```
 
-Actions live at `services/<service>/actions/<action>` and must be executable. `./opendock action <service>` lists executable actions for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_ACTION` to the action process.
+Commands live at `services/<service>/commands/<command>` and must be executable. `./opendock service <service>` lists executable commands for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_SERVICE_COMMAND` to the command process.
 
 Supabase Edge Function user secrets follow the same local-template pattern as
 other OpenDock configuration. `./opendock launch supabase` creates the ignored
 `services/supabase/functions.env` from `functions.env.example`; the optional
-`./opendock action supabase functions-secrets` action reports configured names and
+`./opendock service supabase functions-secrets` command reports configured names and
 application instructions without revealing values. Keep this file outside
 `config/functions/`, because that source directory is also mounted in Studio.
 
-WordPress multisite is exposed as `./opendock action wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
+WordPress multisite is exposed as `./opendock service wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
 
-`./opendock wp-multisite` remains as a temporary deprecated shortcut for backward compatibility. New service-specific workflows should use `./opendock action <service> <action>` instead of adding new top-level CLI commands.
+Keep service-specific workflows under `./opendock service <service> <command>` instead of adding new top-level CLI commands. `./opendock list services` lists installed services; `./opendock up services` starts them all.
 
 ## Config Validation
 
@@ -201,7 +201,7 @@ Secret generation rules:
 - `./opendock check-config` is read-only and never changes files.
 - `./opendock setup [target]` interactively fills user-facing values and generated secrets.
 - `./opendock secrets [target]` fills generated passwords and app secrets in `common.env`.
-- `./opendock up`, `./opendock services`, and `./opendock launch` run the same generator before validation.
+- `./opendock up <target>`, `./opendock up services`, and `./opendock launch` run the same generator before validation.
 - Existing real values are kept. Empty or placeholder values are generated.
 - Before `common.env` is changed, the previous file is backed up under `backups/common-env/`.
 - Do not auto-generate external values such as `STACK_DOMAIN`, Cloudflare tokens, tunnel IDs, or SMTP credentials.

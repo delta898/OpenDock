@@ -245,11 +245,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   구현·문서화되었다. 직접 Caddy 공개 방식은 기본 지원 경로가 아니므로 별도
   운영 선택지로 표현한다.
 
-## OD-008. 서비스가 늘어도 Makefile을 예외 처리로 채우지 않은 확장 구조
+## OD-008. 서비스별 명령을 `service` namespace로 확장하는 CLI 설계
 
 - 상태: `seed`
 - 관련 이력: `d963f76`, `63437c8`, `d5e6996`, `ca6daef`
-- 주제: `service discovery, group, action, hook으로 홈서버 CLI 확장하기`
+- 주제: `service discovery, command, group, hook으로 홈서버 CLI 확장하기`
 - 독자 질문: 서로 다른 서비스의 편의 기능을 공통 CLI에 추가하면서 어떻게
   거대한 조건문과 top-level 명령 증가를 피할 수 있는가?
 - 참고할 사항:
@@ -257,25 +257,31 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     목록 수정이 필요 없다. `services`, `all`, 단일 service라는 공통 target
     모델 위에 `media`, `communication`, `backend` 같은 목적별 group을
     `services/groups.conf`의 데이터로 추가했다.
-  - WordPress multisite 같은 수동·파괴 가능 작업을 top-level
-    `make wp-multisite`로 계속 늘리는 대신 `make action <service> <action>`
-    dispatcher를 만들었다. action은 service directory가 소유하고, 실행 전
-    목록을 발견할 수 있다. 기존 명령은 deprecated shim으로 남겼다.
+  - WordPress multisite 같은 수동·파괴 가능 작업을 top-level 명령으로 늘리는
+    대신 처음에는 `action <service> <action>` dispatcher로 모았다. Hermes의
+    `setup hermes`와 `action hermes setup`이 헷갈린다는 피드백을 계기로
+    사용자 관점의 namespace인 `service <service> <command>`로 바꾸고 내부
+    디렉터리도 `services/<service>/commands/`로 통일했다.
+  - 하위호환은 요구하지 않아 `action`, `services` top-level 별칭,
+    `wp-multisite` shortcut은 제거한다. 서비스 목록은 `list services`, 전체 앱
+    기동은 `up services`로 동사를 구분한다.
   - 자동 기동 뒤에만 필요한 Mastodon owner 생성이나 Supabase smoke test는
     `opendock-post-launch.py` hook으로 서비스에 귀속했다. 공통 launch는 hook의
     존재만 확인하며 서비스 세부 지식을 갖지 않는다.
   - 기능이 늘며 `make help`가 명령 이름 나열만으로는 부족해졌다. `launch`와
-    `up`, `restart`, `services/all/group`, action의 차이를 사용 시점 중심으로
-    재구성했다. 읽기 전용 `make ps`, `make config`는 target 생략 시 `all`로
+    `up`, `restart`, `services/all/group`, service command의 차이를 사용 시점
+    중심으로 재구성했다. 읽기 전용 `make ps`, `make config`는 target 생략 시 `all`로
     동작하게 해 단순 누락을 Make error로 만들지 않았다.
+  - `service <service>`만 입력하면 등록된 service commands를 발견하도록 한다.
 - 보존할 교훈:
   - 공통 workflow는 mechanism을, service directory는 policy와 특수 동작을
     소유하게 하면 서비스 수가 늘어도 중심부가 안정적이다.
   - CLI help도 기능이며 실제 기본값과 오류 동작까지 맞아야 한다.
-- 검증 상태: service/group resolution, action discovery, post-launch hook과
-  개선된 help 출력은 현재 공통 명령 구조에 반영되어 있다.
+- 검증 상태: service/group resolution, service-command discovery,
+  post-launch hook과 개선된 help 출력은 구현 중이다. 새 dispatcher를 실행해
+  확인하기 전까지 검증 완료로 쓰지 않는다.
 
-## OD-009. 되돌릴 수 없는 WordPress Multisite 전환을 action으로 감싼 이유
+## OD-009. 되돌리기 어려운 WordPress Multisite 전환을 service command로 제공하는 이유
 
 - 상태: `seed`
 - 관련 이력: `13616b7`, `df1b323`, `63437c8`
@@ -286,7 +292,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - subdirectory multisite 전환은 단순 flag가 아니다. WordPress DB 상태,
     `wp-config.php`, Apache `.htaccess`, container의 실제 webroot가 함께 맞아야
     하며 콘텐츠 생성 뒤 single-site 복귀는 별도 migration이 된다.
-  - action은 실행 전 경고와 확인을 요구하고, `YES=1`은 의도적인 자동화에서만
+  - `./opendock service wordpress multisite`는 실행 전 경고와 확인을 요구하고,
+    `YES=1`은 의도적인 자동화에서만
     확인을 생략한다. 변경 전에 WordPress DB dump와 `wp-config.php`,
     `.htaccess`를 timestamp backup한다.
   - host에 WP-CLI를 설치하도록 요구하지 않고 WordPress CLI image를 사용했다.
@@ -294,9 +301,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     restart한다.
   - Cloudflare Tunnel 뒤 HTTPS 인식 문제는 multisite URL 생성과 관리 기능에도
     영향을 줄 수 있어 proxy scheme 수정이 별도의 후속 작업으로 필요했다.
-  - 범용 CLI 관점에서는 이 기능이 service-specific action dispatcher를 만든
-    계기가 되었다. 위험한 동작일수록 공통 명령처럼 보이지 않고 명시적 service
-    namespace 안에 있어야 한다.
+  - 처음에는 `action` dispatcher로 제공했지만, 범용어가 모호하다는 사용자
+    피드백 뒤 `service` namespace로 정리했다. 위험한 동작을 서비스 소유 명령으로
+    두면 공통 CLI에 WordPress 전용 top-level 명령을 추가하지 않아도 된다.
 - 보존할 교훈:
   - destructive workflow 자동화의 품질은 실행 속도가 아니라 preflight,
     backup, 명시적 확인, 실패 지점, 복구 경로로 평가해야 한다.
@@ -311,14 +318,31 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 독자 질문: Git 저장소를 실험 서버로 빠르게 보내면서 환경별 상태를 덮어쓰지
   않으려면 무엇을 제외해야 하는가?
 - 참고할 사항:
-  - 테스트 서버 반복 배포를 위해 `.sync.env`에 remote, path, SSH port를 두고
-    `make sync-dry-run <name>`과 `make sync <name>`을 제공했다. 실제 동기화 전에
-    `--dry-run`을 별도 명령으로 눈에 띄게 만든 것이 핵심 안전장치다.
-  - rsync는 `--delete`를 사용하므로 source에 없는 파일을 제거할 수 있다.
-    그래서 `.git`, `common.env`, `cloudflare.env`, `.sync.env`, 모든 service
-    data directory와 backup을 명시적으로 제외한다. Supabase 도입 뒤에는
-    `functions.env`도 제외하고 `functions.env.example`만 전달하도록 규칙을
-    확장했다.
+  - 테스트 서버 반복 배포를 위해 처음에는 `.sync.env`의 target별 환경변수에
+    remote, path, SSH port를 두고 Make 명령으로 sync했다. 변수명에 target을 붙여
+    길게 조합하는 대신 `.sync.env.toml`의 `[targets.<name>]` 한 블록에 연결 정보를
+    모으도록 바꿨다. `./opendock sync <name> --dry-run`은 target 이름과 설정을
+    직접 대응시키며 TOML 표준 parser를 위해 Python 3.11+를 요구한다.
+  - 실제 동기화 전에 `--dry-run`을 별도 명령으로 눈에 띄게 만든 것이 핵심
+    안전장치다.
+  - 초기 rsync는 `--delete`로 source에 없는 destination 파일을 제거할 수
+    있었다. 실제 테스트/운영 환경에서 runtime 파일이 삭제된 것을 사용자가
+    발견해 기존 exclude 목록만으로는 모든 host-owned 상태를 보호하기 어렵다는
+    점이 드러났다.
+  - 새 sync는 `git ls-files --cached --others --exclude-standard -z` 결과를
+    `rsync --files-from=-`로 보내 tracked 수정 파일과 untracked 비무시 파일을
+    함께 반영한다. `git add` 전 신규 코드도 테스트 서버에서 시험할 수 있고
+    Git-ignored 파일은 보내지 않는다.
+  - 전역 `rsync --delete`에 맡기지 않고 배포 파일 목록을 SSH로 전달해 원격
+    디렉터리를 정리한다. source에 없는 원격 파일은 repository-owned로 간주해
+    삭제하고, runtime·host-owned allowlist에 든 경로는 보존한다. 기존 원격의
+    오래된 코드도 첫 실행부터 정리 대상이므로 `--dry-run`으로 미리 보여준다.
+  - `.git`, 서비스 `data/`와 `backups/`, 정적 웹 콘텐츠, `common.env`,
+    `*.env`, `domains.conf`, 생성된 Caddy routes, Supabase `functions.env`를
+    보호한다. 이는 destination이 OpenDock checkout
+    전용 경로라는 전제를 가지므로, 보호 목록 밖의 수동 원격 파일은 삭제될 수 있다.
+  - `.env.example` 등 committed example은 배포 대상이며 실제 설정은 host state로
+    남긴다. 새 runtime 경로를 추가하면 Git ignore와 sync 보호 목록도 함께 갱신해야 한다.
   - example 파일은 코드와 함께 보내 새 설정 항목을 발견하게 하지만 실제
     서버 Secret과 persistent data는 destination에 남는다. “설정 템플릿은
     배포 자산, 실제 설정은 host state”라는 경계다.
@@ -329,8 +353,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     먼저 정의해야 한다.
   - Secret 파일을 추가할 때 Git ignore만 수정하면 충분하지 않다. backup,
     sync, UI mount 등 모든 이동 경로를 함께 점검해야 한다.
-- 검증 상태: dry-run/apply 명령과 제외 정책이 구현되어 있으며 Supabase
-  Functions Secret example 포함·실파일 제외를 필터 테스트로 확인했다.
+  - 검증 상태: 사용자가 기존 sync로 runtime 파일 삭제를 실환경에서 확인했다.
+    작업 트리 mirror와 remote prune 코드를 반영하고 CLI 검증 내용을 갱신했지만,
+    테스트 실행과 dry-run/실제 sync 재확인은 아직 하지 않았다.
 
 ## OD-011. 도메인 라우팅을 앱 종류와 분리한 OpenDock 설계
 
@@ -397,8 +422,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - 기존 설정·도메인·Cloudflare Python 스크립트를 재사용하며 Compose
     호출 순서, post-launch hook, host-owned sync 제외 규칙을 CLI로 옮겼다.
     Makefile은 과거 명령을 새 CLI로 전달하는 호환 계층으로 남겼다.
-  - Linux와 macOS를 모두 목표로 하므로 Ubuntu bootstrap에 Python 3를
-    명시하고, 두 OS에서 실행할 CLI 테스트 matrix를 추가했다. shebang만으로
+  - Linux와 macOS를 모두 목표로 하므로 Ubuntu bootstrap과 README에 Python 3.11+
+    요구사항을 명시하고, 두 OS의 Python 3.11에서 CLI 테스트 matrix를 실행하도록
+    했다. shebang만으로
     Python 설치나 외부 명령의 가용성이 보장되는 것은 아니다.
   - 첫 CLI의 argparse 기본 도움말은 모든 명령을 한 줄에 나열해 시작 흐름이
     보이지 않았다. 사용자 피드백 후 `--help`, `help`, 인자 없는 실행은
@@ -412,3 +438,45 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 검증 상태: macOS에서 CLI 단위 테스트, 재구성된 도움말, 목록 및 호환 Make 호출을
   로컬 검증했다. Ubuntu CI matrix는 추가했지만 아직 실행 결과를 확인하지
   않았다. Docker 기동과 실제 Cloudflare 게시의 새 CLI 경로는 실환경 검증 전이다.
+
+## OD-013. Hermes의 Docker sandbox를 Docker 안에서 구동할 때의 경계
+
+- 상태: `seed`
+- 관련 이력: `codex/feature/hermes-agent`, `services/hermes/compose.yml`,
+  `services/hermes/README.md`, `opendock`, `gateway/caddy/conf.d/hermes.caddy`
+- 주제: `Agent 명령은 sandbox에서 실행하면서 Docker socket은 왜 필요한가?`
+- 독자 질문: Agent 자체를 Docker 컨테이너로 운영하면서 명령 실행을 별도
+  컨테이너로 격리하려면 Docker API 권한, 파일 경로, 웹 인증을 어떻게 다뤄야 하나?
+- 참고할 사항:
+  - 사용자는 Oracle 저사양 서버가 아닌 Apple Silicon macOS 노트북과 Linux를
+    대상으로 Hermes Agent를 OpenDock 서비스로 운영하고, 웹 dashboard를
+    hostname으로 쓰며, agent 명령은 별도 Docker sandbox에서 실행하기를 원했다.
+  - Hermes의 Docker terminal backend는 지속되는 sandbox 컨테이너를 만들고
+    tool 명령을 그 안에서 실행한다. Hermes runtime은 이를 제어하기 위해
+    Docker socket을 사용한다. sandbox에서 실행되는 일반 tool 명령과 runtime의
+    Docker daemon 권한은 서로 다른 경계이며, runtime 또는 socket이 침해되면
+    OpenDock Docker 엔진의 컨테이너와 volume을 제어할 수 있음을 문서화했다.
+  - Docker daemon은 bind mount 경로를 Docker client 컨테이너가 아니라 host에서
+    해석한다. 그래서 sandbox 데이터 디렉터리를 host와 Hermes 컨테이너 안에서
+    같은 절대경로로 공유하고, `opendock`에서 socket GID와 sandbox 경로를 주입한다.
+  - Dashboard는 Caddy hostname route와 기본 인증을 구성하고, 공개 hostname에는
+    추가 identity-aware access 계층을 권한다. Hermes 공식 문서는 기본 사용자명/
+    비밀번호 제공자가 trusted LAN 또는 VPN용이라고 구분한다.
+  - `HERMES_VERSION`은 mutable `latest` 대신 stable tag로 고정하고 Renovate의
+    dotenv custom manager가 `common.env.example`의 marker를 추적하게 했다.
+  - 첫 실제 onboarding에서는 `HERMES_*` 값이 비어 Compose가 빈
+    `container_name`으로 실패했다. preflight를 넣어 OpenDock 설정 누락을 먼저
+    설명하게 했지만, 이어 실행한 `setup hermes`가 `Nothing changed`라고 끝났다.
+    원인은 Secret target 목록에는 Hermes 키가 있었으나 `generate_values()`에
+    실제 생성 규칙이 없어 placeholder를 갱신하지 못한 것이었다. dashboard
+    password와 세션 서명 키 생성을 generator에 추가했다.
+- 보존할 교훈:
+  - containerized agent의 “명령 격리”와 “container runtime 권한 격리”를 같은
+    것으로 설명하면 안 된다. Docker socket은 편의성뿐 아니라 신뢰 경계를 바꾼다.
+  - nested Docker 제어에서 host bind mount 경로의 관점은 container 내부가 아니라
+    daemon이 실행되는 host라는 점을 고려해야 한다.
+- 검증 상태: 사용자가 Linux 환경에서 onboarding의 빈 Compose 변수 실패와
+  `setup hermes`의 잘못된 `Nothing changed` 결과를 확인했다. generator 수정은
+  반영했지만 재실행으로 Secret 생성과 onboarding 성공을 확인하기 전이다.
+  테스트나 Docker 기동을 실행하지 않았고 macOS/Linux runtime, dashboard 로그인,
+  Cloudflare Access, sandbox mount 동작은 미검증이다.

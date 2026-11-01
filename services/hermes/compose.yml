@@ -1,0 +1,37 @@
+services:
+  hermes:
+    image: nousresearch/hermes-agent:${HERMES_VERSION:-v0.22.5}
+    container_name: ${HERMES_CONTAINER_NAME:-hermes}
+    command: gateway run
+    group_add:
+      - "${DOCKER_SOCKET_GID:-0}"
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_HOST: 0.0.0.0
+      HERMES_DASHBOARD_PORT: 9119
+      HERMES_DASHBOARD_PUBLIC_URL: https://${HERMES_SUBDOMAIN:-hermes}.${STACK_DOMAIN}
+      HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${HERMES_DASHBOARD_USERNAME:-opendock}
+      HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${HERMES_DASHBOARD_PASSWORD}
+      HERMES_DASHBOARD_BASIC_AUTH_SECRET: ${HERMES_DASHBOARD_SECRET}
+      TERMINAL_ENV: docker
+      TERMINAL_DOCKER_IMAGE: nousresearch/hermes-sandbox:desktop
+      TERMINAL_SANDBOX_DIR: ${HERMES_SANDBOX_DIR}
+    networks:
+      - shared-net
+    volumes:
+      - hermes_data:/opt/data
+      # The host Docker daemon resolves bind-mount sources itself. Keep Hermes'
+      # sandbox directory at the same absolute path inside this container.
+      - ${HERMES_SANDBOX_DIR}:${HERMES_SANDBOX_DIR}
+      # Hermes uses this engine connection to create its isolated command sandbox.
+      # The agent runtime is trusted with Docker daemon control; see README.
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    restart: unless-stopped
+
+networks:
+  shared-net:
+    external: true
+
+volumes:
+  hermes_data:

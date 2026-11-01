@@ -60,7 +60,7 @@ SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 Print the client URL and publishable key without exposing any elevated key:
 
 ```sh
-./opendock action supabase api-keys
+./opendock service supabase api-keys
 ```
 
 Server-only administrative applications may use `SUPABASE_SECRET_KEY`. It
@@ -111,11 +111,11 @@ Then recreate the changed Edge Runtime configuration:
 ./opendock up supabase
 ```
 
-Use the service action to create the file on demand, check its permissions,
+Use the service command to create the file on demand, check its permissions,
 and list configured variable names without printing their values:
 
 ```sh
-./opendock action supabase functions-secrets
+./opendock service supabase functions-secrets
 ```
 
 A successful `./opendock launch supabase` also prints a short summary containing the
