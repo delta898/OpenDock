@@ -11,8 +11,8 @@ default = "photos"
 [[setup.fields]]
 name = "IMMICH_DB_PASSWORD"
 kind = "generated-secret"
+generator = "alphanumeric"
+length = 48
 
 [removal]
 data_paths = ["data/library", "data/postgres"]
-generator = "alphanumeric"
-length = 48
