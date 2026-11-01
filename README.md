@@ -333,12 +333,20 @@ Removing that block lets Caddy restore its default HTTP-to-HTTPS redirects. Do n
 
 ## Common Commands
 
-Show configured image tags and Docker's current container state:
+`info` shows OpenDock's product metadata along with configured image tags and
+container state:
 
 ```sh
+./opendock --version
 ./opendock info
 ./opendock info wordpress
 ```
+
+OpenDock's name, current version, description, Python requirement, and project
+links are maintained in `pyproject.toml`. The `vMAJOR.MINOR.PATCH` Git tag is
+the release marker and must match the `version` field. Push a matching tag (for
+example, `v0.1.0`) to run the release workflow; ordinary branch pushes and pull
+requests continue to run the CLI CI workflow.
 
 Renovate tracks image and GitHub Actions updates and opens reviewable pull
 requests. To enable the Cloud-Hosted GitHub App, follow [docs/renovate.md](docs/renovate.md).

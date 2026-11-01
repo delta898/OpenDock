@@ -1,0 +1,10 @@
+[project]
+name = "OpenDock"
+version = "0.1.0"
+description = "A self-hosted service platform managed with a simple CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+
+[project.urls]
+Repository = "https://github.com/delta898/OpenDock"
+Issues = "https://github.com/delta898/OpenDock/issues"

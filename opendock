@@ -628,6 +628,7 @@ def running_containers():
 
 
 def show_info(name=None):
+    metadata = project_metadata()
     projects = ["infra"]
     if (ROOT / "gateway/compose.yml").is_file():
         projects.append("gateway")
@@ -635,6 +636,9 @@ def show_info(name=None):
     if name:
         projects = targets(name)
     containers, note = running_containers()
+    print(f"{metadata['name']} {metadata['version']}")
+    print(metadata["description"])
+    print()
     print(f"{'TARGET':<18} {'SERVICE':<24} {'CONFIGURED IMAGE':<48} {'RUNNING'}")
     print("-" * 112)
     for project in projects:
@@ -647,6 +651,20 @@ def show_info(name=None):
             print(f"{project:<18} {service:<24} {image:<48} {state}")
     if note:
         print(f"\n{note}")
+
+
+def project_metadata():
+    metadata_file = ROOT / "pyproject.toml"
+    try:
+        with metadata_file.open("rb") as file:
+            project = tomllib.load(file)["project"]
+    except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
+        raise CLIError(f"Could not read OpenDock project metadata: {exc}") from exc
+    return {
+        "name": project["name"],
+        "version": project["version"],
+        "description": project["description"],
+    }
 
 
 def print_guide():
@@ -674,10 +692,11 @@ def print_guide():
           Static files go in static-sites/docs.example.org/.
 
         Configuration and inspection
+          ./opendock --version                     Show the OpenDock product version
           ./opendock setup [target]                 Set up all or one service/group
           ./opendock check-config [target]          Validate configuration
           ./opendock secrets [target]               Generate missing secrets
-          ./opendock info [target]                  Show image tags and container status
+          ./opendock info [target]                  Show product, image, and container info
           ./opendock ps [target]                    Show container status (default: all)
           ./opendock logs <service>                 Follow one service's logs
 
@@ -714,10 +733,16 @@ def print_guide():
 
 
 def parser():
+    metadata = project_metadata()
     p = argparse.ArgumentParser(
         prog="./opendock", description="Configure, run, and publish OpenDock services.",
         epilog="Start here: ./opendock setup, then ./opendock launch blog.example.com. "
                "Use './opendock <command> --help' for command options.",
+    )
+    p.add_argument(
+        "--version", action="version",
+        version=f"{metadata['name']} {metadata['version']}",
+        help="Show the OpenDock product version and exit",
     )
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("help", help="Show the getting-started guide",
