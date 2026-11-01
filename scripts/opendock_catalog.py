@@ -62,7 +62,11 @@ class ServiceCatalog:
     SETUP_DEPENDENCIES = frozenset({"mariadb", "postgres"})
     # Add a capability here only when its handler contract and common dispatcher
     # are implemented. Unknown declarations must fail instead of being ignored.
-    CAPABILITIES = frozenset({"runtime_environment", "prepare"})
+    CAPABILITIES = frozenset({
+        "runtime_environment", "prepare", "plan_secrets", "generate_secrets",
+        "validate_config",
+    })
+    BUILTIN_GENERATORS = frozenset({"url-safe", "alphanumeric", "hex"})
 
     def __init__(self, root: Path):
         self.root = Path(root).resolve()
@@ -162,6 +166,10 @@ class ServiceCatalog:
                     f"Service descriptor {path} requires capability API {api_version!r}; "
                     f"this OpenDock supports API {self.CAPABILITY_API_VERSION}."
                 )
+        if "plan_secrets" in capabilities and "generate_secrets" not in capabilities:
+            raise CatalogError(
+                f"Service descriptor {path} declares plan_secrets without generate_secrets."
+            )
 
         dependencies = descriptor.get("dependencies", [])
         if (not isinstance(dependencies, list)
@@ -220,15 +228,40 @@ class ServiceCatalog:
                 raise CatalogError(
                     f"Setup field {name!r} in {path} has unsupported kind {kind!r}."
                 )
-            for attribute in ("default", "note", "change_notice"):
+            for attribute in ("default", "note", "change_notice", "generated_notice"):
                 value = field.get(attribute)
                 if value is not None and not isinstance(value, str):
                     raise CatalogError(
                         f"Setup field {name!r} in {path} has a non-string {attribute}."
                     )
+            if "required" in field and type(field["required"]) is not bool:
+                raise CatalogError(
+                    f"Setup field {name!r} in {path} has a non-boolean required flag."
+                )
             if kind == "defaulted-choice" and not isinstance(field.get("default"), str):
                 raise CatalogError(
                     f"Setup field {name!r} in {path} needs a string default."
+                )
+            generator = field.get("generator", "url-safe")
+            if kind == "generated-secret":
+                if not isinstance(generator, str) or not generator.strip():
+                    raise CatalogError(
+                        f"Setup field {name!r} in {path} has an invalid generator declaration."
+                    )
+                if (generator not in self.BUILTIN_GENERATORS
+                        and "generate_secrets" not in capabilities):
+                    raise CatalogError(
+                        f"Setup field {name!r} in {path} requires the generate_secrets capability."
+                    )
+            elif "generator" in field:
+                raise CatalogError(
+                    f"Setup field {name!r} in {path} may set generator only for generated-secret fields."
+                )
+            if "length" in field and (
+                type(field["length"]) is not int or field["length"] < 1
+            ):
+                raise CatalogError(
+                    f"Setup field {name!r} in {path} has an invalid generator length."
                 )
         return descriptor
 

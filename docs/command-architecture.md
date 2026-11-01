@@ -197,14 +197,13 @@ service imports from the CLI dispatcher. Keep handler loading behind one
 catalog boundary so a future protocol change does not affect command workflows.
 
 The descriptor is versioned and contains declarative facts, currently stable
-service ID, display name, shared `infra`/`gateway` dependencies, and declared
-capabilities. Application-dependent onboarding uses an optional capability. A
-service contributes only the capabilities it needs. Every current service
-declares its setup fields and shared configuration dependencies here, which the
-common setup prompt engine consumes. Route metadata, resource ownership,
-service-specific validation, secret generation, health checks, and custom
-cleanup remain future migrations. The catalog rejects capability names until
-their common dispatch contract exists.
+service ID, display name, shared `infra`/`gateway` dependencies, setup fields,
+secret generator declarations, and declared capabilities. Application-dependent
+onboarding uses an optional capability. A service contributes only the
+capabilities it needs. The common setup prompt, secret persistence, and
+configuration result rendering remain consistent across services, while each
+service declares which values it needs and implements application-specific
+generation or validation where required.
 
 Common capability results should be typed values, not printed text that the
 workflow has to parse. Examples include configuration issues, generated secret
@@ -260,9 +259,9 @@ The first contract is intentionally small and lives in these files:
   `capabilities`, and optional `setup.fields`. Capabilities also require
   `capability_api_version`.
 - `services/<name>/opendock.py` implements only the procedures named by its
-  descriptor. API version 1 currently supports `runtime_environment(context)`
-  returning string environment values and
-  `prepare(context)` returning `PreparationResult`.
+  descriptor. API version 1 supports `runtime_environment(context)`,
+  `prepare(context)`, `plan_secrets(context)`,
+  `generate_secrets(context)`, and `validate_config(context)`.
 
 `RuntimeContext` gives the service identity and Docker socket path.
 `ServiceContext` gives the service identity, read-only values owned by that
@@ -273,13 +272,17 @@ repository code, so these interface limits improve coupling and reviewability;
 they are not a security sandbox.
 
 Hermes uses `runtime_environment` for its nested Docker sandbox and `prepare`
-for first-run model onboarding. Its setup fields include the dashboard
-credentials and change notice. Uptime Kuma demonstrates a descriptor with one
-setup field and no custom capabilities. All current Compose services now have a
-descriptor and declare their `infra` dependency. Adding a capability name to
-the catalog is part of implementing its type, dispatcher, and error handling;
-a declared but unsupported name must fail during discovery instead of being
-silently ignored.
+for first-run model onboarding. Mastodon and Supabase use service capabilities
+for related secret bundles and application-specific configuration validation;
+Supabase also prepares its private Edge Functions env file. The common secret
+coordinator selects fields from descriptors, generates the generic declared
+formats, delegates custom formats and consistency bundles, and persists values
+without displaying them. `setup`, `launch`, and `secrets` use this same
+coordinator: setup generates while prompting, launch fills missing values
+before validation, and `secrets` offers an explicit repair command. All current
+Compose services have descriptors and declare their `infra` dependency. Adding
+a capability name to the catalog requires its type, dispatcher, and error
+handling; an unsupported declaration fails during discovery.
 
 ## Current code and migration targets
 
@@ -296,22 +299,17 @@ commands are still discovered from `services/<name>/commands/`, and
 `opendock-post-launch.py` remains an existing Mastodon/Supabase convention
 pending migration.
 
-There are also central service-specific responsibilities to remove over time:
+Some service-specific behavior remains to migrate:
 
 - Hermes onboarding/model-state detection and Hermes Docker socket/sandbox
-  environment setup have moved to Hermes' capability module. The current
-  handler API supports only `runtime_environment` and `prepare`; other service
-  specific responsibilities below remain to migrate.
-- Service-generated secret selection remains in `scripts/opendock-secrets.py`;
-  application-specific secret generation and validation are the next
-  configuration migration after the setup field declarations.
-- Service discovery and setup declarations now come from the catalog. The
-  common settings layer still maps setting prefixes to owner files; platform-
-  owned core/infra/shared settings remain central, while future validation and
-  secret metadata should be discovered from service declarations.
-- Mastodon and Supabase validation rules and the Supabase JWT key bundle
-  generator are special-cased in `scripts/check-config.py` and
-  `scripts/opendock-secrets.py`.
+  environment setup have moved to Hermes' capability module.
+- Secret field selection is driven by service descriptors. The common
+  `scripts/opendock-secrets.py` still implements generic generators and shared
+  infrastructure secret selection; service-specific bundles and generation
+  procedures live in service capabilities.
+- Service discovery, setup declarations, and service validation are catalog
+  driven. The common settings layer still maps setting prefixes to owner files;
+  platform-owned core/infra/shared settings remain central.
 - Service command help metadata is centralized in `scripts/opendock-service.py`
   even though executable commands already live beside each service.
 - Removal planning and Hermes cleanup live in a dedicated central script.

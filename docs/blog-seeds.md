@@ -683,6 +683,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 관련 자료: `docs/command-architecture.md`, `AGENTS.md`, `opendock`,
   `scripts/opendock-config.py`, `scripts/opendock_settings.py`,
   `scripts/opendock-remove.py`, `scripts/opendock-service.py`,
+  `scripts/opendock_capabilities.py`, `scripts/opendock_catalog.py`,
+  `scripts/opendock-secrets.py`, `scripts/check-config.py`,
+  `services/mastodon/opendock.py`, `services/supabase/opendock.py`,
   `services/mastodon/opendock-post-launch.py`,
   `services/supabase/opendock-post-launch.py`
 - 주제: `서비스가 늘어도 CLI dispatcher가 비대해지지 않게 하려면`
@@ -693,14 +696,12 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     `services/<name>/commands/`의 실행 가능한 파일로 service 명령을 탐색한다.
     Mastodon과 Supabase에는 기존 post-launch hook도 있다. 즉, 서비스 디렉터리에서
     기능을 발견하는 선례는 이미 있다.
-  - 반면 Hermes 온보딩과 모델 상태 판정은 중앙 `opendock`의 launch 경로에 있고,
+  - 초기에는 Hermes 온보딩과 모델 상태 판정이 중앙 `opendock`에 있었고,
     setup field, DB dependency set, 일부 credential 안내는
-    `scripts/opendock-config.py`에 있다. Mastodon/Supabase validation과 Supabase
-    JWT key bundle 생성은 `scripts/check-config.py`와 `scripts/opendock-secrets.py`에,
-    서비스 command help는 `scripts/opendock-service.py`에 있으며, 설정 loader도
-    서비스 이름/prefix를 별도 등록한다. 제거에는 Hermes 전용 중앙 처리가 있다.
-    흩어진 방식 때문에 어느 지식이 공통이고 어느 지식이 서비스 소유인지
-    한눈에 알기 어려웠다.
+    `scripts/opendock-config.py`에 있었다. Mastodon/Supabase validation과 Supabase
+    JWT key bundle 생성도 중앙 `scripts/check-config.py`와
+    `scripts/opendock-secrets.py`에 있었다. 흩어진 방식 때문에 어느 지식이 공통이고
+    어느 지식이 서비스 소유인지 한눈에 알기 어려웠다.
   - 첫 remove 작업을 서비스 등록표와 manifest로 넓히려던 중, remove만 분리하면
     setup과 launch에 같은 중앙 분기를 계속 추가하게 된다는 문제를 발견했다.
     그래서 command family 전부를 중앙 orchestration과 service capability로 나누는
@@ -733,16 +734,24 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     MariaDB/PostgreSQL 공유설정 요구를 그 안에 선언했다. 공통 setup prompt가
     선언을 읽으며, Uptime Kuma는 custom handler가 없어도 descriptor만으로 등록되는
     단순 서비스 예가 됐다.
-  - capability API v1은 좁은 service-scoped context와 typed `PreparationResult`를
-    제공한다. 아직 지원하지 않는 capability 이름은 catalog가 거부하도록 제한했다.
-    이 구조는 신뢰된 checkout의 Python 코드이며 보안 sandbox가 아니라는 경계도
-    문서에 기록했다.
+  - capability API v1은 좁은 service-scoped context와 typed 결과를 제공한다.
+    준비와 runtime environment뿐 아니라 `plan_secrets`, `generate_secrets`,
+    `validate_config`를 연결했다. secret field와 generator ID는 descriptor에 선언하고,
+    application-specific bundle 생성·교차값 검증은 서비스 handler에 둔다. 중앙은
+    공통 generator, 실행 시점 조정, 안전한 저장과 결과 표시를 맡는다. `setup`은
+    설정 과정에서, `launch`는 config 검사 전, `secrets`는 명시적 복구 경로로
+    같은 coordinator를 사용한다. Supabase의 초기 functions.env 준비도 해당 서비스의
+    `prepare` capability로 옮겼다. 이 구조는 신뢰된 checkout의 Python 코드이며
+    보안 sandbox가 아니라는 경계도 문서에 기록했다.
   - 사용자는 첫 catalog/capability 적용 후 `./opendock --help`, `./opendock list`,
     `./opendock launch hermes` 경로와 이어서 `./opendock setup hermes` 동작을
     확인했다. 두 번째 실행에서는 기존 onboarding을 건너뛰었다. 이후 모든 서비스의
     setup 필드와 공유 설정 dependency를 descriptor로 옮기고, 같은 설정값을 다시
-    private `.env`에 쓰지 않도록 수정했으나 이 최신 변경은 아직 확인하지 않았다.
-    깨끗한 데이터에서의 첫 onboarding과 Linux/macOS 양쪽 검증도 남아 있다.
+    private `.env`에 쓰지 않도록 수정했다. 사용자는 원격 개발 환경에서 `sync` 후
+    `setup mastodon`을 다시 실행했고, 기본값 migration 메시지가 반복되지 않는 것을
+    확인했다. secret/validation capability 연결은 현재 로컬 변경이며 아직 실환경에서
+    확인하지 않았다. 깨끗한 데이터에서의 첫 onboarding과 Linux/macOS 양쪽 검증도
+    남아 있다.
   - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
     `HERMES_SUBDOMAIN`이 변경된 것으로 표시됐다. 기본값 migration 직후 setup이
     이미 실효값인 tracked default를 private `.env`에 다시 쓰는 경로로 판단해,
@@ -759,6 +768,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   [Ansible Collections](https://docs.ansible.com/collections.html),
   [Python plugin discovery](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/).
 - 검증 상태: 사용자가 help/list, Hermes launch, Hermes setup 및 기존 onboarding
-  skip을 실제 환경에서 확인했다. 모든 서비스 setup descriptor와 설정값 중복 저장
-  방지 등 그 후속 변경은 로컬 수정이며 아직 확인되지 않았다. 자동화 테스트,
-  깨끗한 데이터에서의 첫 onboarding, Linux/macOS 양쪽 동작도 미검증이다.
+  skip을 실제 환경에서 확인했다. setup migration marker 수정도 사용자가 원격 개발
+  환경에서 `sync` 후 Mastodon setup을 다시 실행해 반복 메시지가 해결된 것을
+  확인했다. secret generation·service validation capability와 Supabase prepare
+  이관은 로컬 변경으로 아직 실환경 검증되지 않았다. 자동화 테스트, 깨끗한 데이터의
+  첫 onboarding, Linux/macOS 양쪽 동작도 미검증이다.

@@ -1,6 +1,8 @@
 schema_version = 1
 service_id = "supabase"
 display_name = "Supabase"
+capability_api_version = 1
+capabilities = ["prepare", "plan_secrets", "generate_secrets", "validate_config"]
 dependencies = ["infra"]
 
 [[setup.fields]]
@@ -15,46 +17,60 @@ kind = "generated-secret"
 [[setup.fields]]
 name = "SUPABASE_JWT_SECRET"
 kind = "generated-secret"
+generator = "supabase-jwt"
 
 [[setup.fields]]
 name = "SUPABASE_ANON_KEY"
 kind = "generated-secret"
+generator = "supabase-jwt"
 
 [[setup.fields]]
 name = "SUPABASE_SERVICE_ROLE_KEY"
 kind = "generated-secret"
+generator = "supabase-jwt"
 
 [[setup.fields]]
 name = "SUPABASE_PUBLISHABLE_KEY"
 kind = "generated-secret"
+generator = "supabase-auth"
+generated_notice = "Supabase publishable API key was generated in services/supabase/.env. Client key: SUPABASE_PUBLISHABLE_KEY. Legacy anon/service-role keys were retained for internal compatibility."
 
 [[setup.fields]]
 name = "SUPABASE_SECRET_KEY"
 kind = "generated-secret"
+generator = "supabase-auth"
 
 [[setup.fields]]
 name = "SUPABASE_ANON_KEY_ASYMMETRIC"
 kind = "generated-secret"
+generator = "supabase-auth"
 
 [[setup.fields]]
 name = "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC"
 kind = "generated-secret"
+generator = "supabase-auth"
 
 [[setup.fields]]
 name = "SUPABASE_JWT_KEYS"
 kind = "generated-secret"
+generator = "supabase-auth"
 
 [[setup.fields]]
 name = "SUPABASE_JWT_JWKS"
 kind = "generated-secret"
+generator = "supabase-auth"
 
 [[setup.fields]]
 name = "SUPABASE_SECRET_KEY_BASE"
 kind = "generated-secret"
+generator = "alphanumeric"
+length = 64
 
 [[setup.fields]]
 name = "SUPABASE_PG_META_CRYPTO_KEY"
 kind = "generated-secret"
+generator = "alphanumeric"
+length = 48
 
 [[setup.fields]]
 name = "SUPABASE_DASHBOARD_USER"
@@ -65,6 +81,7 @@ default = "opendock"
 name = "SUPABASE_DASHBOARD_PASSWORD"
 kind = "initial-credential"
 note = "Used for HTTP Basic Auth login to Supabase Studio dashboard."
+generated_notice = "Supabase Studio dashboard password was generated in services/supabase/.env. Login user: SUPABASE_DASHBOARD_USER. Login password: SUPABASE_DASHBOARD_PASSWORD."
 
 [[setup.fields]]
 name = "SUPABASE_STUDIO_DEFAULT_ORGANIZATION"

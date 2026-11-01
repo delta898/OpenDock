@@ -1,6 +1,8 @@
 schema_version = 1
 service_id = "mastodon"
 display_name = "Mastodon"
+capability_api_version = 1
+capabilities = ["plan_secrets", "generate_secrets", "validate_config"]
 dependencies = ["infra"]
 
 [setup]
@@ -15,6 +17,7 @@ default = "social"
 name = "MASTODON_ADMIN_USERNAME"
 kind = "defaulted-choice"
 default = "opendock"
+required = true
 
 [[setup.fields]]
 name = "MASTODON_ADMIN_EMAIL"
@@ -33,27 +36,37 @@ kind = "generated-secret"
 [[setup.fields]]
 name = "MASTODON_SECRET_KEY_BASE"
 kind = "generated-secret"
+generator = "mastodon-rails"
 
 [[setup.fields]]
 name = "MASTODON_OTP_SECRET"
 kind = "generated-secret"
+generator = "mastodon-rails"
 
 [[setup.fields]]
 name = "MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY"
 kind = "generated-secret"
+generator = "hex"
+length = 32
 
 [[setup.fields]]
 name = "MASTODON_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT"
 kind = "generated-secret"
+generator = "hex"
+length = 32
 
 [[setup.fields]]
 name = "MASTODON_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY"
 kind = "generated-secret"
+generator = "hex"
+length = 32
 
 [[setup.fields]]
 name = "MASTODON_VAPID_PRIVATE_KEY"
 kind = "generated-secret"
+generator = "mastodon-vapid"
 
 [[setup.fields]]
 name = "MASTODON_VAPID_PUBLIC_KEY"
 kind = "generated-secret"
+generator = "mastodon-vapid"

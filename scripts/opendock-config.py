@@ -22,6 +22,10 @@ class Field:
     default: Optional[str] = None
     note: Optional[str] = None
     change_notice: Optional[str] = None
+    generated_notice: Optional[str] = None
+    generator: Optional[str] = None
+    length: Optional[int] = None
+    required: Optional[bool] = None
 
 
 def load_secrets_module():
@@ -191,9 +195,6 @@ def values_to_generate(fields, values, chosen):
         if field.kind == "initial-credential" and chosen.get(field.name) == "__GENERATE__":
             keys.add(field.name)
 
-    if keys & SECRETS.VAPID_KEYS:
-        keys.update(SECRETS.VAPID_KEYS)
-
     return keys
 
 
@@ -231,6 +232,17 @@ def print_credential_notices(changed, fields):
         print()
         for notice in notices:
             print(notice)
+
+
+def print_generated_notices(generated_keys, fields):
+    notices = [field.generated_notice for field in fields
+               if field.name in generated_keys and field.generated_notice]
+    if notices:
+        print()
+        for notice in notices:
+            print(notice)
+
+
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     sections = resolve_sections(target)
@@ -261,14 +273,7 @@ def main():
                 chosen[field.name] = result
 
     generate_keys = values_to_generate(fields, values, chosen)
-    generated = SECRETS.generate_values(generate_keys, values)
-    for field in fields:
-        if (
-            field.kind == "initial-credential"
-            and chosen.get(field.name) == "__GENERATE__"
-            and field.name not in generated
-        ):
-            generated[field.name] = SECRETS.generated_initial_credential()
+    generated = SECRETS.generate_values(generate_keys, values, target)
 
     updates = {}
     updates.update({
@@ -282,6 +287,7 @@ def main():
     changed, _kept, backup = update_settings(updates)
 
     print_summary(changed, set(generated), backup)
+    print_generated_notices(set(generated), fields)
     print_credential_notices(changed, fields)
     print()
     print("Done.")

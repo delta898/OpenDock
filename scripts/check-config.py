@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 import os
-import base64
-import hashlib
-import hmac
 import importlib.util
-import json
 import re
 import sys
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
 from opendock_catalog import ServiceCatalog, service_names
-from opendock_capabilities import runtime_environment
+from opendock_capabilities import ValidationContext, runtime_environment, validate_config
 from opendock_settings import load_values
 
 
@@ -27,15 +23,6 @@ INTERPOLATION_RE = re.compile(
     r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?=+])([^}]*))?\}"
 )
 GLOBAL_REQUIRED = {"STACK_DOMAIN"}
-SERVICE_REQUIRED = {
-    "mastodon": {
-        "MASTODON_ADMIN_USERNAME",
-        "MASTODON_ADMIN_EMAIL",
-        "MASTODON_ADMIN_PASSWORD",
-    },
-}
-
-
 def service_env_key(service):
     return f"{service.replace('-', '_').upper()}_SUBDOMAIN"
 
@@ -100,9 +87,6 @@ def is_placeholder(name, value, example_values):
     if name == "STACK_DOMAIN" and value == "example.com":
         return True
 
-    if name == "MASTODON_ADMIN_USERNAME" and value.lower() == "admin":
-        return True
-
     if re.search(r"(PASSWORD|SECRET|TOKEN|KEY)", name):
         normalized = value.strip().lower()
         if normalized.startswith("change") or normalized in {"changeme", "password"}:
@@ -111,131 +95,6 @@ def is_placeholder(name, value, example_values):
             return True
 
     return False
-
-
-def valid_supabase_jwt(token, secret, expected_role):
-    try:
-        header, payload, signature = token.split(".")
-        message = f"{header}.{payload}".encode("utf-8")
-        expected = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).digest()
-        actual = base64.urlsafe_b64decode(signature + "=" * (-len(signature) % 4))
-        claims = json.loads(
-            base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
-        )
-    except (ValueError, TypeError, json.JSONDecodeError):
-        return False
-
-    return hmac.compare_digest(actual, expected) and claims.get("role") == expected_role
-
-
-def decode_jwt_parts(token):
-    try:
-        header, payload, _signature = token.split(".")
-        return (
-            json.loads(base64.urlsafe_b64decode(header + "=" * (-len(header) % 4))),
-            json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))),
-        )
-    except (ValueError, TypeError, json.JSONDecodeError):
-        return None, None
-
-
-def supabase_new_auth_invalid_values(values):
-    invalid = []
-    opaque_patterns = {
-        "SUPABASE_PUBLISHABLE_KEY": r"sb_publishable_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}",
-        "SUPABASE_SECRET_KEY": r"sb_secret_[A-Za-z0-9_-]{22}_[A-Za-z0-9_-]{8}",
-    }
-    for name, pattern in opaque_patterns.items():
-        if values.get(name) and not re.fullmatch(pattern, values[name]):
-            invalid.append(f"{name} (invalid opaque API key format)")
-
-    try:
-        signing_keys = json.loads(values.get("SUPABASE_JWT_KEYS", ""))
-        public_jwks = json.loads(values.get("SUPABASE_JWT_JWKS", ""))
-        public_keys = public_jwks.get("keys", [])
-        private_ec = next(
-            key
-            for key in signing_keys
-            if key.get("kty") == "EC" and key.get("alg") == "ES256" and key.get("d")
-        )
-        public_ec = next(
-            key
-            for key in public_keys
-            if key.get("kty") == "EC" and key.get("alg") == "ES256"
-        )
-        signing_oct = next(key for key in signing_keys if key.get("kty") == "oct")
-        public_oct = next(key for key in public_keys if key.get("kty") == "oct")
-        expected_oct = base64.urlsafe_b64encode(
-            values.get("SUPABASE_JWT_SECRET", "").encode("utf-8")
-        ).decode("utf-8").rstrip("=")
-        if private_ec.get("kid") != public_ec.get("kid"):
-            raise ValueError("EC key ids differ")
-        if public_ec.get("d"):
-            raise ValueError("public JWKS contains a private EC key")
-        if signing_oct.get("k") != expected_oct or public_oct.get("k") != expected_oct:
-            raise ValueError("symmetric JWK does not match JWT secret")
-    except (json.JSONDecodeError, TypeError, AttributeError, StopIteration, ValueError):
-        invalid.append("SUPABASE_JWT_KEYS/SUPABASE_JWT_JWKS (invalid or inconsistent JWKS)")
-        return invalid
-
-    asymmetric_roles = {
-        "SUPABASE_ANON_KEY_ASYMMETRIC": "anon",
-        "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC": "service_role",
-    }
-    for name, role in asymmetric_roles.items():
-        header, payload = decode_jwt_parts(values.get(name, ""))
-        if (
-            not header
-            or not payload
-            or header.get("alg") != "ES256"
-            or header.get("kid") != public_ec.get("kid")
-            or payload.get("role") != role
-        ):
-            invalid.append(f"{name} (does not match ES256 JWKS/{role})")
-
-    return invalid
-
-
-def supabase_invalid_values(values, example_values):
-    invalid = []
-
-    minimum_lengths = {
-        "SUPABASE_JWT_SECRET": 32,
-        "SUPABASE_SECRET_KEY_BASE": 64,
-        "SUPABASE_PG_META_CRYPTO_KEY": 32,
-    }
-    for name, minimum in minimum_lengths.items():
-        value = values.get(name, "")
-        if value and not is_placeholder(name, value, example_values) and len(value) < minimum:
-            invalid.append(f"{name} (must be at least {minimum} characters)")
-
-    secret = values.get("SUPABASE_JWT_SECRET", "")
-    jwt_roles = {
-        "SUPABASE_ANON_KEY": "anon",
-        "SUPABASE_SERVICE_ROLE_KEY": "service_role",
-    }
-    if secret and not is_placeholder("SUPABASE_JWT_SECRET", secret, example_values):
-        for name, role in jwt_roles.items():
-            token = values.get(name, "")
-            if token and not is_placeholder(name, token, example_values):
-                if not valid_supabase_jwt(token, secret, role):
-                    invalid.append(f"{name} (does not match SUPABASE_JWT_SECRET/{role})")
-
-    new_auth_names = {
-        "SUPABASE_PUBLISHABLE_KEY",
-        "SUPABASE_SECRET_KEY",
-        "SUPABASE_ANON_KEY_ASYMMETRIC",
-        "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC",
-        "SUPABASE_JWT_KEYS",
-        "SUPABASE_JWT_JWKS",
-    }
-    if all(
-        values.get(name) and not is_placeholder(name, values[name], example_values)
-        for name in new_auth_names
-    ):
-        invalid.extend(supabase_new_auth_invalid_values(values))
-
-    return invalid
 
 
 def check_target(target, common_values, example_values):
@@ -253,6 +112,7 @@ def check_target(target, common_values, example_values):
     env = {}
     env.update(common_values)
 
+    definition = None
     if target in service_targets():
         definition = ServiceCatalog(ROOT_DIR).get(target)
         try:
@@ -265,14 +125,36 @@ def check_target(target, common_values, example_values):
 
     required, optional = compose_variables(compose)
     required.update(GLOBAL_REQUIRED)
-    required.update(SERVICE_REQUIRED.get(target, set()))
+    if definition:
+        required.update(
+            field["name"]
+            for field in definition.setup_fields
+            if field.get("required") is True or field.get("kind") == "required-user"
+        )
     missing = sorted(name for name in required if not env.get(name))
     placeholders = sorted(
         name
         for name in required
         if name in env and is_placeholder(name, env.get(name, ""), example_values)
     )
-    invalid = supabase_invalid_values(env, example_values) if target == "supabase" else []
+    invalid = []
+    if definition:
+        prefix = target.replace("-", "_").upper() + "_"
+        service_settings = {
+            name: value for name, value in env.items() if name.startswith(prefix)
+        }
+        service_examples = {
+            name: value for name, value in example_values.items()
+            if name.startswith(prefix)
+        }
+        try:
+            invalid.extend(validate_config(ValidationContext(
+                service=definition,
+                settings=service_settings,
+                examples=service_examples,
+            )).issues)
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
 
     optional_missing = {}
     target_subdomain = service_env_key(target)

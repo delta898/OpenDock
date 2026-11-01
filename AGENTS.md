@@ -52,6 +52,16 @@ individual config files. Pass Compose interpolation files explicitly and in
 the documented order;
 Compose `env_file:` is not a substitute for `--env-file`.
 
+Declare service-owned setup fields, required values, initial credentials, and
+secret generator identifiers in `services/<service>/opendock.toml`. Keep
+application-specific secret bundles and validation rules in that service's
+`opendock.py` capability. The common `setup`, `launch`, and `secrets` flows
+must use the same secret coordinator: setup creates missing values while
+configuring, launch creates missing values before checking configuration, and
+`secrets` provides an explicit repair path. The common layer owns generic
+generators, secure persistence, and consistent output; it must not enumerate
+service-specific generator types, secret relationships, or validation rules.
+
 Do not add new values to legacy root `common.env`. Its one-time migration must
 preserve known values, keep a restrictive backup, and stop without changing the
 legacy file if it encounters an unregistered key. Migrate old private

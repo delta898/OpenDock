@@ -1,96 +1,47 @@
 #!/usr/bin/env python3
-import base64
-import hashlib
-import hmac
-import json
-import os
+"""Select and generate OpenDock secrets through service declarations."""
+
 import secrets
-import shutil
 import string
 import subprocess
 import sys
-from datetime import datetime
+import os
+from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
+from typing import Mapping
 
+from opendock_capabilities import (
+    SecretGenerationContext,
+    SecretPlanningContext,
+    generate_secrets as generate_service_secrets,
+    has_capability,
+    plan_secrets as plan_service_secrets,
+)
+from opendock_catalog import ServiceCatalog, ServiceDefinition
 from opendock_groups import group_services, validate_services
-from opendock_catalog import service_names
 import opendock_settings as SETTINGS
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-SUPABASE_FUNCTIONS_ENV = ROOT_DIR / "services" / "supabase" / "functions.env"
-SUPABASE_FUNCTIONS_ENV_EXAMPLE = (
-    ROOT_DIR / "services" / "supabase" / "functions.env.example"
-)
 
-MASTODON_KEYS = {
-    "MASTODON_DB_PASSWORD",
-    "MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY",
-    "MASTODON_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT",
-    "MASTODON_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY",
-    "MASTODON_SECRET_KEY_BASE",
-    "MASTODON_OTP_SECRET",
-    "MASTODON_VAPID_PRIVATE_KEY",
-    "MASTODON_VAPID_PUBLIC_KEY",
-}
-SUPABASE_JWT_KEYS = {
-    "SUPABASE_JWT_SECRET",
-    "SUPABASE_ANON_KEY",
-    "SUPABASE_SERVICE_ROLE_KEY",
-}
-SUPABASE_NEW_AUTH_KEYS = {
-    "SUPABASE_PUBLISHABLE_KEY",
-    "SUPABASE_SECRET_KEY",
-    "SUPABASE_ANON_KEY_ASYMMETRIC",
-    "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC",
-    "SUPABASE_JWT_KEYS",
-    "SUPABASE_JWT_JWKS",
-}
-SUPABASE_KEYS = {
-    "SUPABASE_DB_PASSWORD",
-    "SUPABASE_DASHBOARD_USER",
-    "SUPABASE_DASHBOARD_PASSWORD",
-    "SUPABASE_SECRET_KEY_BASE",
-    "SUPABASE_PG_META_CRYPTO_KEY",
-} | SUPABASE_JWT_KEYS | SUPABASE_NEW_AUTH_KEYS
-HERMES_KEYS = {
-    "HERMES_DASHBOARD_SECRET",
-}
-INFRA_KEYS = {"MARIADB_ROOT_PASSWORD", "POSTGRES_ADMIN_USER", "POSTGRES_ADMIN_PASSWORD"}
-SERVICE_KEYS = {
-    "infra": INFRA_KEYS,
-    "wordpress": {"MARIADB_ROOT_PASSWORD", "WORDPRESS_DB_PASSWORD"},
-    "nextcloud": {
-        "MARIADB_ROOT_PASSWORD",
-        "NEXTCLOUD_DB_PASSWORD",
-        "NEXTCLOUD_ADMIN_PASSWORD",
-    },
-    "immich": {"IMMICH_DB_PASSWORD"},
-    "mastodon": {"POSTGRES_ADMIN_USER", "POSTGRES_ADMIN_PASSWORD"} | MASTODON_KEYS,
-    "mattermost": {
-        "POSTGRES_ADMIN_USER",
-        "POSTGRES_ADMIN_PASSWORD",
-        "MATTERMOST_DB_PASSWORD",
-    },
-    "supabase": SUPABASE_KEYS,
-    "hermes": HERMES_KEYS,
-}
-GENERATED_KEYS = set().union(INFRA_KEYS, *SERVICE_KEYS.values())
-VAPID_KEYS = {"MASTODON_VAPID_PRIVATE_KEY", "MASTODON_VAPID_PUBLIC_KEY"}
+
+@dataclass(frozen=True)
+class SelectedSecret:
+    owner: str
+    definition: Mapping[str, object]
 
 
 def parse_env(path):
     values = {}
     if not path.exists():
         return values
-
     for raw_line in path.read_text().splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip().strip("'\"")
-
     return values
 
 
@@ -105,41 +56,73 @@ def is_placeholder(value):
 
 
 def service_targets():
-    return list(service_names(ROOT_DIR))
+    return list(ServiceCatalog(ROOT_DIR).names)
 
 
-def target_keys(target):
-    if target == "all":
-        return set(GENERATED_KEYS)
-    if target == "services":
-        keys = set()
-        for service in service_targets():
-            keys.update(SERVICE_KEYS.get(service, set()))
-        return keys
+def selected_services(target):
+    known = service_targets()
+    if target in ("all", "services"):
+        return known
+    if target in ("infra", "gateway", "mail"):
+        return []
+    if target in known:
+        return [target]
     group = group_services(target)
     if group:
         validate_services(group)
-        keys = set()
-        for service in group:
-            keys.update(SERVICE_KEYS.get(service, set()))
-        return keys
-    return set(SERVICE_KEYS.get(target, set()))
+        return group
+    raise SystemExit(f"Unknown target: {target}")
 
 
-def target_includes_service(target, service):
-    if target in ("all", "services", service):
-        return True
-    return service in group_services(target)
+def selected_secrets(target):
+    catalog = ServiceCatalog(ROOT_DIR)
+    services = selected_services(target)
+    selected: dict[str, SelectedSecret] = {}
+
+    def add(owner, definition):
+        key = definition["name"]
+        if definition["kind"] not in {"generated-secret", "initial-credential"}:
+            return
+        existing = selected.get(key)
+        if existing and existing.definition != definition:
+            raise SystemExit(f"Conflicting secret declarations for {key}.")
+        selected[key] = SelectedSecret(owner, MappingProxyType(dict(definition)))
+
+    shared_groups = set()
+    if target in ("all", "infra"):
+        shared_groups.update(("mariadb", "postgres"))
+    for service in services:
+        shared_groups.update(catalog.get(service).setup_dependencies)
+
+    shared_definitions = {
+        "mariadb": {
+            "name": "MARIADB_ROOT_PASSWORD",
+            "kind": "generated-secret",
+            "generator": "url-safe",
+            "length": 36,
+        },
+        "postgres": {
+            "name": "POSTGRES_ADMIN_PASSWORD",
+            "kind": "generated-secret",
+            "generator": "url-safe",
+            "length": 36,
+        },
+    }
+    for group in shared_groups:
+        add("infra", shared_definitions[group])
+
+    for name in services:
+        for field in catalog.get(name).setup_fields:
+            add(name, field)
+    return services, selected
 
 
-def mastodon_image():
-    version = SETTINGS.load_values(service="mastodon", process_env=False).get(
-        "MASTODON_VERSION", "v4.4.3"
-    )
-    return f"ghcr.io/mastodon/mastodon:{version}"
+def _service_settings(service: ServiceDefinition, values: Mapping[str, str]) -> dict[str, str]:
+    prefix = service.name.replace("-", "_").upper() + "_"
+    return {key: value for key, value in values.items() if key.startswith(prefix)}
 
 
-def docker_capture(image, *command, input_text=None):
+def _docker_capture(image, *command, input_text=None):
     docker_command = ["docker", "run", "--rm"]
     if input_text is not None:
         docker_command.append("-i")
@@ -154,18 +137,13 @@ def docker_capture(image, *command, input_text=None):
             stderr=subprocess.PIPE,
         )
     except FileNotFoundError as error:
-        raise SystemExit("Docker is required to generate containerized secrets.") from error
+        raise SystemExit("Docker is required to generate this service's secrets.") from error
     except subprocess.CalledProcessError as error:
-        output = "\n".join(
-            part.strip() for part in (error.stdout, error.stderr) if part.strip()
-        )
-        raise SystemExit(f"Could not generate secrets with Docker.\n{output}") from error
-
+        # Generator output can contain sensitive material. Never echo it on failure.
+        raise SystemExit(
+            f"Secret generation container failed for image {image} (exit {error.returncode})."
+        ) from error
     return result.stdout.strip()
-
-
-def generated_password(length=36):
-    return secrets.token_urlsafe(length)
 
 
 def generated_initial_credential(length=20):
@@ -173,313 +151,131 @@ def generated_initial_credential(length=20):
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def generated_alnum(length=48):
-    alphabet = string.ascii_letters + string.digits
-    return "".join(secrets.choice(alphabet) for _ in range(length))
+def _generic_value(definition):
+    kind = definition["kind"]
+    generator = definition.get("generator", "url-safe")
+    length = definition.get("length")
+    if kind == "initial-credential":
+        return generated_initial_credential(length or 20)
+    if generator == "url-safe":
+        return secrets.token_urlsafe(length or 36)
+    if generator == "alphanumeric":
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(length or 48))
+    if generator == "hex":
+        return secrets.token_hex(length or 32)
+    return None
 
 
-def generate_supabase_jwt(secret, role, exp_years=10):
-    header = {"alg": "HS256", "typ": "JWT"}
-    now = int(datetime.utcnow().timestamp())
-    payload = {
-        "role": role,
-        "iss": "supabase",
-        "iat": now,
-        "exp": now + (exp_years * 365 * 24 * 3600),
-    }
-    header_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
-    payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    header_b64 = base64.urlsafe_b64encode(header_bytes).decode("utf-8").rstrip("=")
-    payload_b64 = base64.urlsafe_b64encode(payload_bytes).decode("utf-8").rstrip("=")
-    message = f"{header_b64}.{payload_b64}".encode("utf-8")
-    signature = hmac.new(secret.encode("utf-8"), message, hashlib.sha256).digest()
-    signature_b64 = base64.urlsafe_b64encode(signature).decode("utf-8").rstrip("=")
-    return f"{header_b64}.{payload_b64}.{signature_b64}"
-
-
-def generate_supabase_new_auth(jwt_secret):
-    script = r"""
-const crypto = require("crypto");
-const fs = require("fs");
-const jwtSecret = fs.readFileSync(0, "utf8");
-const { privateKey } = crypto.generateKeyPairSync("ec", { namedCurve: "P-256" });
-const jwkPrivate = privateKey.export({ format: "jwk" });
-const kid = crypto.randomUUID();
-const octKey = {
-  kty: "oct",
-  k: Buffer.from(jwtSecret).toString("base64url"),
-  alg: "HS256",
-};
-const privateEc = {
-  kty: "EC", kid, use: "sig", key_ops: ["sign", "verify"], alg: "ES256",
-  ext: true, crv: jwkPrivate.crv, x: jwkPrivate.x, y: jwkPrivate.y,
-  d: jwkPrivate.d,
-};
-const publicEc = {
-  kty: "EC", kid, use: "sig", key_ops: ["verify"], alg: "ES256",
-  ext: true, crv: jwkPrivate.crv, x: jwkPrivate.x, y: jwkPrivate.y,
-};
-function signES256(payload) {
-  const header = { alg: "ES256", typ: "JWT", kid };
-  const encodedHeader = Buffer.from(JSON.stringify(header)).toString("base64url");
-  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString("base64url");
-  const data = `${encodedHeader}.${encodedPayload}`;
-  const signature = crypto.sign("SHA256", Buffer.from(data), {
-    key: privateKey,
-    dsaEncoding: "ieee-p1363",
-  }).toString("base64url");
-  return `${data}.${signature}`;
-}
-function opaqueKey(prefix) {
-  const random = crypto.randomBytes(17).toString("base64url").slice(0, 22);
-  const intermediate = prefix + random;
-  const checksum = crypto.createHash("sha256")
-    .update(`supabase-self-hosted|${intermediate}`)
-    .digest("base64url")
-    .slice(0, 8);
-  return `${intermediate}_${checksum}`;
-}
-const iat = Math.floor(Date.now() / 1000);
-const exp = iat + 5 * 365 * 24 * 3600;
-process.stdout.write(JSON.stringify({
-  SUPABASE_PUBLISHABLE_KEY: opaqueKey("sb_publishable_"),
-  SUPABASE_SECRET_KEY: opaqueKey("sb_secret_"),
-  SUPABASE_ANON_KEY_ASYMMETRIC: signES256({ role: "anon", iss: "supabase", iat, exp }),
-  SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC: signES256({ role: "service_role", iss: "supabase", iat, exp }),
-  SUPABASE_JWT_KEYS: JSON.stringify([privateEc, octKey]),
-  SUPABASE_JWT_JWKS: JSON.stringify({ keys: [publicEc, octKey] }),
-}));
-"""
-    print("Generating Supabase publishable keys and ES256 signing keys...")
-    output = docker_capture(
-        "node:22-alpine", "node", "-e", script, input_text=jwt_secret
-    )
-    try:
-        generated = json.loads(output)
-    except json.JSONDecodeError as error:
-        raise SystemExit("Supabase key generator returned invalid output.") from error
-    if set(generated) != SUPABASE_NEW_AUTH_KEYS:
-        raise SystemExit("Supabase key generator did not return the expected keys.")
-    return generated
-
-
-def keys_needing_update(values, selected_keys):
-    needed = {key for key in selected_keys if is_placeholder(values.get(key, ""))}
-    if needed & VAPID_KEYS:
-        needed.update(VAPID_KEYS)
-    if needed & SUPABASE_JWT_KEYS:
-        needed.update(SUPABASE_JWT_KEYS)
-        needed.update(SUPABASE_NEW_AUTH_KEYS)
-    if needed & SUPABASE_NEW_AUTH_KEYS:
-        needed.update(SUPABASE_NEW_AUTH_KEYS)
-    return needed
-
-
-def generate_values(needed, existing):
-    generated = {}
+def generate_values(needed, existing, target="all", *, selected=None, services=None):
+    """Generate generic fields and delegate custom bundles to service code."""
+    if selected is None or services is None:
+        services, selected = selected_secrets(target)
+    unknown = set(needed) - set(selected)
+    if unknown:
+        raise SystemExit("Secret request contains undeclared keys: " + ", ".join(sorted(unknown)))
+    needed = set(needed)
     if not needed:
-        return generated
+        return {}
 
-    if "MARIADB_ROOT_PASSWORD" in needed:
-        generated["MARIADB_ROOT_PASSWORD"] = generated_password()
-    if "POSTGRES_ADMIN_USER" in needed:
-        generated["POSTGRES_ADMIN_USER"] = "opendock"
-    if "POSTGRES_ADMIN_PASSWORD" in needed:
-        generated["POSTGRES_ADMIN_PASSWORD"] = generated_password()
-    if "WORDPRESS_DB_PASSWORD" in needed:
-        generated["WORDPRESS_DB_PASSWORD"] = generated_password()
-    if "NEXTCLOUD_DB_PASSWORD" in needed:
-        generated["NEXTCLOUD_DB_PASSWORD"] = generated_password()
-    if "NEXTCLOUD_ADMIN_PASSWORD" in needed:
-        generated["NEXTCLOUD_ADMIN_PASSWORD"] = generated_initial_credential()
-    if "IMMICH_DB_PASSWORD" in needed:
-        generated["IMMICH_DB_PASSWORD"] = generated_alnum()
-    if "MASTODON_DB_PASSWORD" in needed:
-        generated["MASTODON_DB_PASSWORD"] = generated_password()
-    if "MATTERMOST_DB_PASSWORD" in needed:
-        generated["MATTERMOST_DB_PASSWORD"] = generated_password()
-    if "HERMES_DASHBOARD_SECRET" in needed:
-        generated["HERMES_DASHBOARD_SECRET"] = generated_alnum(48)
-    if "SUPABASE_DB_PASSWORD" in needed:
-        generated["SUPABASE_DB_PASSWORD"] = generated_password()
-    if "SUPABASE_DASHBOARD_PASSWORD" in needed:
-        generated["SUPABASE_DASHBOARD_PASSWORD"] = generated_initial_credential()
-    if "SUPABASE_DASHBOARD_USER" in needed:
-        generated["SUPABASE_DASHBOARD_USER"] = "opendock"
-    if "SUPABASE_SECRET_KEY_BASE" in needed:
-        generated["SUPABASE_SECRET_KEY_BASE"] = generated_alnum(64)
-    if "SUPABASE_PG_META_CRYPTO_KEY" in needed:
-        generated["SUPABASE_PG_META_CRYPTO_KEY"] = generated_alnum(48)
-    if needed & SUPABASE_JWT_KEYS:
-        jwt_secret = generated_alnum(40)
-        generated["SUPABASE_JWT_SECRET"] = jwt_secret
-        generated["SUPABASE_ANON_KEY"] = generate_supabase_jwt(jwt_secret, "anon")
-        generated["SUPABASE_SERVICE_ROLE_KEY"] = generate_supabase_jwt(
-            jwt_secret, "service_role"
+    builtin_generators = ServiceCatalog.BUILTIN_GENERATORS
+    catalog = ServiceCatalog(ROOT_DIR)
+    for service_name in services:
+        definition = catalog.get(service_name)
+        service_keys = frozenset(
+            key for key, field in selected.items()
+            if field.owner == service_name
         )
-    if needed & SUPABASE_NEW_AUTH_KEYS:
-        jwt_secret = generated.get("SUPABASE_JWT_SECRET") or existing.get(
-            "SUPABASE_JWT_SECRET", ""
+        if not service_keys or not has_capability(definition, "plan_secrets"):
+            continue
+        context = SecretPlanningContext(
+            service=definition,
+            selected_keys=service_keys,
+            settings=MappingProxyType(_service_settings(definition, existing)),
         )
-        if is_placeholder(jwt_secret):
-            raise SystemExit(
-                "SUPABASE_JWT_SECRET must be generated before the new API keys."
-            )
-        generated.update(generate_supabase_new_auth(jwt_secret))
-    if "MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY" in needed:
-        generated["MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY"] = (
-            secrets.token_hex(32)
-        )
-    if "MASTODON_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT" in needed:
-        generated["MASTODON_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT"] = (
-            secrets.token_hex(32)
-        )
-    if "MASTODON_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY" in needed:
-        generated["MASTODON_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY"] = secrets.token_hex(32)
+        needed.update(plan_service_secrets(context).keys)
 
-    needs_mastodon_image = bool(
-        needed
-        & {
-            "MASTODON_SECRET_KEY_BASE",
-            "MASTODON_OTP_SECRET",
-            "MASTODON_VAPID_PRIVATE_KEY",
-            "MASTODON_VAPID_PUBLIC_KEY",
-        }
-    )
-    image = mastodon_image() if needs_mastodon_image else None
-    if image:
-        print(f"Generating Mastodon secrets with {image}")
+    generated = {}
+    delegated: dict[str, set[str]] = {}
+    for key in sorted(needed):
+        item = selected[key]
+        generator = item.definition.get("generator", "url-safe")
+        if generator not in builtin_generators:
+            delegated.setdefault(item.owner, set()).add(key)
+            continue
+        generated[key] = _generic_value(item.definition)
 
-    if "MASTODON_SECRET_KEY_BASE" in needed:
-        generated["MASTODON_SECRET_KEY_BASE"] = docker_capture(
-            image, "bundle", "exec", "rails", "secret"
+    generated = {key: value for key, value in generated.items() if value is not None}
+    for service_name, requested in delegated.items():
+        definition = catalog.get(service_name)
+        settings = _service_settings(definition, existing)
+        settings.update({
+            key: value for key, value in generated.items()
+            if key.startswith(service_name.replace("-", "_").upper() + "_")
+        })
+        quiet = os.environ.get("OPEN_DOCK_QUIET_SECRETS") == "1"
+        context = SecretGenerationContext(
+            service=definition,
+            requested_keys=frozenset(requested),
+            settings=MappingProxyType(settings),
+            run_image=_docker_capture,
+            report=(lambda message: print(f"==> {service_name}: {message}")
+                    if not quiet else None),
         )
-    if "MASTODON_OTP_SECRET" in needed:
-        generated["MASTODON_OTP_SECRET"] = docker_capture(
-            image, "bundle", "exec", "rails", "secret"
+        generated.update(generate_service_secrets(context))
+
+    missing_results = needed - set(generated)
+    if missing_results:
+        raise SystemExit(
+            "No secret generator is registered for: " + ", ".join(sorted(missing_results))
         )
-    if needed & VAPID_KEYS:
-        vapid = docker_capture(
-            image,
-            "bundle",
-            "exec",
-            "rails",
-            "mastodon:webpush:generate_vapid_key",
-        )
-        vapid_values = {}
-        for line in vapid.splitlines():
-            if "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            vapid_values[key.strip()] = value.strip()
-
-        required_vapid = {"VAPID_PRIVATE_KEY", "VAPID_PUBLIC_KEY"}
-        if not required_vapid.issubset(vapid_values):
-            raise SystemExit("Mastodon VAPID generator did not return the expected keys.")
-
-        generated["MASTODON_VAPID_PRIVATE_KEY"] = vapid_values["VAPID_PRIVATE_KEY"]
-        generated["MASTODON_VAPID_PUBLIC_KEY"] = vapid_values["VAPID_PUBLIC_KEY"]
-
     return generated
 
 
-def ensure_config():
-    SETTINGS.initialize()
-    return False
-
-
-def ensure_supabase_functions_env():
-    if SUPABASE_FUNCTIONS_ENV.exists():
-        SUPABASE_FUNCTIONS_ENV.chmod(0o600)
-        return False
-
-    if not SUPABASE_FUNCTIONS_ENV_EXAMPLE.exists():
-        raise SystemExit(
-            "Missing services/supabase/functions.env.example; "
-            "cannot create the Edge Function secrets file."
-        )
-
-    shutil.copyfile(SUPABASE_FUNCTIONS_ENV_EXAMPLE, SUPABASE_FUNCTIONS_ENV)
-    SUPABASE_FUNCTIONS_ENV.chmod(0o600)
-    print("Created services/supabase/functions.env from functions.env.example")
-    return True
-
-
-def update_config(generated, force_update, selected_keys):
-    updates = {key: value for key, value in generated.items() if key in selected_keys}
-    changed = SETTINGS.write_values(updates)
-    kept = sorted(selected_keys - set(updates))
-    return changed, kept, SETTINGS.BACKUPS_CREATED[:]
-
-
-def print_nextcloud_notice(changed):
-    if "NEXTCLOUD_ADMIN_PASSWORD" not in changed:
-        return
-
-    print()
-    print("Nextcloud initial admin password was generated in services/nextcloud/.env.")
-    print("Login user: NEXTCLOUD_ADMIN_USER")
-    print("Login password: NEXTCLOUD_ADMIN_PASSWORD")
-    print("Changing it later will not reset an installed Nextcloud password.")
-
-
-def print_supabase_notice(changed):
-    if "SUPABASE_DASHBOARD_PASSWORD" in changed:
-        print()
-        print("Supabase Studio dashboard password was generated in services/supabase/.env.")
-        print("Login user: SUPABASE_DASHBOARD_USER (default: opendock)")
-        print("Login password: SUPABASE_DASHBOARD_PASSWORD")
-
-    if "SUPABASE_PUBLISHABLE_KEY" in changed:
-        print()
-        print("Supabase publishable API key was generated in services/supabase/.env.")
-        print("Client key: SUPABASE_PUBLISHABLE_KEY")
-        print("Legacy anon/service-role keys were retained for internal compatibility.")
+def update_config(generated):
+    changed = SETTINGS.write_values(generated)
+    return changed, SETTINGS.BACKUPS_CREATED[:]
 
 
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     quiet = os.environ.get("OPEN_DOCK_QUIET_SECRETS") == "1"
-    selected_keys = target_keys(target)
+    services, selected = selected_secrets(target)
+    selected_keys = set(selected)
 
-    ensure_config()
-    if target_includes_service(target, "supabase"):
-        ensure_supabase_functions_env()
+    SETTINGS.initialize()
     existing = SETTINGS.load_values(process_env=False)
-    needed = keys_needing_update(existing, selected_keys)
-    force_update = set()
-    if needed & VAPID_KEYS:
-        force_update.update(VAPID_KEYS)
-    if needed & SUPABASE_JWT_KEYS:
-        force_update.update(SUPABASE_JWT_KEYS)
-
+    needed = {
+        key for key in selected_keys if is_placeholder(existing.get(key, ""))
+    }
     if not needed:
         if not quiet:
             print("Generated secrets already exist in OpenDock config. Nothing changed.")
         return 0
 
-    generated = generate_values(needed, existing)
-    changed, kept, backup = update_config(generated, force_update, selected_keys)
-
-    print()
-    if changed:
-        print("Updated OpenDock configuration:")
-        for key in sorted(changed):
-            print(f"  {key}")
-    if kept and not quiet:
-        print("Kept existing configuration values:")
-        for key in sorted(kept):
-            print(f"  {key}")
-    if backup:
+    generated = generate_values(
+        needed, existing, target, selected=selected, services=services
+    )
+    changed, backup = update_config(generated)
+    if not quiet:
         print()
-        for path in backup:
-            print(f"Backup: {path.relative_to(ROOT_DIR)}")
-
-    print_nextcloud_notice(changed)
-    print_supabase_notice(changed)
-
-    print()
-    print("Done. Generated values were not printed; see the corresponding owner-specific .env file.")
+        if changed:
+            print("Updated OpenDock configuration:")
+            for key in sorted(changed):
+                print(f"  {key}")
+        if backup:
+            print()
+            for path in backup:
+                print(f"Backup: {path.relative_to(ROOT_DIR)}")
+        notices = [selected[key].definition.get("generated_notice")
+                   for key in changed
+                   if key in selected and selected[key].definition.get("generated_notice")]
+        if notices:
+            print()
+            for notice in notices:
+                print(notice)
+        print()
+        print("Done. Generated values were not printed; see the corresponding owner-specific .env file.")
     return 0
 
 

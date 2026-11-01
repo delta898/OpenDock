@@ -25,6 +25,49 @@ class PreparationResult:
 
 
 @dataclass(frozen=True)
+class SecretPlanningContext:
+    """Read-only inputs for expanding related generated-secret fields."""
+
+    service: ServiceDefinition
+    selected_keys: frozenset[str]
+    settings: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class SecretPlan:
+    """Service-owned generated-secret keys that must be created together."""
+
+    keys: frozenset[str] = frozenset()
+
+
+@dataclass(frozen=True)
+class SecretGenerationContext:
+    """Scoped inputs and tools for generating one service's secrets."""
+
+    service: ServiceDefinition
+    requested_keys: frozenset[str]
+    settings: Mapping[str, str]
+    run_image: Callable[..., str]
+    report: Callable[[str], None]
+
+
+@dataclass(frozen=True)
+class ValidationContext:
+    """Read-only service configuration and tracked examples for validation."""
+
+    service: ServiceDefinition
+    settings: Mapping[str, str]
+    examples: Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class ValidationResult:
+    """User-safe configuration problems returned by a service validator."""
+
+    issues: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class RuntimeContext:
     """Minimal host context for producing Compose interpolation values."""
 
@@ -159,5 +202,92 @@ def prepare(context: ServiceContext) -> PreparationResult:
     if result.status not in {"not_needed", "completed"}:
         raise CapabilityError(
             f"Service {service.name!r} returned an unknown preparation status."
+        )
+    return result
+
+
+def plan_secrets(context: SecretPlanningContext) -> SecretPlan:
+    """Let a service expand missing keys into a consistent secret bundle."""
+    service = context.service
+    if not has_capability(service, "plan_secrets"):
+        return SecretPlan()
+    module = _module_for(service)
+    handler = getattr(module, "plan_secrets", None)
+    if not callable(handler):
+        raise CapabilityError(
+            f"Service {service.name!r} declares plan_secrets but does not implement it."
+        )
+    try:
+        result = handler(context)
+    except Exception as exc:
+        raise CapabilityError(
+            f"Service {service.name!r} could not plan secret generation: {exc}"
+        ) from exc
+    if not isinstance(result, SecretPlan):
+        raise CapabilityError(f"Service {service.name!r} plan_secrets must return SecretPlan.")
+    if any(not isinstance(key, str) for key in result.keys):
+        raise CapabilityError(f"Service {service.name!r} returned invalid secret keys.")
+    unknown = result.keys - context.selected_keys
+    if unknown:
+        raise CapabilityError(
+            f"Service {service.name!r} requested undeclared secret keys: "
+            + ", ".join(sorted(unknown))
+        )
+    return result
+
+
+def generate_secrets(context: SecretGenerationContext) -> Mapping[str, str]:
+    """Generate the exact service-owned secret set requested by the core."""
+    service = context.service
+    if not has_capability(service, "generate_secrets"):
+        raise CapabilityError(
+            f"Service {service.name!r} has no generate_secrets capability."
+        )
+    module = _module_for(service)
+    handler = getattr(module, "generate_secrets", None)
+    if not callable(handler):
+        raise CapabilityError(
+            f"Service {service.name!r} declares generate_secrets but does not implement it."
+        )
+    try:
+        result = handler(context)
+    except Exception as exc:
+        raise CapabilityError(
+            f"Service {service.name!r} secret generation failed: {exc}"
+        ) from exc
+    if not isinstance(result, Mapping) or any(
+        not isinstance(key, str) or not isinstance(value, str)
+        for key, value in result.items()
+    ):
+        raise CapabilityError(f"Service {service.name!r} returned invalid secret values.")
+    if set(result) != context.requested_keys:
+        raise CapabilityError(
+            f"Service {service.name!r} did not return the requested secret set."
+        )
+    return MappingProxyType(dict(result))
+
+
+def validate_config(context: ValidationContext) -> ValidationResult:
+    """Call a service validator and return user-safe issues for common output."""
+    service = context.service
+    if not has_capability(service, "validate_config"):
+        return ValidationResult()
+    module = _module_for(service)
+    handler = getattr(module, "validate_config", None)
+    if not callable(handler):
+        raise CapabilityError(
+            f"Service {service.name!r} declares validate_config but does not implement it."
+        )
+    try:
+        result = handler(context)
+    except Exception as exc:
+        raise CapabilityError(
+            f"Service {service.name!r} configuration validation failed: {exc}"
+        ) from exc
+    if not isinstance(result, ValidationResult) or any(
+        not isinstance(issue, str) for issue in result.issues
+    ):
+        raise CapabilityError(
+            f"Service {service.name!r} validate_config must return ValidationResult."
         )
     return result

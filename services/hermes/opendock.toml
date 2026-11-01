@@ -24,3 +24,5 @@ change_notice = "Hermes dashboard password is stored in private services/hermes/
 [[setup.fields]]
 name = "HERMES_DASHBOARD_SECRET"
 kind = "generated-secret"
+generator = "alphanumeric"
+length = 48
