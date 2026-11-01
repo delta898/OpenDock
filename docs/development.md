@@ -171,14 +171,16 @@ Runtime cleanup and code registration are separate lifecycles. `remove
 available in the checkout. Removing a contribution from OpenDock source must
 not silently delete runtime data on a user's host.
 
-Removal is currently enabled for Hermes only. Declare service-owned bind data
-paths, extra images, and labeled non-Compose containers under `[removal]` in the
-service descriptor. Every orphan container must be tied to a declared data path
+Removal is currently enabled for Hermes and Uptime Kuma. Declare service-owned
+bind data paths, extra images, and labeled non-Compose containers under
+`[removal]` in the service descriptor. Every orphan container must be tied to a declared data path
 and is selected only when its mount source is inside that path. The common
 remover handles Compose containers, volumes, configured images, routes, and
 the service's private configuration. Do not enable removal for a service until
 its shared database objects, user data, backups, and preservation boundaries
-have been audited.
+have been audited. Uptime Kuma has no bind paths or shared database objects;
+its persistent application data is held in its Compose-managed named volume,
+which complete removal deletes after confirmation.
 
 After every current service has a removal contract, the final acceptance pass
 must use a clean, isolated host. For each service, configure and launch it,

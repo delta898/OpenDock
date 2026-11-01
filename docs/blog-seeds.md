@@ -748,8 +748,10 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - Hermes 제거 기능은 중앙 전용 코드에서 공통 제거기로 전환하고, `[removal]`
     descriptor에 `data/sandboxes`, 추가 sandbox 이미지, 컨테이너 label과 소유 mount
     path를 선언한다. 공통 제거기는 이 선언을 확인해 Compose 자원,
-    라우트, 서비스 설정과 함께 계획한다. 현재 제거 등록은 Hermes뿐이며 shared DB
-    오브젝트를 가진 서비스까지 지원하는 것은 아니다.
+    라우트, 서비스 설정과 함께 계획한다. 다음으로 Uptime Kuma는 영속 데이터가
+    Compose named volume 하나에 있고 host bind path나 shared DB가 없음을 확인해 두 번째
+    제거 대상으로 등록했다. complete remove가 monitor와 notification 설정을 지운다는
+    안내를 README에 추가했다. shared DB 오브젝트를 가진 다른 서비스는 아직 미지원이다.
   - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
     `[[commands]]`로 옮겼다. Hermes, WordPress, Supabase가 자신의 명령 이름,
     설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.

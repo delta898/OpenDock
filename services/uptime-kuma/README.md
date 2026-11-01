@@ -44,3 +44,18 @@ uptime_kuma_data
 ```
 
 This is a Docker named volume managed by Compose.
+
+## Remove
+
+Preview the complete removal plan with:
+
+```sh
+./opendock remove uptime-kuma --dry-run
+```
+
+`./opendock remove uptime-kuma` asks for an explicit confirmation, then removes
+the Uptime Kuma container, its `uptime_kuma_data` volume, image, configured
+public route, and service-local settings. The volume contains monitors,
+notification settings, status pages, and other Uptime Kuma application data,
+so this command permanently deletes that data. Shared infrastructure and the
+gateway are preserved.
