@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from opendock_catalog import service_names
+from opendock_catalog import ServiceCatalog
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +20,8 @@ BACKUPS = ROOT / "backups" / "config"
 BACKUPS_CREATED = []
 SERVICE_DEFAULT_MIGRATION_MARKER = CONFIG / ".service-default-migration-v1"
 
-SERVICE_NAMES = service_names(ROOT)
+SERVICE_CATALOG = ServiceCatalog(ROOT)
+SERVICE_NAMES = SERVICE_CATALOG.names
 SERVICE_PREFIXES = {
     service: service.replace("-", "_").upper() + "_"
     for service in SERVICE_NAMES
@@ -31,7 +32,7 @@ INFRA_KEYS = {
 }
 GATEWAY_KEYS = {"CADDY_VERSION", "HTTP_PORT", "HTTPS_PORT"}
 MAIL_PREFIX = "SMTP_"
-DATABASE_SHARED_KEYS = {"MARIADB_CLIENT_VERSION"}
+DATABASE_SHARED_DEPENDENCIES = {"MARIADB_CLIENT_VERSION": "mariadb"}
 
 
 def parse_env(path):
@@ -56,7 +57,7 @@ def owner_path(key):
         return Path("config") / "gateway.env"
     if key.startswith(MAIL_PREFIX):
         return Path("config") / "shared" / "mail.env"
-    if key in DATABASE_SHARED_KEYS:
+    if key in DATABASE_SHARED_DEPENDENCIES:
         return Path("config") / "shared" / "database.env"
     for service, prefix in SERVICE_PREFIXES.items():
         if key.startswith(prefix):
@@ -297,7 +298,10 @@ def migrate_legacy_service_configs():
             relative = owner_path(key)
             if relative.parts[:2] == ("services", service):
                 pass
-            elif key in DATABASE_SHARED_KEYS and service in {"wordpress", "nextcloud"}:
+            elif (
+                DATABASE_SHARED_DEPENDENCIES.get(key)
+                in SERVICE_CATALOG.get(service).setup_dependencies
+            ):
                 pass
             else:
                 raise ValueError(

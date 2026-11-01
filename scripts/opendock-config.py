@@ -126,8 +126,6 @@ def is_real_value(name, values):
         return False
     if name == "STACK_DOMAIN" and value == "example.com":
         return False
-    if name == "MASTODON_ADMIN_USERNAME" and value.lower() == "admin":
-        return False
     return not SECRETS.is_placeholder(value)
 
 

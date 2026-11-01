@@ -747,19 +747,23 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     보안 sandbox가 아니라는 경계도 문서에 기록했다.
   - Hermes 제거 기능은 중앙 전용 코드에서 공통 제거기로 전환하고, `[removal]`
     descriptor에 `data/sandboxes`, 추가 sandbox 이미지, 컨테이너 label과 소유 mount
-    path를 선언하도록 바꾸는 중이다. 공통 제거기는 이 선언을 확인해 Compose 자원,
+    path를 선언한다. 공통 제거기는 이 선언을 확인해 Compose 자원,
     라우트, 서비스 설정과 함께 계획한다. 현재 제거 등록은 Hermes뿐이며 shared DB
     오브젝트를 가진 서비스까지 지원하는 것은 아니다.
   - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
-    `[[commands]]`로 옮기는 중이다. Hermes, WordPress, Supabase가 자신의 명령 이름,
+    `[[commands]]`로 옮겼다. Hermes, WordPress, Supabase가 자신의 명령 이름,
     설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.
+  - 설정 migration의 WordPress·Nextcloud 조건은 서비스 이름을 직접 비교하는 대신
+    각 서비스 descriptor의 shared MariaDB dependency를 기준으로 일반화했다.
+    Mastodon 예약 username 판정은 setup helper에서 제거해 Mastodon validator가
+    소유한다. Sync에서는 일반 `.env` 제외 규칙과 겹치는 Supabase 전용 예외를 제거했다.
   - 사용자는 첫 catalog/capability 적용 후 `./opendock --help`, `./opendock list`,
     `./opendock launch hermes` 경로와 이어서 `./opendock setup hermes` 동작을
     확인했다. 두 번째 실행에서는 기존 onboarding을 건너뛰었다. 이후 모든 서비스의
     setup 필드와 공유 설정 dependency를 descriptor로 옮기고, 같은 설정값을 다시
     private `.env`에 쓰지 않도록 수정했다. 사용자는 원격 개발 환경에서 `sync` 후
     `setup mastodon`을 다시 실행했고, 기본값 migration 메시지가 반복되지 않는 것을
-    확인했다. secret/validation capability 연결은 현재 로컬 변경이며 아직 실환경에서
+    확인했다. secret/validation capability 연결은 코드에 반영했지만 아직 실환경에서
     확인하지 않았다. 깨끗한 데이터에서의 첫 onboarding과 Linux/macOS 양쪽 검증도
     남아 있다.
   - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
@@ -780,8 +784,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 검증 상태: 사용자가 help/list, Hermes launch, Hermes setup 및 기존 onboarding
   skip을 실제 환경에서 확인했다. setup migration marker 수정도 사용자가 원격 개발
   환경에서 `sync` 후 Mastodon setup을 다시 실행해 반복 메시지가 해결된 것을
-  확인했다. secret generation·service validation capability, Supabase prepare,
-  선언형 Hermes removal, service command help metadata 이관은 로컬 변경으로 아직
-  실환경 검증되지 않았다. 자동화 테스트,
+  확인했다. secret generation·service validation, Supabase prepare, 선언형 Hermes
+  removal, service command help metadata, 설정 migration 일반화는 코드에 반영됐지만
+  실환경에서는 확인되지 않았다. 자동화 테스트,
   깨끗한 데이터의 첫 onboarding, 모든 서비스 removal 후의 깨끗한 환경 전체 실행,
   Linux/macOS 양쪽 동작도 미검증이다.

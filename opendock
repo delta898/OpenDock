@@ -41,7 +41,7 @@ EXCLUDES = (
     "config/.service-default-migration-v1", "config/.infra-default-migration-v1",
     "config/.gateway-default-migration-v1",
     "gateway/caddy/conf.d/zz-opendock-routes.caddy",
-    "cloudflare.env", "*.env", "services/supabase/functions.env",
+    "cloudflare.env", "*.env",
     "services/*/data/", "**/data/", "services/*/backups/",
     "backups/", ".DS_Store",
 )
@@ -59,7 +59,6 @@ protected_files = {
     "config/.service-default-migration-v1", "config/.infra-default-migration-v1",
     "config/.gateway-default-migration-v1",
     "gateway/caddy/conf.d/zz-opendock-routes.caddy",
-    "services/supabase/functions.env",
 }
 # Keep these destination protections aligned with EXCLUDES and .gitignore.
 protected_dirs = {".git", "data", "backups"}
@@ -557,8 +556,7 @@ def sync(name, dry_run=False):
         options.append("--dry-run")
     for value in EXCLUDES:
         options.append(f"--exclude={value}")
-    options += ["--include=cloudflare.env.example",
-                "--include=services/supabase/functions.env.example"]
+    options.append("--include=cloudflare.env.example")
     run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/",
         env=env, input_data=file_list)
     prune_output = remote_sync_prune(
