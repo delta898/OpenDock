@@ -110,9 +110,11 @@ setup fields, secret generator declarations, and dependency groups such as
 service declares only the shared groups it needs in
 `services/<service>/opendock.toml`; the common setup and secret coordinators
 resolve those declarations. Platform config ownership is also derived from the
-component descriptors. SMTP setup fields remain in the common settings
-interface because mail is an optional cross-service concern rather than a
-service-owned setup dependency.
+component descriptors. SMTP is an optional shared config section in
+`config/shared/mail.toml`. Services that use it declare
+`setup.optional_config = ["mail"]`; common setup offers the relay once, and
+starting a service offers it after required config validation if the user has
+not configured or previously skipped it.
 
 An infra descriptor may declare a setting consumed by multiple services under
 `[[shared_settings]]`, including its shared group and owner file. For example,
@@ -248,7 +250,10 @@ containers), then reloads/starts Caddy and publishes that hostname. The legacy s
 launch must fail before starting containers if that service maps to multiple
 hostnames. `launch all` remains the compatibility workflow for the full stack.
 
-After starting services, `launch` runs service-owned post-launch hooks named `services/<service>/opendock-post-launch.py` when present. Keep service-specific bootstrap logic inside those service directories instead of adding new top-level Make targets.
+After starting services, `launch` runs the optional `post_launch` capability
+only when the service descriptor declares it. The service's `opendock.py`
+handler owns the operation; Mastodon and Supabase currently delegate to their
+existing service-local helper scripts.
 
 Do not create initial app accounts in OpenDock when the service provides a first-run web setup flow. WordPress, Jellyfin, Uptime Kuma, and Mattermost follow this model. Use post-launch account bootstrap only when a service cannot be reached or administered after launch without an initial account created outside the web UI.
 
@@ -324,6 +329,12 @@ Secret generation rules:
 Mail setup rules:
 
 - `./opendock setup mail` stores shared outbound SMTP relay values in `config/shared/mail.env`.
+- `config/shared/mail.toml` declares the shared mail keys and setup prompts; the
+  common setup workflow reads this metadata instead of embedding SMTP names in Python.
+- Services opt into the optional prompt through
+  `setup.optional_config = ["mail"]` in their descriptor. Declining does not
+  block setup or startup and is remembered; `./opendock setup mail` remains the
+  explicit way to configure the relay later.
 - Map common SMTP values only into services that support official environment-based core mail configuration.
 - Do not configure plugin-based, UI-only, or notification-provider mail settings from OpenDock.
 
@@ -336,7 +347,9 @@ route map is initialized:
 STACK_DOMAIN=example.com
 ```
 
-Each service may define a subdomain variable in its service-owned local configuration file, with defaults in the matching `.env.default`:
+Routable services declare their subdomain setting key and Caddy handler in
+`services/<service>/opendock.toml`. The default value remains in that service's
+`.env.default`. For example:
 
 ```env
 WORDPRESS_SUBDOMAIN=blog
@@ -349,7 +362,8 @@ JELLYFIN_SUBDOMAIN=media
 MASTODON_SUBDOMAIN=social
 ```
 
-The variable name is derived from the service directory name:
+The descriptor links a service ID to its setting explicitly; the setting name
+does not need to follow a name-derived rule. For example:
 
 ```text
 homepage    -> HOMEPAGE_SUBDOMAIN
@@ -362,7 +376,7 @@ uptime-kuma -> UPTIME_KUMA_SUBDOMAIN
 wordpress   -> WORDPRESS_SUBDOMAIN
 ```
 
-If a subdomain variable is absent, the default route generator falls back to the service directory name.
+If a subdomain value is absent, the resolver falls back to the service ID.
 
 `./opendock setup` configures the primary domain and does not ask about optional
 routes. Users manage hostname mappings with `./opendock route show`,

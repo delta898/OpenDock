@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
-from opendock_catalog import service_names
+from opendock_catalog import ServiceCatalog
 from opendock_settings import load_values
 
 
@@ -51,24 +51,16 @@ def parse_env_file(path):
     return values
 
 
-def service_env_key(service):
-    return f"{service.replace('-', '_').upper()}_SUBDOMAIN"
-
-
-def service_subdomain(env, service):
-    return env.get(service_env_key(service)) or service
-
-
 def service_is_publishable(service):
-    return (
-        (ROOT_DIR / "services" / service / "compose.yml").is_file()
-        and (ROOT_DIR / "gateway" / "caddy" / "conf.d" / f"{service}.caddy").is_file()
-    )
+    try:
+        return bool(ServiceCatalog(ROOT_DIR).get(service).routing)
+    except ValueError:
+        return False
 
 
 def all_publishable_services():
-    return [service for service in service_names(ROOT_DIR)
-            if service_is_publishable(service)]
+    return [service.name for service in ServiceCatalog(ROOT_DIR).services
+            if service.routing]
 
 
 def target_services(target):
@@ -78,7 +70,8 @@ def target_services(target):
     if target in ("infra", "gateway"):
         return []
 
-    if target in service_names(ROOT_DIR):
+    known_services = ServiceCatalog(ROOT_DIR).names
+    if target in known_services:
         return [target] if service_is_publishable(target) else []
 
     group = group_services(target)

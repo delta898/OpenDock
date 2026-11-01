@@ -732,6 +732,12 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - Hermes는 `services/hermes/opendock.toml`과 `opendock.py`를 통해
     `runtime_environment` 및 `prepare` capability를 선언한다. 중첩 Docker sandbox의
     환경값과 first-run model onboarding 판정을 서비스 소유 코드로 이동했다.
+    Mastodon/Supabase post-launch 작업도 descriptor가 `post_launch`를 선언하고
+    서비스 capability handler를 거치도록 바꿨다. helper 파일명만으로 자동 실행되는
+    경로는 제거했다.
+  - 기본 hostname은 서비스 ID에서 `<SERVICE>_SUBDOMAIN`과 Caddy snippet 이름을
+    추측하던 방식에서 descriptor의 `routing.subdomain_key` 및 `routing.caddy_handler`로
+    옮겼다. resolver는 routing을 선언한 service만 기본 public route 대상으로 삼는다.
     이어서 모든 현재 Compose 서비스에 descriptor를 추가하고 setup field와
     MariaDB/PostgreSQL 공유설정 요구를 그 안에 선언했다. 공통 setup prompt가
     선언을 읽으며, Uptime Kuma는 custom handler가 없어도 descriptor만으로 등록되는
@@ -769,8 +775,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     tree cleanup을 추가했다.
     마지막 네 서비스는 shared MariaDB/PostgreSQL을 함께 쓰므로 infra descriptor에 DB
     실행 어댑터를 선언하고, 각 서비스 descriptor에 자기 database/role setting key를
-    선언했다. 공통 계획은 다른 dependent service의 선언과 이름 충돌을 확인하고, 실행은
-    해당 database/role만 삭제해 shared volume과 다른 DB를 보존한다. 이로써 현재 11개
+    선언했다. DB별 실행 SQL은 infra의 `adapters/`로 옮겼다. 공통 계획은 다른 dependent
+    service의 선언과 이름 충돌을 확인하고, descriptor가 선택한 adapter로 database/role만
+    삭제해 shared volume과 다른 DB를 보존한다. 이로써 현재 11개
     Compose 서비스 모두 removal contract를 선언했다. 이는 코드/메타데이터 상의 범위이며,
     실제 clean host에서 서비스별 삭제 전후와 타 서비스 보존을 확인하는 전체 acceptance pass는
     아직 수행하지 않았다.
@@ -785,8 +792,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     setting key 목록에서 파생된다. `MARIADB_CLIENT_VERSION`은 shared setting으로
     database env 파일 소유자와 `mariadb` dependency 조건을 선언했다. 따라서 legacy
     서비스 설정 migration도 같은 선언을 참고한다. 이어 gateway setting key도
-    `gateway/opendock.toml`로 옮겼다. SMTP setup field 정의는 여러 서비스가 소비하는
-    shared concern이므로 common config interface에 남겼다.
+    `gateway/opendock.toml`로 옮겼다. SMTP 설정은 `config/shared/mail.toml`에 key,
+    owner file, setup field를 선언하고 common setup/settings workflow가 읽도록 바꿨다.
+    `STACK_DOMAIN`도 `config/core.toml`로 옮겨 core owner와 placeholder를 선언한다.
   - 설정 migration의 WordPress·Nextcloud 조건은 서비스 이름을 직접 비교하는 대신
     각 서비스 descriptor의 shared MariaDB dependency를 기준으로 일반화했다.
     Mastodon 예약 username 판정은 setup helper에서 제거해 Mastodon validator가
@@ -800,6 +808,15 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     확인했다. secret/validation capability 연결은 코드에 반영했지만 아직 실환경에서
     확인하지 않았다. 깨끗한 데이터에서의 첫 onboarding과 Linux/macOS 양쪽 검증도
     남아 있다.
+  - 이번 후속 정리에서는 post-launch capability, routing metadata, infra DB adapter,
+    core/shared setting metadata를 코드와 descriptor에 연결하고 CLI에서 고정 service
+    이름 도움말 예시를 제거했다. Python/TOML syntax 및 diff 검토만 했으며 config/setup/
+    route/post-launch/DB adapter의 runtime 동작과 전체 acceptance pass는 실행하지 않았다.
+  - SMTP는 공통 shared 설정 파일과 명시적 `setup mail` 명령만 있었고, 서비스 첫 setup이나
+    launch가 그 설정을 안내하지 않았다. 서비스 descriptor의 `setup.optional_config`에
+    mail 의존을 선언하게 하고 common setup에서 한 번 제안하도록 설계했다. 거절은 private
+    shared config에 저장해 매 launch마다 묻지 않으며, SMTP 미설정도 서비스 시작 실패 조건이
+    아니다. setup/launch 인터랙션은 아직 실환경에서 검증하지 않았다.
   - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
     `HERMES_SUBDOMAIN`이 변경된 것으로 표시됐다. 기본값 migration 직후 setup이
     이미 실효값인 tracked default를 private `.env`에 다시 쓰는 경로로 판단해,

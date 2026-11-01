@@ -3,11 +3,17 @@
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # OpenDock requires Python 3.11+
+    tomllib = None
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from opendock_catalog import ServiceCatalog
@@ -26,17 +32,167 @@ SERVICE_PREFIXES = {
     service: service.replace("-", "_").upper() + "_"
     for service in SERVICE_NAMES
 }
+CONFIG_FIELD_KINDS = frozenset({
+    "required-user", "defaulted-choice", "initial-credential",
+    "secret-user", "generated-secret",
+})
+
+
+def _load_config_sections():
+    if tomllib is None:
+        raise ValueError("Reading config metadata requires Python 3.11 or newer.")
+    sections = {}
+    for path in [CONFIG / "core.toml", *sorted((CONFIG / "shared").glob("*.toml"))]:
+        if not path.is_file():
+            continue
+        try:
+            descriptor = tomllib.loads(path.read_text())
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise ValueError(f"Invalid configuration descriptor {path}: {exc}") from exc
+        if type(descriptor.get("schema_version")) is not int or descriptor.get("schema_version") != 1:
+            raise ValueError(f"Unsupported configuration schema in {path}.")
+        unknown_fields = sorted(
+            set(descriptor) - {
+                "schema_version", "section_id", "config_file", "setting_keys", "setup",
+                "optional_prompt", "skip_key",
+            }
+        )
+        if unknown_fields:
+            raise ValueError(
+                f"Configuration descriptor {path} has unsupported fields: "
+                + ", ".join(unknown_fields)
+            )
+        name = descriptor.get("section_id")
+        config_file = descriptor.get("config_file")
+        setting_keys = descriptor.get("setting_keys")
+        setup = descriptor.get("setup", {})
+        fields = setup.get("fields", []) if isinstance(setup, dict) else None
+        if (
+            not isinstance(name, str)
+            or not re.fullmatch(r"[a-z][a-z0-9-]*", name)
+            or name in sections
+            or not isinstance(config_file, str)
+            or not isinstance(setting_keys, list)
+            or any(
+                not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
+                for key in setting_keys
+            )
+            or len(setting_keys) != len(set(setting_keys))
+            or not isinstance(fields, list)
+        ):
+            raise ValueError(f"Invalid configuration section metadata in {path}.")
+        relative = Path(config_file)
+        if relative.is_absolute() or ".." in relative.parts or relative.parts[:1] != ("config",):
+            raise ValueError(f"Configuration file must stay under config/: {config_file}")
+        if not (ROOT / relative).is_file():
+            raise ValueError(f"Configuration descriptor {path} references missing file {config_file}.")
+        prompt = descriptor.get("optional_prompt")
+        skip_key = descriptor.get("skip_key")
+        if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
+            raise ValueError(f"Invalid optional setup prompt in {path}.")
+        if skip_key is not None and (
+            not isinstance(skip_key, str)
+            or not re.fullmatch(r"[A-Z][A-Z0-9_]*", skip_key)
+            or skip_key not in setting_keys
+            or prompt is None
+        ):
+            raise ValueError(f"Invalid optional setup skip key in {path}.")
+        if not isinstance(setup, dict) or set(setup) - {"fields"}:
+            raise ValueError(f"Invalid setup section in configuration descriptor {path}.")
+        field_names = set()
+        for field in fields:
+            if (
+                not isinstance(field, dict)
+                or not isinstance(field.get("name"), str)
+                or field.get("name") not in setting_keys
+                or field.get("kind") not in CONFIG_FIELD_KINDS
+                or set(field) - {
+                    "name", "kind", "default", "note", "placeholder",
+                    "change_notice", "generated_notice", "generator", "length", "required",
+                }
+            ):
+                raise ValueError(f"Invalid setup field in configuration descriptor {path}.")
+            if field["name"] in field_names:
+                raise ValueError(f"Duplicate setup field {field['name']} in {path}.")
+            field_names.add(field["name"])
+            if field.get("kind") == "defaulted-choice" and not isinstance(field.get("default"), str):
+                raise ValueError(
+                    f"Defaulted setup field {field['name']} in {path} needs a string default."
+                )
+            if "required" in field and type(field["required"]) is not bool:
+                raise ValueError(f"Setup field {field['name']} in {path} has invalid required flag.")
+            for attribute in (
+                "default", "note", "placeholder", "change_notice", "generated_notice", "generator"
+            ):
+                if attribute in field and not isinstance(field[attribute], str):
+                    raise ValueError(
+                        f"Setup field {field['name']} in {path} has invalid {attribute}."
+                    )
+            if "length" in field and (
+                type(field["length"]) is not int or field["length"] < 1
+            ):
+                raise ValueError(f"Setup field {field['name']} in {path} has invalid length.")
+        sections[name] = descriptor
+    if "core" not in sections:
+        raise ValueError("Missing config/core.toml configuration descriptor.")
+    owners = {}
+    for section_name, section in sections.items():
+        for key in section["setting_keys"]:
+            previous = owners.get(key)
+            if previous:
+                raise ValueError(
+                    f"Configuration setting {key} is declared by both "
+                    f"{previous} and {section_name}."
+                )
+            owners[key] = section_name
+    return sections
+
+
+CONFIG_SECTIONS = _load_config_sections()
+SHARED_CONFIG_SECTIONS = {
+    name: section for name, section in CONFIG_SECTIONS.items() if name != "core"
+}
+CONFIG_SETTING_OWNERS = {
+    key: Path(section["config_file"])
+    for section in CONFIG_SECTIONS.values()
+    for key in section["setting_keys"]
+}
+CONFIG_OPTIONAL_PROMPTS = {
+    name: section["optional_prompt"]
+    for name, section in CONFIG_SECTIONS.items()
+    if isinstance(section.get("optional_prompt"), str)
+}
+CONFIG_OPTIONAL_SKIP_KEYS = {
+    name: section["skip_key"]
+    for name, section in CONFIG_SECTIONS.items()
+    if isinstance(section.get("skip_key"), str)
+}
+CORE_REQUIRED_KEYS = frozenset(
+    field["name"]
+    for field in CONFIG_SECTIONS["core"].get("setup", {}).get("fields", [])
+    if field.get("required") is True or field.get("kind") == "required-user"
+)
+CORE_PLACEHOLDERS = {
+    field["name"]: field["placeholder"]
+    for field in CONFIG_SECTIONS["core"].get("setup", {}).get("fields", [])
+    if isinstance(field.get("placeholder"), str)
+}
+
 PLATFORM_SETTING_OWNERS = {}
 SHARED_SETTING_GROUPS = {}
-for component in SERVICE_CATALOG.platform.components:
+for component in sorted(
+    SERVICE_CATALOG.platform.components,
+    key=lambda item: item.name,
+):
     for key in component.setting_keys:
+        if key in CONFIG_SETTING_OWNERS or key in PLATFORM_SETTING_OWNERS:
+            raise ValueError(f"Configuration setting has multiple owners: {key}")
         PLATFORM_SETTING_OWNERS[key] = Path(component.config_file)
     for setting in component.shared_settings:
+        if setting["name"] in CONFIG_SETTING_OWNERS or setting["name"] in PLATFORM_SETTING_OWNERS:
+            raise ValueError(f"Configuration setting has multiple owners: {setting['name']}")
         PLATFORM_SETTING_OWNERS[setting["name"]] = Path(setting["owner_file"])
         SHARED_SETTING_GROUPS[setting["name"]] = setting["shared_group"]
-MAIL_PREFIX = "SMTP_"
-
-
 def parse_env(path):
     values = {}
     if not path.is_file():
@@ -51,12 +207,10 @@ def parse_env(path):
 
 
 def owner_path(key):
-    if key == "STACK_DOMAIN":
-        return Path("config") / "core.env"
+    if key in CONFIG_SETTING_OWNERS:
+        return CONFIG_SETTING_OWNERS[key]
     if key in PLATFORM_SETTING_OWNERS:
         return PLATFORM_SETTING_OWNERS[key]
-    if key.startswith(MAIL_PREFIX):
-        return Path("config") / "shared" / "mail.env"
     for service, prefix in SERVICE_PREFIXES.items():
         if key.startswith(prefix):
             return Path("services") / service / ".env"
@@ -64,29 +218,31 @@ def owner_path(key):
 
 
 def config_paths(service=None, examples=False):
+    layer_files = [Path(CONFIG_SECTIONS["core"]["config_file"])]
+    for component in sorted(
+        SERVICE_CATALOG.platform.components,
+        key=lambda item: item.name,
+    ):
+        if component.always_include_config or service is None or service == component.name:
+            layer_files.append(Path(component.config_file))
+    layer_files.extend(
+        Path(section["config_file"]) for section in SHARED_CONFIG_SECTIONS.values()
+    )
+    for component in SERVICE_CATALOG.platform.components:
+        layer_files.extend(
+            Path(setting["owner_file"]) for setting in component.shared_settings
+        )
+    layer_files = list(dict.fromkeys(layer_files))
     if examples:
-        relative = [
-            Path("core.env.default"), Path("infra.env.default"),
-            Path("shared") / "mail.env.default",
-            Path("shared") / "database.env.default",
-        ]
-        if service in (None, "gateway"):
-            relative.insert(2, Path("gateway.env.default"))
+        paths = [path.with_name(path.name + ".default") for path in layer_files]
     else:
-        relative = [
-            Path("core.env"), Path("infra.env"),
-            Path("shared") / "mail.env",
-            Path("shared") / "database.env",
-        ]
-        if service in (None, "gateway"):
-            relative.insert(2, Path("gateway.env"))
+        paths = layer_files
     selected = SERVICE_NAMES if service is None else (service,)
-    paths = [CONFIG / path for path in relative]
     for name in selected:
         if name not in SERVICE_PREFIXES or not examples:
             continue
         paths.append(ROOT / "services" / name / ".env.default")
-    return paths
+    return [ROOT / path if not path.is_absolute() else path for path in paths]
 
 
 def load_values(service=None, *, examples=False, process_env=False, legacy=True):
@@ -98,10 +254,10 @@ def load_values(service=None, *, examples=False, process_env=False, legacy=True)
         return values
     if legacy and LEGACY_ENV.is_file():
         values.update(parse_env(LEGACY_ENV))
-    if legacy and service in (None, "infra"):
-        values.update(parse_env(ROOT / "infra" / ".env"))
-    if legacy and service in (None, "gateway"):
-        values.update(parse_env(ROOT / "gateway" / ".env"))
+    if legacy:
+        for component in SERVICE_CATALOG.platform.components:
+            if service in (None, component.name):
+                values.update(parse_env(component.directory / ".env"))
     if service in SERVICE_PREFIXES:
         values.update(parse_env(CONFIG / "services" / f"{service}.env"))
     elif service is None:
@@ -121,21 +277,8 @@ def load_values(service=None, *, examples=False, process_env=False, legacy=True)
 
 
 def compose_env_files(service=None):
-    defaults = [
-        CONFIG / "core.env.default", CONFIG / "infra.env.default",
-        CONFIG / "shared" / "mail.env.default",
-        CONFIG / "shared" / "database.env.default",
-    ]
-    if service == "gateway":
-        defaults.insert(2, CONFIG / "gateway.env.default")
-    if service in SERVICE_PREFIXES:
-        defaults.append(ROOT / "services" / service / ".env.default")
-    local_config = [
-        CONFIG / "core.env", CONFIG / "infra.env",
-        CONFIG / "shared" / "mail.env", CONFIG / "shared" / "database.env",
-    ]
-    if service == "gateway":
-        local_config.insert(2, CONFIG / "gateway.env")
+    defaults = config_paths(service, examples=True)
+    local_config = config_paths(service)
     files = [path for path in defaults + local_config if path.is_file()]
     # Read-only compatibility for commands run before first setup/migration.
     if LEGACY_ENV.is_file():
@@ -246,7 +389,6 @@ def initialize():
     migrated = migrate_legacy_service_configs()
     migrate_legacy_service_defaults()
     migrate_legacy_infra_defaults()
-    migrate_legacy_gateway_defaults()
     migrate_legacy_gateway_defaults()
     if legacy is None:
         return migrated

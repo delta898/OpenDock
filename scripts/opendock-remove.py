@@ -76,6 +76,38 @@ def infra_compose_prefix():
     return command + ["-f", directory / "compose.yml", "-p", "infra"]
 
 
+def database_removal_request(adapter_file, adapter, container, database, role):
+    path = ROOT / adapter_file
+    module_name = f"_opendock_database_adapter_{adapter}"
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise RemovalError(f"Could not load shared database adapter: {adapter}")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+        handler = getattr(module, "removal_request", None)
+        if not callable(handler):
+            raise RemovalError(
+                f"Shared database adapter {adapter!r} has no removal_request operation."
+            )
+        result = handler(container, database, role)
+    except RemovalError:
+        raise
+    except Exception as exc:
+        raise RemovalError(f"Shared database adapter {adapter!r} failed: {exc}") from exc
+    if (
+        not isinstance(result, tuple)
+        or len(result) != 2
+        or not isinstance(result[0], (list, tuple))
+        or any(not isinstance(argument, str) for argument in result[0])
+        or not isinstance(result[1], str)
+    ):
+        raise RemovalError(
+            f"Shared database adapter {adapter!r} returned an invalid removal request."
+        )
+    return list(result[0]), result[1]
+
+
 def resolve_shared_database(service, catalog, settings):
     definition = catalog.get(service)
     declaration = definition.removal.get("shared_database")
@@ -119,13 +151,26 @@ def resolve_shared_database(service, catalog, settings):
                 f"for {other.display_name}. Choose distinct database and role names first."
             )
 
-    infra = catalog.platform.get("infra")
-    adapter = next(
-        item for item in infra.shared_databases if item["shared_group"] == group
+    adapter_owner = next(
+        (
+            (component, item)
+            for component in catalog.platform.components
+            for item in component.shared_databases
+            if item["shared_group"] == group
+        ),
+        None,
     )
+    if adapter_owner is None:
+        raise RemovalError(f"No platform database adapter is registered for {group}.")
+    component, adapter = adapter_owner
     return {
         "group": group,
         "engine": adapter["engine"],
+        "adapter": adapter["adapter"],
+        "adapter_file": str(
+            (component.directory / "adapters" / f"{adapter['adapter']}.py")
+            .relative_to(ROOT)
+        ),
         "container": adapter["container"],
         "database": database_name,
         "role": role_name,
@@ -362,30 +407,15 @@ def remove_shared_database(plan):
     if running.returncode or running.stdout.strip().lower() != "true":
         run_command([*infra_compose_prefix(), "up", "-d", container])
 
-    name = database["database"]
-    role = database["role"]
-    if database["engine"] == "postgres":
-        sql = f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE);\nDROP ROLE IF EXISTS "{role}";\n'
-        command = [
-            "docker", "exec", "-i", container, "sh", "-c",
-            'exec psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1',
-        ]
-    elif database["engine"] == "mariadb":
-        sql = (
-            f"DROP DATABASE IF EXISTS `{name}`;\n"
-            f"DROP USER IF EXISTS '{role}'@'%';\n"
-            "FLUSH PRIVILEGES;\n"
-        )
-        command = [
-            "docker", "exec", "-i", container, "sh", "-c",
-            'exec mariadb --user=root --password="$MYSQL_ROOT_PASSWORD" --batch',
-        ]
-    else:
-        raise RemovalError(f"Unsupported shared database engine: {database['engine']}")
+    command, sql = database_removal_request(
+        database["adapter_file"], database["adapter"], container,
+        database["database"], database["role"]
+    )
     run_command(command, capture=True, input_text=sql)
     print(
         f"Removed shared {database['group']} database objects for "
-        f"{plan['service'].display_name}: {name}, {role}."
+        f"{plan['service'].display_name}: "
+        f"{database['database']}, {database['role']}."
     )
 
 

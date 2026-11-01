@@ -29,3 +29,7 @@ data_paths = []
 shared_group = "mariadb"
 database_key = "NEXTCLOUD_DB_NAME"
 role_key = "NEXTCLOUD_DB_USER"
+
+[routing]
+subdomain_key = "NEXTCLOUD_SUBDOMAIN"
+caddy_handler = "nextcloud_proxy"

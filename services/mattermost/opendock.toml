@@ -5,6 +5,7 @@ dependencies = ["infra"]
 
 [setup]
 dependencies = ["postgres"]
+optional_config = ["mail"]
 
 [[setup.fields]]
 name = "MATTERMOST_SUBDOMAIN"
@@ -22,3 +23,7 @@ data_paths = []
 shared_group = "postgres"
 database_key = "MATTERMOST_DB_NAME"
 role_key = "MATTERMOST_DB_USER"
+
+[routing]
+subdomain_key = "MATTERMOST_SUBDOMAIN"
+caddy_handler = "mattermost_proxy"

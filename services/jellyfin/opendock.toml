@@ -15,3 +15,7 @@ preserve_paths = [
   "media/shows/.gitkeep",
   "media/music/.gitkeep",
 ]
+
+[routing]
+subdomain_key = "JELLYFIN_SUBDOMAIN"
+caddy_handler = "jellyfin_proxy"

@@ -8,6 +8,8 @@ import re
 import secrets
 import shutil
 import string
+import subprocess
+import sys
 import time
 
 from opendock_capabilities import (
@@ -24,6 +26,16 @@ from opendock_capabilities import (
 OPENDOCK_CAPABILITY_API_VERSION = 1
 FUNCTIONS_ENV_NAME = "functions.env"
 FUNCTIONS_ENV_EXAMPLE_NAME = "functions.env.example"
+
+
+def post_launch(context: ServiceContext) -> None:
+    """Run Supabase's post-launch readiness checks."""
+    helper = context.service.directory / "opendock-post-launch.py"
+    subprocess.run(
+        [sys.executable, str(helper)],
+        cwd=context.service.directory.parents[1],
+        check=True,
+    )
 
 
 def prepare(context: ServiceContext) -> PreparationResult:

@@ -16,3 +16,7 @@ length = 48
 
 [removal]
 data_paths = ["data/library", "data/postgres"]
+
+[routing]
+subdomain_key = "IMMICH_SUBDOMAIN"
+caddy_handler = "immich_proxy"

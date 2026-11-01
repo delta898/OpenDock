@@ -8,7 +8,7 @@ from pathlib import Path
 from opendock_groups import group_services, validate_services
 from opendock_catalog import ServiceCatalog, service_names
 from opendock_capabilities import ValidationContext, runtime_environment, validate_config
-from opendock_settings import load_values
+from opendock_settings import CORE_PLACEHOLDERS, CORE_REQUIRED_KEYS, load_values
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -22,11 +22,7 @@ QUIET = os.environ.get("CHECK_CONFIG_QUIET") == "1"
 INTERPOLATION_RE = re.compile(
     r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?=+])([^}]*))?\}"
 )
-GLOBAL_REQUIRED = {"STACK_DOMAIN"}
-def service_env_key(service):
-    return f"{service.replace('-', '_').upper()}_SUBDOMAIN"
-
-
+GLOBAL_REQUIRED = CORE_REQUIRED_KEYS
 def service_targets():
     return list(service_names(ROOT_DIR))
 
@@ -84,7 +80,7 @@ def is_placeholder(name, value, example_values):
     if not value:
         return True
 
-    if name == "STACK_DOMAIN" and value == "example.com":
+    if name in CORE_PLACEHOLDERS and value == CORE_PLACEHOLDERS[name]:
         return True
 
     if re.search(r"(PASSWORD|SECRET|TOKEN|KEY)", name):
@@ -157,9 +153,9 @@ def check_target(target, common_values, example_values):
             raise SystemExit(str(error)) from error
 
     optional_missing = {}
-    target_subdomain = service_env_key(target)
+    target_subdomain = definition.routing.get("subdomain_key") if definition else None
     for name, default in sorted(optional.items()):
-        if name in env or name != target_subdomain:
+        if name in env or not target_subdomain or name != target_subdomain:
             continue
         optional_missing[name] = default
 

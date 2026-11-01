@@ -394,7 +394,17 @@ Review or update local setup interactively:
 ./opendock setup media
 ```
 
-`./opendock setup mail` stores shared SMTP relay settings in `config/shared/mail.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon, Mattermost, and n8n.
+### Optional email (SMTP)
+
+SMTP is one shared, optional setting for Mastodon, Mattermost, n8n, and Supabase. Their setup or first start offers to configure it. Choose **No** to continue without SMTP; OpenDock remembers the choice, and the service still starts. Email-dependent features may be unavailable until you configure a relay. Supabase keeps its local Inbucket fallback unless you configure an external relay.
+
+To configure or change the relay later:
+
+```sh
+./opendock setup mail
+```
+
+The SMTP values are stored in `config/shared/mail.env`. For command examples and options, run `./opendock setup --help` or `./opendock help`.
 
 Run a service-specific command:
 

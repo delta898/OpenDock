@@ -11,3 +11,7 @@ default = "home"
 [removal]
 # The mounted dashboard configuration is tracked source and must be preserved.
 data_paths = []
+
+[routing]
+subdomain_key = "HOMEPAGE_SUBDOMAIN"
+caddy_handler = "homepage_proxy"

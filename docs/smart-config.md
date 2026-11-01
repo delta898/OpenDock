@@ -236,44 +236,18 @@ make setup nextcloud
 
 Global fields should be asked once, not once per service.
 
-## Proposed Field Registry
+## Configuration metadata
 
-A central registry should drive `config`, `secrets`, and eventually validation hints.
+The earlier central `CONFIG_FIELDS` sketch was superseded by scoped metadata:
 
-Possible shape:
+- Service setup fields live in `services/<service>/opendock.toml`.
+- Shared infrastructure fields live in their platform descriptor, such as
+  `infra/opendock.toml`.
+- Core settings live in `config/core.toml`; cross-service settings such as mail
+  live in `config/shared/<concern>.toml`.
 
-```python
-CONFIG_FIELDS = {
-    "global": [
-        Field("STACK_DOMAIN", kind="required-user"),
-    ],
-    "mariadb": [
-        Field("MARIADB_ROOT_PASSWORD", kind="generated-secret"),
-    ],
-    "postgres": [
-        Field("POSTGRES_ADMIN_USER", kind="defaulted-choice", default="opendock"),
-        Field("POSTGRES_ADMIN_PASSWORD", kind="generated-secret"),
-    ],
-    "mastodon": [
-        Field("MASTODON_SUBDOMAIN", kind="defaulted-choice", default="social"),
-        Field("MASTODON_ADMIN_USERNAME", kind="defaulted-choice", default="opendock"),
-        Field("MASTODON_ADMIN_EMAIL", kind="required-user"),
-        Field("MASTODON_ADMIN_PASSWORD", kind="initial-credential"),
-        Field("MASTODON_DB_PASSWORD", kind="generated-secret"),
-        Field("MASTODON_SECRET_KEY_BASE", kind="generated-secret"),
-        Field("MASTODON_OTP_SECRET", kind="generated-secret"),
-        Field("MASTODON_VAPID_PRIVATE_KEY", kind="generated-secret"),
-        Field("MASTODON_VAPID_PUBLIC_KEY", kind="generated-secret"),
-    ],
-    "nextcloud": [
-        Field("NEXTCLOUD_SUBDOMAIN", kind="defaulted-choice", default="cloud"),
-        Field("NEXTCLOUD_DB_PASSWORD", kind="generated-secret"),
-        Field("NEXTCLOUD_ADMIN_PASSWORD", kind="initial-credential"),
-    ],
-}
-```
-
-This registry can start inside `scripts/opendock-config.py` or be split into a shared Python module later. Keep it simple first.
+The shared setup workflow renders these declarations. Core and shared setting
+names and owner paths no longer need matching Python branches.
 
 ## Mastodon Admin Account Direction
 
@@ -309,7 +283,9 @@ make setup mastodon
 make launch mastodon
 ```
 
-The account helper is service-owned and lives at `services/mastodon/opendock-post-launch.py`, called by the generic launch post-hook.
+The Mastodon descriptor declares `post_launch`; its service capability invokes
+the account helper at `services/mastodon/opendock-post-launch.py`. The common
+launcher does not discover or execute helper files by naming convention.
 
 Still to verify:
 

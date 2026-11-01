@@ -60,10 +60,12 @@ def service_targets():
 
 
 def selected_services(target):
-    known = service_targets()
+    catalog = ServiceCatalog(ROOT_DIR)
+    known = catalog.names
+    platform_names = {component.name for component in catalog.platform.components}
     if target in ("all", "services"):
         return known
-    if target in ("infra", "gateway", "mail"):
+    if target in platform_names or target in SETTINGS.SHARED_CONFIG_SECTIONS:
         return []
     if target in known:
         return [target]
@@ -89,14 +91,15 @@ def selected_secrets(target):
         selected[key] = SelectedSecret(owner, MappingProxyType(dict(definition)))
 
     shared_groups = set()
-    infra = catalog.platform.get("infra")
-    if target in ("all", "infra"):
-        shared_groups.update(infra.shared_groups)
+    for component in catalog.platform.components:
+        if target in ("all", component.name):
+            shared_groups.update(component.shared_groups)
     for service in services:
         shared_groups.update(catalog.get(service).setup_dependencies)
-    for field in infra.setup_fields:
-        if field["shared_group"] in shared_groups:
-            add("infra", field)
+    for component in catalog.platform.components:
+        for field in component.setup_fields:
+            if field.get("shared_group") in shared_groups:
+                add(component.name, field)
 
     for name in services:
         for field in catalog.get(name).setup_fields:

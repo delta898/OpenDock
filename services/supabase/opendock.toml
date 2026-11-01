@@ -2,8 +2,11 @@ schema_version = 1
 service_id = "supabase"
 display_name = "Supabase"
 capability_api_version = 1
-capabilities = ["prepare", "plan_secrets", "generate_secrets", "validate_config"]
+capabilities = ["prepare", "plan_secrets", "generate_secrets", "validate_config", "post_launch"]
 dependencies = ["infra"]
+
+[setup]
+optional_config = ["mail"]
 
 [[commands]]
 name = "api-keys"
@@ -108,3 +111,7 @@ default = "OpenDock"
 [removal]
 data_paths = ["data/db", "data/storage"]
 config_files = ["functions.env"]
+
+[routing]
+subdomain_key = "SUPABASE_SUBDOMAIN"
+caddy_handler = "supabase_proxy"

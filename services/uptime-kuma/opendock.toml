@@ -14,3 +14,7 @@ default = "uptime"
 # All persistent Uptime Kuma application data is in the Compose named volume.
 # There are no service-owned host bind paths or shared database objects.
 data_paths = []
+
+[routing]
+subdomain_key = "UPTIME_KUMA_SUBDOMAIN"
+caddy_handler = "uptime_kuma_proxy"

@@ -162,6 +162,11 @@ discovering plugins].
 | `service <name> <command>` | Discover commands, provide common help/dispatch and environment context | Implement optional service-specific operations under that service directory |
 | `sync` | Own remote selection, transport, copy/prune policy, dry-run and reporting | Declare files/directories that must be preserved or excluded only when service-specific behavior is necessary |
 
+Optional shared setup sections, such as SMTP, are declared in shared config
+metadata and opted into by services. The common setup and launch flows may offer
+them, but declining must not block a service whose required configuration is
+valid. Users can always configure the shared section explicitly.
+
 Shared infrastructure, gateway state, and global configuration are platform
 owned. A service capability must not silently take ownership of another
 service's resources or global settings.
@@ -297,9 +302,11 @@ common prompt and persistence workflow remains in `scripts/opendock-config.py`.
 capabilities own the Docker sandbox environment and idempotent model onboarding
 decision. Uptime Kuma demonstrates a service with no custom handler. Service
 commands are discovered from `services/<name>/commands/`; their help text and
-examples live in the same service's descriptor. The common command runner has
-no per-service help registry. Existing `opendock-post-launch.py` scripts remain
-a Mastodon/Supabase convention pending migration.
+examples live in the same service's descriptor. Mastodon and Supabase declare
+`post_launch` and dispatch their application-specific helpers through their
+capability modules. Default hostname setting keys and Caddy snippet names are
+also declared as service routing metadata; the domain resolver no longer
+constructs them from service IDs.
 
 Some service-specific behavior remains to migrate:
 
@@ -310,12 +317,15 @@ Some service-specific behavior remains to migrate:
   infrastructure secret selection; service-specific bundles and generation
   procedures live in service capabilities.
 - Service discovery, setup declarations, and service validation are catalog
-  driven. The common settings layer still maps setting prefixes to owner files;
-  platform-owned core/infra/shared settings remain central.
-- Removal now uses a shared planner and service-declared `[removal]` resources.
-  Hermes is the first registered service; other services remain unavailable to
-  `remove` until their data, database, and preservation scope is audited.
-- Sync exclusion rules include service-specific paths in the central CLI.
+  driven. Service setting ownership follows the service key prefix; platform
+  owners come from component descriptors, and core/shared setup fields and file
+  owners come from `config/core.toml` and `config/shared/*.toml`.
+- Removal uses a shared planner and service-declared `[removal]` resources.
+  All bundled services declare their cleanup scope. Shared database object
+  removal is delegated to adapter modules declared by the infra descriptor;
+  end-to-end removal on a clean isolated host remains outstanding.
+- Sync exclusion rules in the common CLI cover generic runtime paths such as
+  data, backups, environment files, and static-site content.
 
 Some shared registries are legitimate: OpenDock still needs a single common
 source for platform-owned settings, group membership, and core capability
@@ -341,12 +351,12 @@ The shared contract should be deliberately small and explicit:
   operations. `prepare` runs only after common configuration checks and shared
   prerequisites. It must be idempotent and report `not_needed`, `completed`, or
   a structured failure.
-- **Removal contract:** the current descriptor declares service-owned data
-  paths, extra images, and labeled non-Compose containers that must mount those
-  paths. The shared remover applies those declared scopes after confirmation,
-  alongside generic Compose cleanup and global route updates. Shared database
-  cleanup remains unsupported until a narrow service-scoped operation is
-  defined.
+- **Removal contract:** the service descriptor declares service-owned data
+  paths, extra images, database/role setting keys, and labeled non-Compose
+  containers that must mount those paths. The shared remover applies declared
+  scopes after confirmation, alongside generic Compose cleanup and global
+  route updates. Shared database operations are selected through the adapter
+  declared by the infra component.
 - **Context/ports:** immutable service identity, declared settings access,
   service-scoped Compose operations, and a reporter. Do not expose mutable CLI
   globals, arbitrary filesystem deletion, unrestricted Docker access, or

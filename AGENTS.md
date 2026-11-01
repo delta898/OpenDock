@@ -66,9 +66,10 @@ platform component descriptor (`infra/opendock.toml`, `gateway/opendock.toml`).
 Services declare only the shared groups they require; config prompting, secret
 generation, setup dependency validation, and platform setting ownership must
 derive those shared declarations instead of keeping duplicate registries in
-central scripts. Shared concerns such as mail or database client configuration
-may remain in the common settings interface when they span services and have
-their own migration behavior.
+central scripts. Core settings and shared non-platform concerns belong in
+`config/core.toml` and `config/shared/*.toml`; those descriptors own keys,
+configuration files, and setup fields. The common settings interface discovers
+their metadata rather than naming individual keys or files in Python.
 
 Do not add new values to legacy root `common.env`. Its one-time migration must
 preserve known values, keep a restrictive backup, and stop without changing the
@@ -160,6 +161,15 @@ prerequisite ordering, or public route handling. Absent optional capabilities
 should require no empty script. Keep service commands discoverable under
 `services/<name>/commands/` and align new lifecycle hooks with
 `docs/command-architecture.md` rather than creating a parallel interface.
+Declare every lifecycle hook in the service descriptor; the CLI must not infer
+capabilities from helper filenames. Routable services must declare their
+subdomain setting and Caddy handler in descriptor routing metadata. Shared
+database object operations belong to adapters registered by the infra
+descriptor, while each service declares only its own database and role keys.
+Optional cross-service setup such as SMTP belongs in `config/shared/*.toml`;
+services opt into its setup prompt through descriptor metadata. Declining an
+optional prompt must never block service startup, and the user must have a
+clear explicit command to configure it later.
 
 Design and roll out the capability contract across command families instead of
 implementing one special case in isolation. Pilot it on a service with real

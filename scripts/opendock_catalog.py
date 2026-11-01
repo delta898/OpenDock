@@ -52,12 +52,21 @@ class ServiceDefinition:
         return tuple(setup.get("dependencies", ()))
 
     @property
+    def optional_setup_configs(self) -> tuple[str, ...]:
+        setup = self.descriptor.get("setup", {})
+        return tuple(setup.get("optional_config", ()))
+
+    @property
     def removal(self) -> Mapping[str, object]:
         return self.descriptor.get("removal", {})
 
     @property
     def commands(self) -> tuple[Mapping[str, object], ...]:
         return tuple(self.descriptor.get("commands", ()))
+
+    @property
+    def routing(self) -> Mapping[str, object]:
+        return self.descriptor.get("routing", {})
 
 
 @dataclass(frozen=True)
@@ -76,6 +85,10 @@ class PlatformComponentDefinition:
     @property
     def config_file(self) -> str:
         return str(self.descriptor["config_file"])
+
+    @property
+    def always_include_config(self) -> bool:
+        return self.descriptor.get("always_include_config", False)
 
     @property
     def shared_groups(self) -> tuple[str, ...]:
@@ -152,6 +165,12 @@ class PlatformCatalog:
             raise CatalogError(
                 f"Platform descriptor {path} must declare component_id = {name!r}."
             )
+        if "always_include_config" in descriptor and type(
+            descriptor["always_include_config"]
+        ) is not bool:
+            raise CatalogError(
+                f"Platform descriptor {path} always_include_config must be a boolean."
+            )
 
         def validate_config_path(value, attribute):
             if not isinstance(value, str):
@@ -196,8 +215,17 @@ class PlatformCatalog:
         for database in shared_databases:
             if not isinstance(database, dict):
                 raise CatalogError(f"Platform descriptor {path} has an invalid shared database.")
+            unknown_database_fields = sorted(
+                set(database) - {"shared_group", "engine", "adapter", "container"}
+            )
+            if unknown_database_fields:
+                raise CatalogError(
+                    f"Platform descriptor {path} has unsupported shared database fields: "
+                    + ", ".join(unknown_database_fields)
+                )
             group = database.get("shared_group")
             engine = database.get("engine")
+            adapter = database.get("adapter")
             container = database.get("container")
             if (
                 not isinstance(group, str)
@@ -207,9 +235,20 @@ class PlatformCatalog:
                 raise CatalogError(
                     f"Platform descriptor {path} has an invalid shared database group."
                 )
-            if not isinstance(engine, str) or engine not in {"mariadb", "postgres"}:
+            if not isinstance(engine, str) or not re.fullmatch(r"[a-z][a-z0-9_-]*", engine):
                 raise CatalogError(
-                    f"Platform descriptor {path} has an unsupported shared database engine."
+                    f"Platform descriptor {path} has an invalid shared database engine."
+                )
+            if not isinstance(adapter, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_-]*", adapter
+            ):
+                raise CatalogError(
+                    f"Platform descriptor {path} has an invalid shared database adapter."
+                )
+            adapter_file = path.parent / "adapters" / f"{adapter}.py"
+            if not adapter_file.is_file():
+                raise CatalogError(
+                    f"Platform descriptor {path} references missing database adapter {adapter!r}."
                 )
             if not isinstance(container, str) or not re.fullmatch(
                 r"[A-Za-z0-9][A-Za-z0-9_.-]*", container
@@ -326,7 +365,7 @@ class ServiceCatalog:
     # are implemented. Unknown declarations must fail instead of being ignored.
     CAPABILITIES = frozenset({
         "runtime_environment", "prepare", "plan_secrets", "generate_secrets",
-        "validate_config",
+        "validate_config", "post_launch",
     })
     BUILTIN_GENERATORS = frozenset({"url-safe", "alphanumeric", "hex"})
 
@@ -358,7 +397,8 @@ class ServiceCatalog:
             raise CatalogError(f"Unknown service: {name}") from exc
 
     def _validate_dependencies(self) -> None:
-        known = set(self._by_name) | {"infra", "gateway"}
+        platform_names = {component.name for component in self.platform.components}
+        known = set(self._by_name) | platform_names
         for service in self._services:
             unknown = sorted(set(service.dependencies) - known)
             if unknown:
@@ -439,6 +479,27 @@ class ServiceCatalog:
                 f"Service descriptor {path} declares plan_secrets without generate_secrets."
             )
 
+        routing = descriptor.get("routing", {})
+        if not isinstance(routing, dict):
+            raise CatalogError(f"Service descriptor {path} has invalid [routing] metadata.")
+        unknown_routing = sorted(set(routing) - {"subdomain_key", "caddy_handler"})
+        if unknown_routing:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported routing fields: "
+                + ", ".join(unknown_routing)
+            )
+        if routing:
+            subdomain_key = routing.get("subdomain_key")
+            caddy_handler = routing.get("caddy_handler")
+            if not isinstance(subdomain_key, str) or not re.fullmatch(
+                r"[A-Z][A-Z0-9_]*", subdomain_key
+            ):
+                raise CatalogError(f"Service descriptor {path} has an invalid routing subdomain_key.")
+            if not isinstance(caddy_handler, str) or not re.fullmatch(
+                r"[a-z][a-z0-9_]*_proxy", caddy_handler
+            ):
+                raise CatalogError(f"Service descriptor {path} has an invalid routing caddy_handler.")
+
         commands = descriptor.get("commands", [])
         if not isinstance(commands, list):
             raise CatalogError(f"Service descriptor {path} commands must be an array of tables.")
@@ -482,7 +543,8 @@ class ServiceCatalog:
             raise CatalogError(f"Service descriptor {path} must declare dependencies as a string list.")
         if len(dependencies) != len(set(dependencies)):
             raise CatalogError(f"Service descriptor {path} contains duplicate dependencies.")
-        unsupported_dependencies = sorted(set(dependencies) - {"infra", "gateway"})
+        platform_names = {component.name for component in self.platform.components}
+        unsupported_dependencies = sorted(set(dependencies) - platform_names)
         if unsupported_dependencies:
             raise CatalogError(
                 f"Service descriptor {path} declares unsupported platform dependencies: "
@@ -513,6 +575,22 @@ class ServiceCatalog:
             )
         if len(setup_dependencies) != len(set(setup_dependencies)):
             raise CatalogError(f"Service descriptor {path} contains duplicate setup dependencies.")
+        optional_config = setup.get("optional_config", [])
+        if (
+            not isinstance(optional_config, list)
+            or any(
+                not isinstance(item, str)
+                or not re.fullmatch(r"[a-z][a-z0-9-]*", item)
+                for item in optional_config
+            )
+        ):
+            raise CatalogError(
+                f"Service descriptor {path} setup.optional_config must be a string list."
+            )
+        if len(optional_config) != len(set(optional_config)):
+            raise CatalogError(
+                f"Service descriptor {path} contains duplicate optional setup configs."
+            )
         prefix = service_id.replace("-", "_").upper() + "_"
         seen_fields = set()
         for field in setup_fields:
@@ -566,6 +644,11 @@ class ServiceCatalog:
                 raise CatalogError(
                     f"Setup field {name!r} in {path} has an invalid generator length."
                 )
+
+        if routing and routing["subdomain_key"] not in seen_fields:
+            raise CatalogError(
+                f"Service descriptor {path} routing subdomain_key must be a declared setup field."
+            )
 
         removal = descriptor.get("removal", {})
         if not isinstance(removal, dict):

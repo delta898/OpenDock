@@ -28,3 +28,7 @@ data_paths = ["data/webroot"]
 shared_group = "mariadb"
 database_key = "WORDPRESS_DB_NAME"
 role_key = "WORDPRESS_DB_USER"
+
+[routing]
+subdomain_key = "WORDPRESS_SUBDOMAIN"
+caddy_handler = "wordpress_proxy"

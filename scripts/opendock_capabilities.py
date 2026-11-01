@@ -206,6 +206,31 @@ def prepare(context: ServiceContext) -> PreparationResult:
     return result
 
 
+def post_launch(context: ServiceContext) -> None:
+    """Call an explicitly declared, service-owned post-launch capability."""
+    service = context.service
+    if not has_capability(service, "post_launch"):
+        return
+    module = _module_for(service)
+    handler = getattr(module, "post_launch", None)
+    if not callable(handler):
+        raise CapabilityError(
+            f"Service {service.name!r} declares post_launch but does not implement it."
+        )
+    try:
+        result = handler(context)
+    except CapabilityError:
+        raise
+    except Exception as exc:
+        raise CapabilityError(
+            f"Service {service.name!r} post-launch operation failed: {exc}"
+        ) from exc
+    if result is not None:
+        raise CapabilityError(
+            f"Service {service.name!r} post_launch must return None."
+        )
+
+
 def plan_secrets(context: SecretPlanningContext) -> SecretPlan:
     """Let a service expand missing keys into a consistent secret bundle."""
     service = context.service

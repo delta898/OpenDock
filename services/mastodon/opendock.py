@@ -1,15 +1,29 @@
 """Mastodon-specific generated credential bundles."""
 
+import subprocess
+import sys
+
 from opendock_capabilities import (
     SecretGenerationContext,
     SecretPlan,
     SecretPlanningContext,
+    ServiceContext,
     ValidationContext,
     ValidationResult,
 )
 
 
 OPENDOCK_CAPABILITY_API_VERSION = 1
+
+
+def post_launch(context: ServiceContext) -> None:
+    """Create Mastodon's initial owner account when needed."""
+    helper = context.service.directory / "opendock-post-launch.py"
+    subprocess.run(
+        [sys.executable, str(helper)],
+        cwd=context.service.directory.parents[1],
+        check=True,
+    )
 
 MASTODON_RAILS_KEYS = {
     "MASTODON_SECRET_KEY_BASE",

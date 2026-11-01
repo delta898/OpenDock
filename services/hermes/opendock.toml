@@ -40,3 +40,7 @@ name = "HERMES_DASHBOARD_SECRET"
 kind = "generated-secret"
 generator = "alphanumeric"
 length = 48
+
+[routing]
+subdomain_key = "HERMES_SUBDOMAIN"
+caddy_handler = "hermes_proxy"

@@ -3,6 +3,9 @@ service_id = "n8n"
 display_name = "n8n"
 dependencies = ["infra"]
 
+[setup]
+optional_config = ["mail"]
+
 [[setup.fields]]
 name = "N8N_SUBDOMAIN"
 kind = "defaulted-choice"
@@ -11,3 +14,7 @@ default = "n8n"
 [removal]
 # Workflows, credentials, and execution data live in the Compose named volume.
 data_paths = []
+
+[routing]
+subdomain_key = "N8N_SUBDOMAIN"
+caddy_handler = "n8n_proxy"

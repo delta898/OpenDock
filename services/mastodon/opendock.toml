@@ -2,11 +2,12 @@ schema_version = 1
 service_id = "mastodon"
 display_name = "Mastodon"
 capability_api_version = 1
-capabilities = ["plan_secrets", "generate_secrets", "validate_config"]
+capabilities = ["plan_secrets", "generate_secrets", "validate_config", "post_launch"]
 dependencies = ["infra"]
 
 [setup]
 dependencies = ["postgres"]
+optional_config = ["mail"]
 
 [[setup.fields]]
 name = "MASTODON_SUBDOMAIN"
@@ -78,3 +79,7 @@ data_paths = ["data/public/system"]
 shared_group = "postgres"
 database_key = "MASTODON_DB_NAME"
 role_key = "MASTODON_DB_USER"
+
+[routing]
+subdomain_key = "MASTODON_SUBDOMAIN"
+caddy_handler = "mastodon_proxy"
