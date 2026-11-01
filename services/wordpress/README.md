@@ -14,14 +14,14 @@ WORDPRESS_DB_USER=wordpress
 ```
 
 Set the main domain with `./opendock setup`. WordPress-specific settings live in
-`config/services/wordpress.env`:
+`services/wordpress/.env`:
 
 ```sh
 WORDPRESS_SUBDOMAIN=blog
 ```
 
 `MARIADB_ROOT_PASSWORD` belongs to shared infrastructure in `config/infra.env`;
-`WORDPRESS_DB_PASSWORD` belongs to WordPress in `config/services/wordpress.env`.
+`WORDPRESS_DB_PASSWORD` belongs to WordPress in `services/wordpress/.env`.
 Both are generated automatically before WordPress starts, and existing values are kept.
 
 The matching Caddy route lives in `gateway/caddy/conf.d/wordpress.caddy`.
@@ -82,7 +82,7 @@ YES=1 ./opendock service wordpress multisite
 - WordPress defaults to `7-php8.3-apache`.
 - WordPress CLI defaults to `wordpress:cli-php8.3`.
 - MariaDB client defaults to `11.8-noble`, matching the infra recommendation.
-- Versions live in `.env`, not `compose.yml`.
+- Versions live in `.env.default`, not `compose.yml`.
 - Avoid `latest` tags.
 
 ## Webroot
@@ -116,4 +116,4 @@ The committed configuration lives at `services/wordpress/php/uploads.ini` and is
 
 The `wordpress-db-init` service is safe to run repeatedly. It uses `CREATE DATABASE IF NOT EXISTS` and `CREATE USER IF NOT EXISTS`.
 
-Generated password values are stored in their owner files: the MariaDB administrator password in `config/infra.env` and the WordPress database password in `config/services/wordpress.env`. The `wordpress-db-init` service keeps existing database users and updates only when the generated values are still placeholders before startup.
+Generated password values are stored in their owner files: the MariaDB administrator password in `config/infra.env` and the WordPress database password in `services/wordpress/.env`. The `wordpress-db-init` service keeps existing database users and updates only when the generated values are still placeholders before startup.

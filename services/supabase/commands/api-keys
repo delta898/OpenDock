@@ -39,7 +39,7 @@ def main():
     print(f"  Publishable key: {publishable}")
     print()
     print("Use SUPABASE_PUBLISHABLE_KEY in browsers, desktop/mobile apps, and CLIs.")
-    print("SUPABASE_SECRET_KEY and legacy service-role/JWT values remain hidden in config/services/supabase.env.")
+    print("SUPABASE_SECRET_KEY and legacy service-role/JWT values remain hidden in services/supabase/.env.")
     return 0
 
 

@@ -125,7 +125,7 @@ Group names are target aliases for multiple services. They are supported by setu
 
 `up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
 
-`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default`, Hermes defaults from `services/hermes/.env.default`, and defaults for services not yet migrated from `config/services/*.env.example`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env` installations are split into owner files on initialization, with the original retained in the backup directory.
+`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default` and each service's defaults from `services/<service>/.env.default`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env`, `infra/.env`, `gateway/.env`, and old `config/services/*.env` installations are migrated to their owners on initialization, with restrictive backups retained.
 
 `launch <hostname>` is the primary workflow. It resolves exactly one route,
 starts `infra` and the mapped Docker service when the route is Docker-backed, or
@@ -222,7 +222,7 @@ route map is initialized:
 STACK_DOMAIN=example.com
 ```
 
-Each service may define a subdomain variable in its configuration owner file. Hermes and future migrated services use `services/<service>/.env`; services not yet migrated use `config/services/<service>.env`:
+Each service may define a subdomain variable in its service-owned local configuration file, with defaults in the matching `.env.default`:
 
 ```env
 WORDPRESS_SUBDOMAIN=blog
@@ -354,7 +354,7 @@ For multi-container services:
 
 - Keep all containers in a single `services/<name>/compose.yml`.
 - Use a shared `shared-net` external network so all containers can reach each other and the Caddy gateway.
-- Pin versions in `services/<name>/.env` as with single-container services.
+- Pin versions in `services/<name>/.env.default` as with single-container services.
 - Route all public traffic through one gateway container (e.g. Kong) rather than exposing each container through Caddy separately.
 - The Caddy route file should proxy to the internal gateway container only.
 
@@ -390,7 +390,7 @@ services/<service-name>/README.md
 gateway/caddy/conf.d/<service-name>.caddy
 ```
 
-For a new or migrated service, add defaults to `services/<service>/.env.default` and keep local overrides in the ignored `services/<service>/.env`. For a service not yet migrated, add a default subdomain to `config/services/<service>.env.example`:
+Add defaults to `services/<service>/.env.default` and keep local overrides in the ignored `services/<service>/.env`:
 
 ```env
 PLEX_SUBDOMAIN=media
@@ -432,7 +432,7 @@ Services should use shared MariaDB, PostgreSQL, or Redis when the generic infras
 ## Image Policy
 
 - Avoid `latest`.
-- Keep image versions in `.env`, not in `compose.yml`.
+- Keep image versions in tracked `.env.default` files, not in `compose.yml`.
 - Prefer Ubuntu Noble based images by default.
 - Use Alpine only when the image has clear advantages and low compatibility risk.
 
@@ -455,11 +455,9 @@ For changed Compose projects:
 ```
 
 OpenDock resolves tracked platform defaults, their private owner files, then
-the selected service defaults and private override, followed by process
-environment. Hermes uses `services/hermes/.env.default` and
-`services/hermes/.env`; unmigrated services retain their legacy example and
-tracked runtime `.env` inputs. Direct `docker compose config` calls must pass
-the applicable files in that same order.
+the selected service's `services/<service>/.env.default` and private
+`services/<service>/.env` override, followed by process environment. Direct
+`docker compose config` calls must pass the applicable files in that same order.
 
 For Caddy changes:
 

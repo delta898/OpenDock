@@ -37,21 +37,15 @@ Keep defaults and machine-local effective values separate. Tracked defaults use
   `config/core.env.default`, `config/infra.env.default`, and
   `config/shared/<concern>.env.default`. Their private effective files use the
   same paths without `.default`.
-- A new or migrated service owns `services/<service>/.env.default` for tracked
-  runtime defaults, including image tags, and `services/<service>/.env` for
-  local overrides and secrets. Renovate tracks `.env.default` files. The
-  ignored local `.env` is not scanned; legacy `.env` files that remain tracked
-  are still Renovate inputs until their service is migrated.
-- Hermes is the pilot for this service convention. Existing services retain
-  their current tracked `services/<service>/.env` and
-  `config/services/<service>.env.example` arrangement until they are migrated
-  and verified one at a time. Do not opportunistically migrate another service
-  as part of unrelated work.
+- Every service owns `services/<service>/.env.default` for tracked runtime
+  defaults, including image tags, and `services/<service>/.env` for local
+  overrides and secrets. Renovate tracks `.env.default` files. The ignored
+  local `.env` is not scanned.
 - Keep route maps and external provider credentials in their dedicated files;
   do not fold them into the application environment layers.
 
 Register every new setting's owner in `scripts/opendock_settings.py` and add it
-to the matching `.env.default` or legacy `.env.example` template. Setup, secret
+to the matching `.env.default` template. Setup, secret
 generation, validation, route resolution, Compose invocations, and service
 post-launch scripts must read the shared settings loader rather than parsing an
 individual config file on their own. Pass Compose interpolation files
@@ -60,9 +54,20 @@ Compose `env_file:` is not a substitute for `--env-file`.
 
 Do not add new values to legacy root `common.env`. Its one-time migration must
 preserve known values, keep a restrictive backup, and stop without changing the
-legacy file if it encounters an unregistered key. Keep actual `config/*.env`
-files and migrated service `.env` files private and out of Git while syncing the
-tracked defaults.
+legacy file if it encounters an unregistered key. Migrate old private
+`config/services/*.env` files to service-owned `.env` files with restrictive
+backups. Keep actual `config/*.env` and `services/*/.env` files private and out
+of Git while syncing the tracked defaults.
+The former tracked `infra/.env` held shared image defaults; move them to
+`config/infra.env.default` and migrate non-default host values to
+`config/infra.env` before removing the old file.
+The former tracked `gateway/.env` held Caddy and port defaults; keep them in
+`config/gateway.env.default` and migrate non-default host values to
+`config/gateway.env` before removing the old file.
+During the one-time service defaults migration, remove only local values that
+match either the new `.env.default` or the previous tracked service `.env`
+default recorded in `config/migrations/service-env-v1.json`; preserve other
+overrides and keep a restrictive backup of any rewritten file.
 
 ## Service removal and reset behavior
 

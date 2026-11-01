@@ -632,18 +632,38 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     생성, validation, Compose interpolation 및 route 코드는 같은 계층 병합 규칙을
     공유한다. Compose는 `.env.default` 다음 실제 `.env`를 명시적으로 전달하며,
     override를 지우면 다시 업데이트 가능한 default를 쓴다.
+  - Hermes pilot 이후 다른 서비스도 같은 경계로 옮겼다. tracked 서비스 `.env`의
+    image/version·container defaults와 `config/services/*.env.example`의 사용자
+    설정/secret placeholders를 하나의 `services/<service>/.env.default`로 합쳤다.
+    중복 사용하던 MariaDB client image version은 shared database config로 승격했다.
+    기존 private `config/services/*.env` 값은 서비스 소유 `.env`로 이동하고
+    restrictive backup을 남기도록 초기화 migration을 확장했다.
+  - 첫 실제 적용 흐름에서 공용 infra 이미지 버전은 `infra/.env`에 남아 있었고,
+    config validator는 해당 경로를 로드하지 않아 Hermes launch의 infra 사전검사가
+    `MARIADB_VERSION`, `POSTGRES_VERSION`, `REDIS_VERSION` 누락으로 실패했다. 세 버전을
+    `config/infra.env.default`로 이동하고, 기존 파일의 비기본값만 private config로
+    옮기는 migration을 추가했다. 이로써 서비스뿐 아니라 infra도 같은 default/private
+    소유권 규칙을 따라야 함을 확인했다.
+  - 전체 경로 감사에서 gateway의 Caddy 버전과 포트도 tracked `gateway/.env`에
+    남아 있어 `.env.default`만 검사하는 Renovate 규칙에서 빠지고, Compose 실행 때만
+    별도로 읽히는 점을 확인했다. 이를 `config/gateway.env.default`/`config/gateway.env`
+    로 옮기고, Caddy 컨테이너에 불필요한 `env_file` 주입과 CLI 정보 표시의 직접
+    `.env` 파싱을 제거해 설정 로더를 단일 기준으로 맞췄다.
   - root `common.env`는 알려진 key를 owner 파일로 옮기고 제한 권한 백업을 남기는
     일회성 migration 입력이다. 알 수 없는 key가 있으면 원본을 바꾸지 않는 fail-safe를 둔다.
 - 보존할 교훈:
   - 계층 이름(core/infra/service)만으로 파일을 나누지 말고 각 key의 소유자와
     소비자를 먼저 등록해야 한다. 공유 설정과 서비스 설정은 lifecycle도 다르다.
-  - Renovate는 실제 사용자 `.env`를 읽게 하지 말고 tracked default만 갱신해야
-    한다. 이전 중에는 아직 tracked인 legacy service `.env`도 명시적 예외다.
+  - Renovate는 실제 사용자 `.env`를 읽게 하지 말고 tracked `.env.default`만
+    갱신해야 한다. 구형 tracked `.env`는 버전 정보를 옮긴 뒤 더 이상 추적하지 않는다.
   - 모든 서비스를 한 번에 이동하지 않고 실제 서비스 하나를 pilot으로 골라
     setup, secret 생성, config validation, Compose, 제거, Renovate 경로를 확인한
     뒤 다음 서비스로 넓힌다.
-- 검증 상태: macOS Python 3.15.2에서 CLI/unit test 24개 통과. owner key 검사,
-  legacy `common.env` migration과 backup, unknown key fail-safe, Hermes default/local
-  precedence와 Compose env-file 순서를 확인했다. `py_compile`, Hermes onboard shell
-  syntax, Renovate JSON, `git diff --check`도 통과했다. 컨테이너 기동이나 Linux host의
-  Hermes setup/launch는 이번 설계 변경 후 검증하지 않았으며 다른 서비스는 미이전이다.
+  - 검증 상태: macOS Python 3.15.2에서 설정 테스트 34개가 통과했다.
+    `./opendock check-config infra`와 `gateway`가 모두 `OK`를 반환했다.
+    `./opendock info gateway`는 `caddy:2`를 표시했지만 Docker socket 접근이
+    거부되어 실행 중인 컨테이너 상태는 확인하지 못했다. 각 기존
+    서비스의 이전 추적 `.env`와 example key를 새 `.env.default`와 대조해 누락/추가
+    key가 없음을 확인했고, bytecode compile, Renovate JSON parse, `git diff --check`도
+    통과했다. Linux host의 private config migration, 각 서비스 Compose rendering 및
+    Renovate PR 인식은 실제 서버/Cloud app에서 확인하기 전까지 미검증이다.

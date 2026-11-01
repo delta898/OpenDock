@@ -321,11 +321,11 @@ def print_credential_notices(changed):
         print("Run './opendock launch hermes' to apply a changed password.")
     if "NEXTCLOUD_ADMIN_PASSWORD" in changed:
         print()
-        print("Nextcloud initial admin password is stored in config/services/nextcloud.env.")
+        print("Nextcloud initial admin password is stored in services/nextcloud/.env.")
         print("Changing it later will not reset an installed Nextcloud password.")
     if "MASTODON_ADMIN_PASSWORD" in changed:
         print()
-        print("Mastodon owner password is stored in config/services/mastodon.env.")
+        print("Mastodon owner password is stored in services/mastodon/.env.")
         print("It is used only when OpenDock creates the first Mastodon owner account.")
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"

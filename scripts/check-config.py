@@ -21,7 +21,6 @@ DOMAINS = importlib.util.module_from_spec(DOMAIN_SPEC)
 DOMAIN_SPEC.loader.exec_module(DOMAINS)
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
 QUIET = os.environ.get("CHECK_CONFIG_QUIET") == "1"
-ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 INTERPOLATION_RE = re.compile(
     r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?=+])([^}]*))?\}"
 )
@@ -37,31 +36,6 @@ SERVICE_REQUIRED = {
 
 def service_env_key(service):
     return f"{service.replace('-', '_').upper()}_SUBDOMAIN"
-
-
-def parse_env_file(path):
-    values = {}
-    if not path.exists():
-        return values
-
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-
-        if not ENV_KEY_RE.fullmatch(key):
-            continue
-
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-
-        values[key] = value
-
-    return values
 
 
 def service_targets():
@@ -284,10 +258,6 @@ def check_target(target, common_values, example_values):
         env["HERMES_SANDBOX_DIR"] = str(
             ROOT_DIR / "services" / "hermes" / "data" / "sandboxes"
         )
-
-    service_env = directory / ".env"
-    if service_env.exists():
-        env.update(parse_env_file(service_env))
 
     required, optional = compose_variables(compose)
     required.update(GLOBAL_REQUIRED)

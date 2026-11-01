@@ -12,7 +12,6 @@ from opendock_settings import load_values
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 WORDPRESS_DIR = ROOT_DIR / "services" / "wordpress"
-WORDPRESS_ENV = WORDPRESS_DIR / ".env"
 WEBROOT = WORDPRESS_DIR / "data" / "webroot"
 BACKUP_DIR = WORDPRESS_DIR / "backups"
 CONTAINER_WEBROOT = "/var/www/html"
@@ -34,31 +33,8 @@ MULTISITE_CONSTANTS = (
 )
 
 
-def parse_env_file(path):
-    values = {}
-    if not path.exists():
-        return values
-
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-
-        values[key] = value
-
-    return values
-
-
 def load_env():
     env = load_values(service="wordpress", process_env=False)
-    env.update(parse_env_file(WORDPRESS_ENV))
     env.update(os.environ)
     return env
 

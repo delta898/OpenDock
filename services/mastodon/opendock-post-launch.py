@@ -9,7 +9,6 @@ sys.path.insert(0, str(ROOT_DIR / "scripts"))
 from opendock_settings import load_values, compose_env_files
 
 SERVICE_DIR = ROOT_DIR / "services" / "mastodon"
-SERVICE_ENV = SERVICE_DIR / ".env"
 COMPOSE_FILE = SERVICE_DIR / "compose.yml"
 RESERVED_USERNAMES = {"admin"}
 
@@ -190,7 +189,7 @@ def print_ready(env):
     print("Mastodon owner account is ready.")
     print(f"Login email: {env['MASTODON_ADMIN_EMAIL']}")
     print(f"Login username: {env['MASTODON_ADMIN_USERNAME']}")
-    print("Login password: MASTODON_ADMIN_PASSWORD in config/services/mastodon.env")
+    print("Login password: MASTODON_ADMIN_PASSWORD in services/mastodon/.env")
 
 
 def print_existing_account(env):

@@ -7,7 +7,12 @@ cloudflare.env
 *.swp
 __pycache__/
 /config/**/*.env
+/config/.service-default-migration-v1
+/config/.infra-default-migration-v1
+/config/.gateway-default-migration-v1
 services/*/.env
+/infra/.env
+/gateway/.env
 
 services/*/data/
 services/*/backups/

@@ -10,9 +10,9 @@ https://photos.<STACK_DOMAIN>
 
 ## Configuration
 
-Service defaults live in `services/immich/.env`.
+Service defaults live in `services/immich/.env.default`; local values and secrets are stored in `services/immich/.env`.
 
-Generated secrets live in the repository-level `config/services/immich.env`:
+Generated secrets live in the repository-level `services/immich/.env`:
 
 ```env
 IMMICH_DB_PASSWORD=change-immich-db-password

@@ -257,10 +257,8 @@ def compose(target, *args, capture=False, quiet=False):
     if target == "gateway" and args[0] in ("up", "start", "restart"):
         script("opendock-domains.py", "render")
     command = ["docker", "compose", "--project-directory", str(directory)]
-    for env_file in settings.compose_env_files(target if target not in ("infra", "gateway") else None):
+    for env_file in settings.compose_env_files(target):
         command += ["--env-file", str(env_file)]
-    if target in ("infra", "gateway") and (directory / ".env").is_file():
-        command += ["--env-file", str(directory / ".env")]
     env = os.environ.copy()
     if target == "hermes":
         socket_path = Path(env.get("DOCKER_SOCKET", "/var/run/docker.sock"))
@@ -580,19 +578,6 @@ def list_targets(kind=None):
         print("\n".join(f"  {name}" for name in group_names) if group_names else "  (none)")
 
 
-def parse_dotenv(path):
-    values = {}
-    if not path.is_file():
-        return values
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip("\"'")
-    return values
-
-
 def configured_images(target):
     directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
     compose_file = directory / "compose.yml"
@@ -600,7 +585,6 @@ def configured_images(target):
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
     settings = settings_module()
     values = settings.load_values(process_env=True)
-    values.update(parse_dotenv(directory / ".env"))
     values.update(os.environ)
     result = []
     service_name = None

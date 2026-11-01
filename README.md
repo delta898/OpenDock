@@ -127,7 +127,7 @@ owner-specific local files after setup:
 
 ```sh
 nano config/core.env
-nano config/services/wordpress.env
+nano services/wordpress/.env
 nano services/hermes/.env
 ```
 
@@ -140,11 +140,9 @@ You can also generate values explicitly:
 ./opendock secrets nextcloud
 ```
 
-Nextcloud's generated admin password is the initial login password for the first installation. The value is stored in `config/services/nextcloud.env`; changing it later does not reset an already installed Nextcloud account.
+Nextcloud's generated admin password is the initial login password for the first installation. The value is stored in `services/nextcloud/.env`; changing it later does not reset an already installed Nextcloud account.
 
-Default subdomains are defined in the relevant service defaults. Hermes uses
-`services/hermes/.env.default`; services not yet migrated keep their current
-`config/services/*.env.example` values:
+Default subdomains are defined in each service's `services/<service>/.env.default`:
 
 ```env
 HOMEPAGE_SUBDOMAIN=home
@@ -427,21 +425,19 @@ Local files ignored by Git:
 config/          private core, infrastructure, shared, and service settings
 cloudflare.env   optional Cloudflare API settings
 .sync.env.toml   optional rsync test-machine settings
+infra/.env       legacy defaults, migrated automatically on first use
+gateway/.env     legacy defaults, migrated automatically on first use
 ```
 
 Committed defaults:
 
 ```text
 config/**/*.env.default
-config/services/*.env.example  # defaults for services not yet migrated
-services/hermes/.env.default
+services/*/.env.default
 cloudflare.env.example
-infra/.env
-gateway/.env
-services/*/.env  # existing services only; Hermes local settings are ignored
 ```
 
-When you update the repository with `git pull`, OpenDock reads updated defaults from tracked `.env.default` files. Services not yet migrated continue using their tracked `config/services/*.env.example` files. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
+When you update the repository with `git pull`, OpenDock reads updated defaults from tracked `.env.default` files. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
 
 ## Directory Layout
 

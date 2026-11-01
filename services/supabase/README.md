@@ -44,7 +44,7 @@ Persistent data stays under `services/supabase/data/` and is ignored by Git.
 ## Studio login
 
 Studio is protected by HTTP Basic Auth at the root URL. Credentials are
-generated into the repository-level `config/services/supabase.env`:
+generated into the repository-level `services/supabase/.env`:
 
 ```env
 SUPABASE_DASHBOARD_USER=opendock
@@ -79,7 +79,7 @@ API endpoints accepting these keys are:
 /functions/v1/
 ```
 
-Never commit `config/services/supabase.env` or use `SUPABASE_JWT_SECRET` as an API key. That value
+Never commit `services/supabase/.env` or use `SUPABASE_JWT_SECRET` as an API key. That value
 is private JWT signing material, not a publishable credential.
 
 ## Email behavior
@@ -134,7 +134,7 @@ The included function can be tested with:
 ```sh
 set -a
 . ./config/core.env
-. ./config/services/supabase.env
+. ./services/supabase/.env
 set +a
 curl "https://${SUPABASE_SUBDOMAIN}.${STACK_DOMAIN}/functions/v1/hello" \
   -H "apikey: ${SUPABASE_PUBLISHABLE_KEY}" \

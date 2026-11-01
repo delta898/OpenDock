@@ -6,13 +6,13 @@ This service uses Uptime Kuma's official Docker image and stores persistent data
 
 ## Setup
 
-Set the main stack domain in `config/core.env` and the service hostname in `config/services/uptime-kuma.env`:
+Set the main stack domain in `config/core.env` and the service hostname in `services/uptime-kuma/.env`:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# config/services/uptime-kuma.env
+# services/uptime-kuma/.env
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
 
@@ -32,7 +32,7 @@ Then start the stack:
 ## Image Policy
 
 - Uptime Kuma defaults to `2.4.0`.
-- Versions live in `.env`, not `compose.yml`.
+- Versions live in `.env.default`, not `compose.yml`.
 - Avoid `latest` tags.
 
 ## Data

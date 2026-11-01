@@ -7,7 +7,7 @@ This service uses n8n's official Docker image and stores persistent data in a Do
 ## Setup
 
 Set the main stack domain with `./opendock setup`. n8n-specific hostname
-settings live in `config/services/n8n.env`:
+tracked defaults live in `services/n8n/.env.default`; local overrides live in `services/n8n/.env`:
 
 ```sh
 N8N_SUBDOMAIN=n8n
@@ -44,7 +44,7 @@ Then start the stack:
 ## Image Policy
 
 - n8n defaults to `2.26.8`.
-- Versions live in `.env`, not `compose.yml`.
+- Versions live in `.env.default`, not `compose.yml`.
 - Avoid `latest` tags.
 
 ## Data

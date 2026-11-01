@@ -10,7 +10,6 @@
       "customType": "regex",
       "description": "Track Docker image tags declared in OpenDock dotenv files",
       "managerFilePatterns": [
-        "/(^|/)\\.env$/",
         "/(^|/)\\.env\\.default$/"
       ],
       "matchStrings": [

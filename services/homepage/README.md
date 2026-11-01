@@ -6,13 +6,13 @@ This service uses gethomepage's official Docker image and keeps dashboard config
 
 ## Setup
 
-Set the main stack domain in `config/core.env` and the service hostname in `config/services/homepage.env`:
+Set the main stack domain in `config/core.env` and the service hostname in `services/homepage/.env`:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# config/services/homepage.env
+# services/homepage/.env
 HOMEPAGE_SUBDOMAIN=home
 ```
 
@@ -32,7 +32,7 @@ Then start the stack:
 ## Image Policy
 
 - Homepage defaults to `v1.13.2`.
-- Versions live in `.env`, not `compose.yml`.
+- Versions live in `.env.default`, not `compose.yml`.
 - Avoid `latest` tags.
 
 ## Config

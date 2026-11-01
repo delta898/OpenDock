@@ -17,7 +17,6 @@ import opendock_settings as SETTINGS
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-MASTODON_ENV = ROOT_DIR / "services" / "mastodon" / ".env"
 SUPABASE_FUNCTIONS_ENV = ROOT_DIR / "services" / "supabase" / "functions.env"
 SUPABASE_FUNCTIONS_ENV_EXAMPLE = (
     ROOT_DIR / "services" / "supabase" / "functions.env.example"
@@ -136,7 +135,9 @@ def target_includes_service(target, service):
 
 
 def mastodon_image():
-    version = parse_env(MASTODON_ENV).get("MASTODON_VERSION", "v4.4.3")
+    version = SETTINGS.load_values(service="mastodon", process_env=False).get(
+        "MASTODON_VERSION", "v4.4.3"
+    )
     return f"ghcr.io/mastodon/mastodon:{version}"
 
 
@@ -418,7 +419,7 @@ def print_nextcloud_notice(changed):
         return
 
     print()
-    print("Nextcloud initial admin password was generated in config/services/nextcloud.env.")
+    print("Nextcloud initial admin password was generated in services/nextcloud/.env.")
     print("Login user: NEXTCLOUD_ADMIN_USER")
     print("Login password: NEXTCLOUD_ADMIN_PASSWORD")
     print("Changing it later will not reset an installed Nextcloud password.")
@@ -427,13 +428,13 @@ def print_nextcloud_notice(changed):
 def print_supabase_notice(changed):
     if "SUPABASE_DASHBOARD_PASSWORD" in changed:
         print()
-        print("Supabase Studio dashboard password was generated in config/services/supabase.env.")
+        print("Supabase Studio dashboard password was generated in services/supabase/.env.")
         print("Login user: SUPABASE_DASHBOARD_USER (default: opendock)")
         print("Login password: SUPABASE_DASHBOARD_PASSWORD")
 
     if "SUPABASE_PUBLISHABLE_KEY" in changed:
         print()
-        print("Supabase publishable API key was generated in config/services/supabase.env.")
+        print("Supabase publishable API key was generated in services/supabase/.env.")
         print("Client key: SUPABASE_PUBLISHABLE_KEY")
         print("Legacy anon/service-role keys were retained for internal compatibility.")
 
@@ -480,7 +481,7 @@ def main():
     print_supabase_notice(changed)
 
     print()
-    print("Done. Generated values were not printed; see the corresponding config/*.env file.")
+    print("Done. Generated values were not printed; see the corresponding owner-specific .env file.")
     return 0
 
 

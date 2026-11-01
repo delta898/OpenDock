@@ -1,0 +1,8 @@
+{
+  "nextcloud": {
+    "MARIADB_CLIENT_VERSION": "11.8-noble"
+  },
+  "wordpress": {
+    "MARIADB_CLIENT_VERSION": "11.8-noble"
+  }
+}
