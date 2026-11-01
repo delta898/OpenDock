@@ -277,9 +277,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - 공통 workflow는 mechanism을, service directory는 policy와 특수 동작을
     소유하게 하면 서비스 수가 늘어도 중심부가 안정적이다.
   - CLI help도 기능이며 실제 기본값과 오류 동작까지 맞아야 한다.
-- 검증 상태: service/group resolution, service-command discovery,
-  post-launch hook과 개선된 help 출력은 구현 중이다. 새 dispatcher를 실행해
-  확인하기 전까지 검증 완료로 쓰지 않는다.
+- 검증 상태: macOS Python 3.15.2에서 CLI/unit test 35개가 통과했다.
+  `route`, `route add`, `setup`, service 목록과 service action의 단계별 help를
+  실행해 확인했다. 특히 `service hermes onboard --help`가 onboarding 스크립트를
+  실행하지 않고 사용법만 표시하는지, WordPress multisite 경고가 help에 포함되는지
+  검사했다. Linux CI와 Docker/Cloudflare 실환경 동작은 별도 검증 대상으로 남는다.
 
 ## OD-009. 되돌리기 어려운 WordPress Multisite 전환을 service command로 제공하는 이유
 

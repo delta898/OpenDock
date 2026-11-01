@@ -654,10 +654,10 @@ def print_guide():
         OpenDock — setup, run, and publish services
 
         Start here
-          ./opendock setup                         Configure your primary domain
-          ./opendock launch blog.example.com       Start and publish one hostname
-          ./opendock launch hermes                 Configure, onboard, and launch Hermes
           ./opendock list                          See available services and groups
+          ./opendock setup                         Configure your primary domain
+          ./opendock launch wordpress              Configure and start WordPress
+          ./opendock launch hermes                 Configure, onboard, and launch Hermes
 
         Domains and static sites
           ./opendock route show [hostname]         Show configured routes
@@ -700,6 +700,12 @@ def print_guide():
           ./opendock sync <name> --dry-run          Preview deployment to a remote
           ./opendock sync <name>                    Deploy code to a remote
 
+        Help at each level
+          ./opendock route --help
+          ./opendock route add --help
+          ./opendock service hermes --help
+          ./opendock service hermes onboard --help
+
         Targets: a service (wordpress), group (media), infra, gateway,
                  services (all apps), or all (core and apps).
         Run './opendock <command> --help' for exact arguments.
@@ -714,36 +720,124 @@ def parser():
                "Use './opendock <command> --help' for command options.",
     )
     sub = p.add_subparsers(dest="command", required=True)
-    sub.add_parser("help", help="Show this guide")
-    l = sub.add_parser("list", help="List services and groups")
-    l.add_argument("kind", nargs="?", choices=("services", "groups"))
-    info = sub.add_parser("info", help="Show configured image tags and running containers")
-    info.add_argument("target", nargs="?", help="One service, group, infra, or gateway")
+    sub.add_parser("help", help="Show the getting-started guide",
+                   description="Show the common OpenDock workflows and examples.")
+    l = sub.add_parser(
+        "list", help="List services and groups",
+        description="List installed services or the named service groups.",
+        epilog="Examples:\n  ./opendock list\n  ./opendock list services\n  ./opendock list groups",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    l.add_argument("kind", nargs="?", choices=("services", "groups"),
+                   help="Show only services or groups; omit to show both.")
+    info = sub.add_parser(
+        "info", help="Show configured image tags and running containers",
+        description="Show the effective image tag and Docker status for each target.",
+        epilog="Examples:\n  ./opendock info\n  ./opendock info wordpress\n  ./opendock info infra",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    info.add_argument("target", nargs="?", help="Service, group, infra, gateway, or all (default: all)")
     for command in sorted(LIFECYCLE):
-        item = sub.add_parser(command, help=f"Docker Compose {command} for a target")
+        item = sub.add_parser(
+            command, help=f"Docker Compose {command} for a target",
+            description={
+                "build": "Build images declared by the selected Compose target.",
+                "config": "Render and validate the selected Compose configuration.",
+                "down": "Stop and remove containers while preserving named volumes and data.",
+                "logs": "Follow logs for a service container.",
+                "ps": "Show containers for a target.",
+                "pull": "Pull images declared by the selected Compose target.",
+                "restart": "Restart existing target containers.",
+                "start": "Start existing stopped target containers.",
+                "stop": "Stop target containers without removing them.",
+                "up": "Create or update target containers in the background.",
+            }.get(command, f"Run Docker Compose {command} for a target."),
+            epilog=("Targets: service (wordpress), group (media), infra, gateway, services, or all.\n"
+                    f"Example: ./opendock {command} wordpress"),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
         if command in ("ps", "config"):
-            item.add_argument("target", nargs="?", default="all")
+            item.add_argument("target", nargs="?", default="all",
+                              help="Service, group, infra, gateway, services, or all (default: all)")
         else:
-            item.add_argument("target")
+            item.add_argument("target", help="Service, group, infra, gateway, services, or all")
     for command in ("setup", "secrets", "check-config", "publish", "launch"):
-        item = sub.add_parser(command)
-        item.add_argument("target", nargs="?", default="all")
-    remove_cmd = sub.add_parser("remove", help="Remove a service and its owned resources")
+        descriptions = {
+            "setup": "Ask for user-facing settings and generate missing local configuration.",
+            "secrets": "Generate missing passwords, tokens, and application secrets.",
+            "check-config": "Check required settings before changing or starting services.",
+            "publish": "Apply configured host routes to Caddy and, when configured, Cloudflare.",
+            "launch": "Start a service, or apply and publish a hostname route. Hermes is onboarded on first launch.",
+        }
+        examples = {
+            "setup": ["./opendock setup", "./opendock setup hermes"],
+            "secrets": ["./opendock secrets", "./opendock secrets wordpress"],
+            "check-config": ["./opendock check-config", "./opendock check-config infra"],
+            "publish": ["./opendock publish", "./opendock publish blog.example.com"],
+            "launch": ["./opendock launch wordpress", "./opendock launch blog.example.com", "./opendock launch hermes"],
+        }[command]
+        target_help = {
+            "setup": "Service, group, infra, mail, or all (default: all)",
+            "secrets": "Service, group, or all (default: all)",
+            "check-config": "Service, group, infra, gateway, or all (default: all)",
+            "publish": "Hostname, service, group, or all (default: all)",
+            "launch": "Hostname, service, group, infra, gateway, or all (default: all)",
+        }[command]
+        item = sub.add_parser(
+            command, help=descriptions[command], description=descriptions[command],
+            epilog="Examples:\n" + "\n".join(f"  {example}" for example in examples),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        item.add_argument("target", nargs="?", default="all",
+                          help=target_help)
+    remove_cmd = sub.add_parser(
+        "remove", help="Remove a service and its owned resources",
+        description="Plan and confirm removal of one service's containers, data, images, and routes.",
+        epilog="Examples:\n  ./opendock remove hermes --dry-run\n  ./opendock remove hermes",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     remove_cmd.add_argument("target", help="One registered service (currently: hermes)")
     remove_cmd.add_argument("--dry-run", action="store_true",
                             help="Show removal targets without changing anything")
-    logs = sub.add_parser("logs", help="Follow logs for one service")
-    logs.add_argument("target")
-    service_cmd = sub.add_parser("service", help="Run a service-specific command")
-    service_cmd.add_argument("service")
-    service_cmd.add_argument("name", nargs="?", default="")
-    service_cmd.add_argument("args", nargs=argparse.REMAINDER)
-    route_cmd = sub.add_parser("route", help="Manage hostname routes")
+    logs = sub.add_parser(
+        "logs", help="Follow logs for one service",
+        description="Follow logs from one service, infra, or gateway target.",
+        epilog="Example: ./opendock logs wordpress",
+    )
+    logs.add_argument("target", help="One service, infra, or gateway (not a group)")
+    service_cmd = sub.add_parser(
+        "service", help="Show or run service-specific commands",
+        description="List a service's extra commands, or get help/run one of them.",
+        usage="./opendock service <service> [command] [arguments]",
+        epilog=("Examples:\n  ./opendock service hermes --help\n"
+                "  ./opendock service hermes onboard --help\n"
+                "  ./opendock service wordpress multisite --help"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    service_cmd.add_argument("service", help="Installed service name, such as hermes or wordpress")
+    service_cmd.add_argument("name", nargs="?", default="", metavar="command",
+                             help="Service-specific command; omit it to list available commands")
+    service_cmd.add_argument("args", nargs=argparse.REMAINDER, metavar="arguments",
+                             help="Additional arguments passed to the service command")
+    route_cmd = sub.add_parser(
+        "route", help="Manage hostname routes",
+        description="Add, show, or remove mappings from public hostnames to Docker or static sites.",
+        epilog=("Examples:\n  ./opendock route add blog.example.org wordpress\n"
+                "  ./opendock route add docs.example.org static\n"
+                "  ./opendock route show\n  ./opendock route remove docs.example.org"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     route_sub = route_cmd.add_subparsers(dest="route_command", required=True)
-    show = route_sub.add_parser("show")
-    show.add_argument("hostname", nargs="?")
+    show = route_sub.add_parser(
+        "show", help="Show all routes or one hostname",
+        description="Display the configured route mapping without changing it.",
+        epilog="Examples:\n  ./opendock route show\n  ./opendock route show blog.example.org",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    show.add_argument("hostname", nargs="?", help="Optional hostname to look up")
     add = route_sub.add_parser(
         "add", description="Map a full hostname to an installed Docker service or a static site.",
+        help="Map a hostname to a Docker service or static web root",
         epilog=("Examples:\n"
                 "  ./opendock route add blog.example.org wordpress\n"
                 "  ./opendock route add docs.example.org static\n\n"
@@ -754,13 +848,28 @@ def parser():
     add.add_argument("hostname", help="Full public hostname, e.g. docs.example.org")
     add.add_argument("service", metavar="service|static",
                      help="Installed service name (e.g. wordpress) or static")
-    remove = route_sub.add_parser("remove")
-    remove.add_argument("hostname")
-    sync_cmd = sub.add_parser("sync", help="Deploy code to a named remote")
-    sync_cmd.add_argument("name")
-    sync_cmd.add_argument("--dry-run", action="store_true")
-    old_sync = sub.add_parser("sync-dry-run", help="Compatibility alias for sync --dry-run")
-    old_sync.add_argument("name")
+    route_remove = route_sub.add_parser(
+        "remove", help="Remove a hostname route",
+        description="Remove a route and sync its public route entries when configured.",
+        epilog="Example: ./opendock route remove docs.example.org",
+    )
+    route_remove.add_argument("hostname", help="Full hostname to remove")
+    sync_cmd = sub.add_parser(
+        "sync", help="Deploy code to a named remote",
+        description="Copy repository files to a configured remote and prune obsolete code files.",
+        epilog=("Configure .sync.env.toml first.\n"
+                "Examples:\n  ./opendock sync test --dry-run\n  ./opendock sync test"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sync_cmd.add_argument("name", help="Remote name from the [targets.<name>] TOML section")
+    sync_cmd.add_argument("--dry-run", action="store_true",
+                          help="Preview file transfers and pruning without changing the remote")
+    old_sync = sub.add_parser(
+        "sync-dry-run", help="Compatibility alias for sync --dry-run",
+        description="Compatibility form of 'sync <name> --dry-run'.",
+        epilog="Example: ./opendock sync-dry-run test",
+    )
+    old_sync.add_argument("name", help="Remote name from .sync.env.toml")
     return p
 
 

@@ -36,6 +36,12 @@ class CLITests(unittest.TestCase):
             self.assertIn("route add docs.example.org static", result.stdout)
             self.assertIn("remove hermes --dry-run", result.stdout)
             self.assertIn("service wordpress multisite", result.stdout)
+            self.assertIn("service hermes onboard --help", result.stdout)
+            start_here = result.stdout.split("Domains and static sites", 1)[0]
+            self.assertIn("./opendock list", start_here)
+            self.assertIn("./opendock launch wordpress", start_here)
+            self.assertIn("./opendock launch hermes", start_here)
+            self.assertNotIn("./opendock launch blog.example.com", start_here)
             self.assertLess(result.stdout.index("./opendock setup"),
                             result.stdout.index("./opendock route add"))
             self.assertNotIn("positional arguments:", result.stdout)
@@ -45,6 +51,45 @@ class CLITests(unittest.TestCase):
         self.assertIn("blog.example.org wordpress", route_help.stdout)
         self.assertIn("docs.example.org static", route_help.stdout)
         self.assertIn("static-sites/<hostname>/", route_help.stdout)
+
+    def test_help_is_available_at_each_command_level_without_running_actions(self):
+        route_help = subprocess.run(
+            [str(ROOT / "opendock"), "route", "--help"],
+            cwd=ROOT, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("Map a hostname to a Docker service or static web root", route_help.stdout)
+
+        route_show_help = subprocess.run(
+            [str(ROOT / "opendock"), "route", "show", "--help"],
+            cwd=ROOT, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("Optional hostname to look up", route_show_help.stdout)
+
+        setup_help = subprocess.run(
+            [str(ROOT / "opendock"), "setup", "--help"],
+            cwd=ROOT, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("Service, group, infra, mail, or all", setup_help.stdout)
+
+        service_help = subprocess.run(
+            [str(ROOT / "opendock"), "service", "hermes", "--help"],
+            cwd=ROOT, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("onboard", service_help.stdout)
+        self.assertIn("interactive first-run setup wizard", service_help.stdout)
+
+        action_help = subprocess.run(
+            [str(ROOT / "opendock"), "service", "hermes", "onboard", "--help"],
+            cwd=ROOT, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("Choose Hermes' model provider", action_help.stdout)
+        self.assertNotIn("configuration is incomplete", action_help.stdout.lower())
+
+        multisite_help = subprocess.run(
+            [str(ROOT / "opendock"), "service", "wordpress", "multisite", "--help"],
+            cwd=ROOT, text=True, capture_output=True, check=True,
+        )
+        self.assertIn("requires a migration", multisite_help.stdout)
 
     def test_direct_and_make_compatibility_list(self):
         direct = subprocess.run([str(ROOT / "opendock"), "list", "services"],
