@@ -118,6 +118,11 @@ changes.
   and must not silently degrade to container-only removal.
 - Refuse removal without confirmation in non-interactive use. Do not add a
   confirmation bypass that defeats the explicit-confirmation requirement.
+- After every current service has an audited removal contract, verify all
+  services from a clean, isolated host: configure, launch, repeat launch,
+  inspect the removal plan, remove, and confirm service-owned resources are
+  gone while shared infra and unrelated routes/data remain. Do not claim the
+  removal rollout complete before this end-to-end pass.
 
 ## Command and service ownership
 

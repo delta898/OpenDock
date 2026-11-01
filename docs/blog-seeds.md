@@ -685,7 +685,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   `scripts/opendock-remove.py`, `scripts/opendock-service.py`,
   `scripts/opendock_capabilities.py`, `scripts/opendock_catalog.py`,
   `scripts/opendock-secrets.py`, `scripts/check-config.py`,
-  `services/mastodon/opendock.py`, `services/supabase/opendock.py`,
+  `services/hermes/opendock.toml`, `services/mastodon/opendock.py`,
+  `services/supabase/opendock.py`,
   `services/mastodon/opendock-post-launch.py`,
   `services/supabase/opendock-post-launch.py`
 - 주제: `서비스가 늘어도 CLI dispatcher가 비대해지지 않게 하려면`
@@ -743,6 +744,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     같은 coordinator를 사용한다. Supabase의 초기 functions.env 준비도 해당 서비스의
     `prepare` capability로 옮겼다. 이 구조는 신뢰된 checkout의 Python 코드이며
     보안 sandbox가 아니라는 경계도 문서에 기록했다.
+  - Hermes 제거 기능은 중앙 전용 코드에서 공통 제거기로 전환하고, `[removal]`
+    descriptor에 `data/sandboxes`, 추가 sandbox 이미지, 컨테이너 label과 소유 mount
+    path를 선언하도록 바꾸는 중이다. 공통 제거기는 이 선언을 확인해 Compose 자원,
+    라우트, 서비스 설정과 함께 계획한다. 현재 제거 등록은 Hermes뿐이며 shared DB
+    오브젝트를 가진 서비스까지 지원하는 것은 아니다.
   - 사용자는 첫 catalog/capability 적용 후 `./opendock --help`, `./opendock list`,
     `./opendock launch hermes` 경로와 이어서 `./opendock setup hermes` 동작을
     확인했다. 두 번째 실행에서는 기존 onboarding을 건너뛰었다. 이후 모든 서비스의
@@ -770,6 +776,7 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 검증 상태: 사용자가 help/list, Hermes launch, Hermes setup 및 기존 onboarding
   skip을 실제 환경에서 확인했다. setup migration marker 수정도 사용자가 원격 개발
   환경에서 `sync` 후 Mastodon setup을 다시 실행해 반복 메시지가 해결된 것을
-  확인했다. secret generation·service validation capability와 Supabase prepare
-  이관은 로컬 변경으로 아직 실환경 검증되지 않았다. 자동화 테스트, 깨끗한 데이터의
-  첫 onboarding, Linux/macOS 양쪽 동작도 미검증이다.
+  확인했다. secret generation·service validation capability, Supabase prepare,
+  선언형 Hermes removal은 로컬 변경으로 아직 실환경 검증되지 않았다. 자동화 테스트,
+  깨끗한 데이터의 첫 onboarding, 모든 서비스 removal 후의 깨끗한 환경 전체 실행,
+  Linux/macOS 양쪽 동작도 미검증이다.

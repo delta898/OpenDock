@@ -310,9 +310,11 @@ Some service-specific behavior remains to migrate:
 - Service discovery, setup declarations, and service validation are catalog
   driven. The common settings layer still maps setting prefixes to owner files;
   platform-owned core/infra/shared settings remain central.
+- Removal now uses a shared planner and service-declared `[removal]` resources.
+  Hermes is the first registered service; other services remain unavailable to
+  `remove` until their data, database, and preservation scope is audited.
 - Service command help metadata is centralized in `scripts/opendock-service.py`
   even though executable commands already live beside each service.
-- Removal planning and Hermes cleanup live in a dedicated central script.
 - Sync exclusion rules include service-specific paths in the central CLI.
 
 Some shared registries are legitimate: OpenDock still needs a single common
@@ -339,10 +341,12 @@ The shared contract should be deliberately small and explicit:
   operations. `prepare` runs only after common configuration checks and shared
   prerequisites. It must be idempotent and report `not_needed`, `completed`, or
   a structured failure.
-- **Removal capability:** a read-only plan phase describes exact resources and
-  preservation rules. After common confirmation, an apply phase handles only
-  service-owned custom resources. The common layer executes generic Compose
-  cleanup and owns global route updates.
+- **Removal contract:** the current descriptor declares service-owned data
+  paths, extra images, and labeled non-Compose containers that must mount those
+  paths. The shared remover applies those declared scopes after confirmation,
+  alongside generic Compose cleanup and global route updates. Shared database
+  cleanup remains unsupported until a narrow service-scoped operation is
+  defined.
 - **Context/ports:** immutable service identity, declared settings access,
   service-scoped Compose operations, and a reporter. Do not expose mutable CLI
   globals, arbitrary filesystem deletion, unrestricted Docker access, or

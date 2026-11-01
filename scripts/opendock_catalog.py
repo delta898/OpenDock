@@ -3,6 +3,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from pathlib import PurePosixPath
 from types import MappingProxyType
 from typing import Mapping
 
@@ -47,6 +48,10 @@ class ServiceDefinition:
     def setup_dependencies(self) -> tuple[str, ...]:
         setup = self.descriptor.get("setup", {})
         return tuple(setup.get("dependencies", ()))
+
+    @property
+    def removal(self) -> Mapping[str, object]:
+        return self.descriptor.get("removal", {})
 
 
 class ServiceCatalog:
@@ -262,6 +267,63 @@ class ServiceCatalog:
             ):
                 raise CatalogError(
                     f"Setup field {name!r} in {path} has an invalid generator length."
+                )
+
+        removal = descriptor.get("removal", {})
+        if not isinstance(removal, dict):
+            raise CatalogError(f"Service descriptor {path} has an invalid [removal] section.")
+        unknown_removal = sorted(
+            set(removal) - {"data_paths", "extra_images", "orphan_containers"}
+        )
+        if unknown_removal:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported removal fields: "
+                + ", ".join(unknown_removal)
+            )
+        data_paths = removal.get("data_paths", [])
+        extra_images = removal.get("extra_images", [])
+        orphan_containers = removal.get("orphan_containers", [])
+        for key, entries in (("data_paths", data_paths), ("extra_images", extra_images)):
+            if not isinstance(entries, list) or any(
+                not isinstance(item, str) or not item.strip() for item in entries
+            ):
+                raise CatalogError(
+                    f"Service descriptor {path} removal.{key} must be a string list."
+                )
+            if len(entries) != len(set(entries)):
+                raise CatalogError(
+                    f"Service descriptor {path} removal.{key} contains duplicates."
+                )
+        for item in data_paths:
+            relative = PurePosixPath(item)
+            if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+                raise CatalogError(
+                    f"Service descriptor {path} has unsafe removal data path {item!r}."
+                )
+        if not isinstance(orphan_containers, list):
+            raise CatalogError(
+                f"Service descriptor {path} removal.orphan_containers must be an array of tables."
+            )
+        seen_orphans = set()
+        for item in orphan_containers:
+            if not isinstance(item, dict):
+                raise CatalogError(
+                    f"Service descriptor {path} has an invalid removal orphan container."
+                )
+            label = item.get("label")
+            owned_path = item.get("path")
+            if not isinstance(label, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", label):
+                raise CatalogError(
+                    f"Service descriptor {path} has an invalid orphan container label."
+                )
+            if label in seen_orphans:
+                raise CatalogError(
+                    f"Service descriptor {path} repeats orphan container label {label!r}."
+                )
+            seen_orphans.add(label)
+            if owned_path not in data_paths:
+                raise CatalogError(
+                    f"Orphan container {label!r} in {path} must use a declared removal data path."
                 )
         return descriptor
 

@@ -133,9 +133,10 @@ compatibility rules.
 
 The catalog centralizes Compose-backed service discovery, and each current
 service must have a valid `opendock.toml`. Descriptors declare setup fields,
-shared configuration dependencies, and runtime dependencies. Hermes implements
-the version 1 `runtime_environment` and `prepare` capabilities; simpler
-services need no capability module. The common setup engine reads the same
+shared configuration dependencies, runtime dependencies, and any enabled
+removal contract. Hermes implements version 1 runtime, prepare, secret, and
+validation capabilities; Mastodon and Supabase implement service-specific
+secret and validation capabilities. The common setup engine reads the same
 field schema for all services. Only capabilities implemented by the current
 contract may be declared; unsupported declarations fail during catalog
 loading. When adding a service, include a descriptor and its setup schema even
@@ -145,6 +146,22 @@ Runtime cleanup and code registration are separate lifecycles. `remove
 <service>` removes declared runtime resources while keeping the service
 available in the checkout. Removing a contribution from OpenDock source must
 not silently delete runtime data on a user's host.
+
+Removal is currently enabled for Hermes only. Declare service-owned bind data
+paths, extra images, and labeled non-Compose containers under `[removal]` in the
+service descriptor. Every orphan container must be tied to a declared data path
+and is selected only when its mount source is inside that path. The common
+remover handles Compose containers, volumes, configured images, routes, and
+the service's private configuration. Do not enable removal for a service until
+its shared database objects, user data, backups, and preservation boundaries
+have been audited.
+
+After every current service has a removal contract, the final acceptance pass
+must use a clean, isolated host. For each service, configure and launch it,
+repeat launch to confirm idempotence, inspect its removal plan, remove it, and
+confirm that its declared resources are gone while shared infrastructure and
+unrelated services remain. The full pass is a future rollout gate; Hermes being
+the first supported service does not complete it.
 
 Common target groups:
 

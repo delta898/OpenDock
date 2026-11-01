@@ -1,29 +1,19 @@
 #!/usr/bin/env python3
-"""Remove a registered OpenDock service and its service-owned resources."""
+"""Plan and remove one service's declared OpenDock resources."""
 
 import importlib.util
 import json
-import os
-import re
 import shutil
 import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from opendock_settings import CONFIG, initialize
+from opendock_catalog import ServiceCatalog
+from opendock_settings import CONFIG, LEGACY_ENV, compose_env_files, initialize
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SERVICES = ROOT / "services"
-HERMES = SERVICES / "hermes"
-COMPOSE = HERMES / "compose.yml"
-SERVICE_CONFIG = ROOT / "services" / "hermes" / ".env"
-SERVICE_CONFIG_EXAMPLE = ROOT / "services" / "hermes" / ".env.default"
-LEGACY_ENV = ROOT / "common.env"
-SANDBOX_DATA = HERMES / "data" / "sandboxes"
-SANDBOX_IMAGE = "nousresearch/hermes-sandbox:desktop"
-PROJECT = "hermes"
 
 
 class RemovalError(Exception):
@@ -49,8 +39,8 @@ def parse_env(path):
     values = {}
     if not path.is_file():
         return values
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
@@ -66,19 +56,12 @@ def domains_module():
     return module
 
 
-def compose_prefix():
-    directory = HERMES
+def compose_prefix(service):
+    directory = ROOT / "services" / service
     command = ["docker", "compose", "--project-directory", directory]
-    for env_file in (
-        CONFIG / "core.env.default", CONFIG / "core.env",
-        CONFIG / "infra.env.default", CONFIG / "infra.env",
-        CONFIG / "shared" / "mail.env.default", CONFIG / "shared" / "mail.env",
-        SERVICE_CONFIG_EXAMPLE, LEGACY_ENV, HERMES / ".env",
-    ):
-        if env_file.is_file():
-            command += ["--env-file", env_file]
-    command += ["-f", COMPOSE, "-p", PROJECT]
-    return command
+    for env_file in compose_env_files(service):
+        command += ["--env-file", env_file]
+    return command + ["-f", directory / "compose.yml", "-p", service]
 
 
 def routes_for_removal(domains):
@@ -89,163 +72,208 @@ def routes_for_removal(domains):
     return []
 
 
-def sandbox_container_ids(sandbox_root, compose_ids):
-    raw_ids = run_command(
-        ["docker", "ps", "-aq", "--filter", "label=hermes-task-id"], capture=True
-    ).stdout.splitlines()
-    candidates = [item.strip() for item in raw_ids if item.strip() and item.strip() not in compose_ids]
+def owned_path(service, relative):
+    service_root = (ROOT / "services" / service).resolve()
+    current = ROOT / "services" / service
+    for part in Path(relative).parts:
+        current = current / part
+        if current.is_symlink():
+            raise RemovalError(f"Refusing to access declared removal path through a symlink: {current}")
+    resolved = current.resolve()
+    try:
+        resolved.relative_to(service_root)
+    except ValueError as exc:
+        raise RemovalError(f"Declared removal path escapes services/{service}: {relative}") from exc
+    return current
+
+
+def inspect_orphan_containers(service, declarations, compose_ids):
+    candidates = {}
+    for declaration in declarations:
+        label = declaration["label"]
+        raw_ids = run_command(
+            ["docker", "ps", "-aq", "--filter", f"label={label}"], capture=True
+        ).stdout.splitlines()
+        candidates.update({item.strip(): declaration for item in raw_ids if item.strip()})
+    candidates = {item: spec for item, spec in candidates.items() if item not in compose_ids}
     if not candidates:
         return []
-    inspected = json.loads(run_command(["docker", "inspect", *candidates], capture=True).stdout)
-    root = sandbox_root.resolve()
-    matched = []
+
+    inspected = json.loads(run_command(
+        ["docker", "inspect", *candidates], capture=True
+    ).stdout)
+    owned = []
     for container in inspected:
+        container_id = container.get("Id", "")
+        declaration = candidates.get(container_id)
+        if not declaration:
+            continue
+        expected_root = owned_path(service, declaration["path"]).resolve()
         for mount in container.get("Mounts", []):
             source = mount.get("Source")
             if not source:
                 continue
             resolved = Path(source).resolve()
             try:
-                resolved.relative_to(root)
+                resolved.relative_to(expected_root)
             except ValueError:
                 continue
-            matched.append({
-                "id": container.get("Id", ""),
+            owned.append({
+                "id": container_id,
                 "name": container.get("Name", "").lstrip("/"),
                 "image": container.get("Config", {}).get("Image", ""),
+                "path": declaration["path"],
             })
             break
-    return matched
+    return owned
 
 
-def build_plan():
-    os.environ.setdefault("HERMES_SANDBOX_DIR", str(SANDBOX_DATA))
-    if not COMPOSE.is_file():
-        raise RemovalError("Hermes is not installed in this OpenDock checkout.")
+def build_plan(service):
+    definition = ServiceCatalog(ROOT).get(service)
+    removal = definition.removal
+    if not removal:
+        raise RemovalError(
+            f"Removal is not registered for {definition.display_name}. "
+            "This service must declare its resource ownership before it can be removed."
+        )
+    service_dir = definition.directory
+    service_config = service_dir / ".env"
+    legacy_service_config = CONFIG / "services" / f"{service}.env"
     domains = domains_module()
-    if CONFIG.is_symlink() or SERVICE_CONFIG.parent.is_symlink():
-        raise RemovalError("Refusing to inspect Hermes config through a symlink.")
-    if SERVICE_CONFIG.is_symlink():
-        raise RemovalError("Refusing to edit Hermes config because it is a symlink.")
+    if CONFIG.is_symlink() or service_dir.is_symlink():
+        raise RemovalError(f"Refusing to inspect {service} configuration through a symlink.")
+    if service_config.is_symlink() or legacy_service_config.is_symlink():
+        raise RemovalError(f"Refusing to edit {service} configuration through a symlink.")
     if LEGACY_ENV.is_symlink():
         raise RemovalError("Refusing to migrate legacy config through a symlink.")
     if domains.DOMAINS_FILE.is_symlink():
         raise RemovalError("Refusing to edit domains.conf because it is a symlink.")
-    if SANDBOX_DATA.is_symlink():
-        raise RemovalError(f"Refusing to remove sandbox data through a symlink: {SANDBOX_DATA}")
-    resolved_sandbox = SANDBOX_DATA.resolve()
-    try:
-        resolved_sandbox.relative_to(ROOT.resolve())
-    except ValueError as exc:
-        raise RemovalError(f"Sandbox data path escapes the repository: {SANDBOX_DATA}") from exc
 
+    declared_paths = list(removal.get("data_paths", ()))
+    paths = {relative: owned_path(service, relative) for relative in declared_paths}
     all_routes = routes_for_removal(domains)
     routes = [route for route in all_routes
-              if route.get("type") == "docker" and route.get("target") == "hermes"]
-
-    compose_ids = [item.strip() for item in run_command(
-        ["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={PROJECT}"],
+              if route.get("type") == "docker" and route.get("target") == service]
+    compose_ids = {
+        item.strip() for item in run_command(
+            ["docker", "ps", "-aq", "--filter",
+             f"label=com.docker.compose.project={service}"], capture=True,
+        ).stdout.splitlines() if item.strip()
+    }
+    orphan_containers = inspect_orphan_containers(
+        service, removal.get("orphan_containers", ()), compose_ids
+    )
+    volumes = [item.strip() for item in run_command(
+        ["docker", "volume", "ls", "--filter",
+         f"label=com.docker.compose.project={service}", "--format", "{{.Name}}"],
         capture=True,
     ).stdout.splitlines() if item.strip()]
-    sandbox_containers = sandbox_container_ids(SANDBOX_DATA, set(compose_ids))
-    volumes = [item.strip() for item in run_command(
-        ["docker", "volume", "ls", "--filter", f"label=com.docker.compose.project={PROJECT}",
-         "--format", "{{.Name}}"], capture=True,
-    ).stdout.splitlines() if item.strip()]
     images = [item.strip() for item in run_command(
-        [*compose_prefix(), "config", "--images"], capture=True,
+        [*compose_prefix(service), "config", "--images"], capture=True,
     ).stdout.splitlines() if item.strip()]
-    if SANDBOX_IMAGE not in images:
-        images.append(SANDBOX_IMAGE)
+    images.extend(removal.get("extra_images", ()))
+    images = list(dict.fromkeys(images))
 
-    service_values = parse_env(SERVICE_CONFIG)
+    prefix = service.replace("-", "_").upper() + "_"
+    service_values = parse_env(service_config)
+    old_values = parse_env(legacy_service_config)
     legacy_values = parse_env(LEGACY_ENV)
-    service_keys = {key for key in parse_env(SERVICE_CONFIG_EXAMPLE) if key.startswith("HERMES_")}
-    service_keys.update(key for key in service_values if key.startswith("HERMES_"))
-    legacy_keys = {key for key in legacy_values if key.startswith("HERMES_")}
-    configured_keys = sorted(service_keys & (service_values.keys() | legacy_values.keys()))
+    configured_keys = sorted(
+        key for source in (service_values, old_values, legacy_values)
+        for key in source if key.startswith(prefix)
+    )
+    configured_keys = sorted(set(configured_keys))
+    custom_data = [
+        relative for relative, path in paths.items() if path.exists()
+    ]
 
     return {
+        "service": definition,
         "domains": domains,
         "routes": routes,
-        "compose_ids": compose_ids,
-        "sandbox_containers": sandbox_containers,
+        "compose_ids": sorted(compose_ids),
+        "orphan_containers": orphan_containers,
         "volumes": volumes,
         "images": images,
+        "data_paths": custom_data,
         "configured_keys": configured_keys,
-        "remove_service_config": SERVICE_CONFIG.exists() or bool(legacy_keys),
+        "remove_service_config": service_config.exists() or legacy_service_config.exists(),
         "migrate_legacy_config": LEGACY_ENV.is_file(),
-        "remove_sandbox_data": SANDBOX_DATA.exists(),
     }
 
 
 def print_plan(plan):
-    print("Complete removal plan for hermes:")
-    print("  Stop and remove Hermes Compose containers")
+    definition = plan["service"]
+    name = definition.name
+    print(f"Complete removal plan for {definition.display_name}:")
+    print(f"  Stop and remove {definition.display_name} Compose containers")
     if plan["compose_ids"]:
         print(f"    {len(plan['compose_ids'])} Compose container(s)")
     else:
         print("    (none currently present)")
-    print("  Remove Hermes Docker sandbox containers:")
-    if plan["sandbox_containers"]:
-        for item in plan["sandbox_containers"]:
-            print(f"    {item['name']} ({item['image']})")
+    print(f"  Remove {definition.display_name} service-specific containers:")
+    if plan["orphan_containers"]:
+        for item in plan["orphan_containers"]:
+            print(f"    {item['name']} ({item['image']}; services/{name}/{item['path']}/)")
     else:
-        print("    (none using this Hermes sandbox directory)")
-    print("  Remove Hermes Compose named volumes:")
+        print("    (none found in declared service data paths)")
+    print(f"  Remove {definition.display_name} Compose named volumes:")
     for volume in plan["volumes"] or ["(none currently present)"]:
         print(f"    {volume}")
-    print("  Remove Hermes images if not in use by another container:")
-    for image in plan["images"]:
+    print(f"  Remove {definition.display_name} images if not in use by another container:")
+    for image in plan["images"] or ["(none declared)"]:
         print(f"    {image}")
-    print("  Remove Hermes public routes and Cloudflare Tunnel/DNS entries:")
+    print(f"  Remove {definition.display_name} public routes and Cloudflare Tunnel/DNS entries:")
     for route in plan["routes"] or [{"hostname": "(none configured)"}]:
         print(f"    {route['hostname']}")
     if not (ROOT / "cloudflare.env").is_file():
         print("    Cloudflare API cleanup unavailable; cloudflare.env is absent")
-    if plan["remove_sandbox_data"]:
-        print(f"  Delete sandbox workspace data: {SANDBOX_DATA.relative_to(ROOT)}/")
-    print("  Remove Hermes settings from services/hermes/.env:")
+    for relative in plan["data_paths"]:
+        print(f"  Delete declared service data: services/{name}/{relative}/")
+    print(f"  Remove {definition.display_name} settings from services/{name}/.env:")
     for key in plan["configured_keys"] or ["(none configured)"]:
         print(f"    {key}")
     if plan["remove_service_config"]:
-        print("    A permission-restricted Hermes config backup will be retained.")
-    if plan.get("migrate_legacy_config"):
+        print("    A permission-restricted service config backup will be retained.")
+    if plan["migrate_legacy_config"]:
         print("  Migrate remaining common.env values to their owner files and retain its backup.")
     print("  Preserve OpenDock code, core/shared settings, shared infra, and Caddy state.")
 
 
-def backup_service_config():
-    backup_dir = ROOT / "backups" / "config" / "services" / "hermes"
+def backup_service_config(service, service_config):
+    backup_dir = ROOT / "backups" / "config" / "services" / service
     backup_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backup = backup_dir / f".env.{timestamp}.bak"
-    shutil.copy2(SERVICE_CONFIG, backup)
+    shutil.copy2(service_config, backup)
     backup.chmod(0o600)
     return backup
 
 
-def remove_service_config():
-    if not SERVICE_CONFIG.is_file():
+def remove_service_config(service):
+    service_config = ROOT / "services" / service / ".env"
+    if not service_config.is_file():
         return
-    backup_service_config()
-    SERVICE_CONFIG.unlink()
+    if service_config.is_symlink():
+        raise RemovalError(f"Refusing to remove service configuration symlink: {service_config}")
+    backup_service_config(service, service_config)
+    service_config.unlink()
 
 
-def remove_routes(plan):
+def remove_routes(service, plan):
     if not plan["routes"]:
         return
     domains = plan["domains"]
     current = routes_for_removal(domains)
     current_routes = [route for route in current
-                      if route.get("type") == "docker" and route.get("target") == "hermes"]
+                      if route.get("type") == "docker" and route.get("target") == service]
     if not current_routes:
         return
     for route in current_routes:
         run_command([sys.executable, ROOT / "scripts" / "publish-cloudflare.py",
                      "remove", route["hostname"]])
     remaining = [route for route in current if not (
-        route.get("type") == "docker" and route.get("target") == "hermes")]
+        route.get("type") == "docker" and route.get("target") == service)]
     domains.save_routes(remaining)
     domains.render_routes(remaining)
     names = run_command(["docker", "ps", "--format", "{{.Names}}"],
@@ -262,23 +290,31 @@ def remove_routes(plan):
         print("Caddy is not running; the removed route will stay absent on next launch.")
 
 
-def remove_hermes(plan):
-    # Migration is a change, so defer it until after the user confirms removal.
+def remove_declared_data(service, relative):
+    path = owned_path(service, relative)
+    if not path.exists():
+        return
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+    print(f"Removed services/{service}/{relative}/")
+
+
+def remove_resources(plan):
+    definition = plan["service"]
+    service = definition.name
     initialize()
-    # Withdraw public access before stopping the service.
-    remove_routes(plan)
+    remove_routes(service, plan)
+    run_command([*compose_prefix(service), "down", "--volumes", "--remove-orphans"])
 
-    run_command([*compose_prefix(), "down", "--volumes", "--remove-orphans"])
+    orphan_ids = [item["id"] for item in plan["orphan_containers"] if item.get("id")]
+    if orphan_ids:
+        run_command(["docker", "rm", "-f", *orphan_ids])
 
-    sandbox_ids = [item["id"] for item in plan["sandbox_containers"] if item.get("id")]
-    if sandbox_ids:
-        run_command(["docker", "rm", "-f", *sandbox_ids])
-
-    if SANDBOX_DATA.exists():
-        shutil.rmtree(SANDBOX_DATA)
-        print(f"Removed {SANDBOX_DATA.relative_to(ROOT)}/")
-
-    remove_service_config()
+    for relative in plan["data_paths"]:
+        remove_declared_data(service, relative)
+    remove_service_config(service)
 
     for image in plan["images"]:
         result = run_command(["docker", "image", "rm", image], capture=True, check=False)
@@ -287,18 +323,17 @@ def remove_hermes(plan):
             print(f"Kept image {image}: {detail}")
         else:
             print(f"Removed image {image}")
-
-    print("Hermes removal complete. Run './opendock launch hermes' to set it up again.")
+    print(f"{definition.display_name} removal complete. Run './opendock launch {service}' to set it up again.")
 
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
-    if len(args) not in (1, 2) or args[0] != "hermes" or (len(args) == 2 and args[1] != "--dry-run"):
-        print("Removal is currently enabled for Hermes only.", file=sys.stderr)
-        print("Usage: ./opendock remove hermes [--dry-run]", file=sys.stderr)
+    if len(args) not in (1, 2) or (len(args) == 2 and args[1] != "--dry-run"):
+        print("Usage: ./opendock remove <service> [--dry-run]", file=sys.stderr)
         return 2
+    service = args[0]
     try:
-        plan = build_plan()
+        plan = build_plan(service)
         print_plan(plan)
         if len(args) == 2:
             print("Dry run: no changes made.")
@@ -306,13 +341,12 @@ def main(argv=None):
         if not sys.stdin.isatty():
             raise RemovalError("Removal requires an interactive confirmation; no changes were made.")
         print()
-        print("This permanently deletes Hermes settings, conversations, sandbox data, "
-              "and its configured public routes.")
-        confirmation = input("Type REMOVE hermes to continue: ")
-        if confirmation != "REMOVE hermes":
+        print(f"This permanently deletes {plan['service'].display_name} settings, data, and configured public routes.")
+        confirmation = input(f"Type REMOVE {service} to continue: ")
+        if confirmation != f"REMOVE {service}":
             print("Removal cancelled. No changes made.")
             return 0
-        remove_hermes(plan)
+        remove_resources(plan)
     except (RemovalError, OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"OpenDock remove: {exc}", file=sys.stderr)
         return 1

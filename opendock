@@ -200,6 +200,10 @@ def services():
     return list(ServiceCatalog(ROOT).names)
 
 
+def removable_services():
+    return [service.name for service in ServiceCatalog(ROOT).services if service.removal]
+
+
 def groups():
     found = {}
     if GROUPS.exists():
@@ -830,7 +834,10 @@ def parser():
         epilog="Examples:\n  ./opendock remove hermes --dry-run\n  ./opendock remove hermes",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    remove_cmd.add_argument("target", help="One registered service (currently: hermes)")
+    supported_removals = ", ".join(removable_services()) or "none yet"
+    remove_cmd.add_argument(
+        "target", help=f"One service with a removal contract (currently: {supported_removals})"
+    )
     remove_cmd.add_argument("--dry-run", action="store_true",
                             help="Show removal targets without changing anything")
     logs = sub.add_parser(
