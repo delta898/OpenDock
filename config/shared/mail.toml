@@ -5,6 +5,7 @@ setting_keys = [
   "OPENDOCK_MAIL_SETUP_SKIPPED",
   "SMTP_HOST",
   "SMTP_PORT",
+  "SMTP_SECURE",
   "SMTP_USERNAME",
   "SMTP_PASSWORD",
   "SMTP_FROM_ADDRESS",
@@ -20,6 +21,11 @@ kind = "required-user"
 name = "SMTP_PORT"
 kind = "defaulted-choice"
 default = "587"
+
+[[setup.fields]]
+name = "SMTP_SECURE"
+kind = "defaulted-choice"
+default = "false"
 
 [[setup.fields]]
 name = "SMTP_USERNAME"

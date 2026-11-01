@@ -24,6 +24,7 @@ supabase.<your-domain> -> Supabase
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
 hermes.<your-domain>  -> Hermes Agent dashboard
+docmost.<your-domain> -> Docmost
 ```
 
 Shared infrastructure:
@@ -396,7 +397,7 @@ Review or update local setup interactively:
 
 ### Optional email (SMTP)
 
-SMTP is a shared, optional setting. Services that declare support for it offer configuration during setup or first launch. Choose **No** to continue without SMTP; OpenDock remembers the choice, and the service still starts. Email-dependent features may be unavailable until you configure a relay. Supabase keeps its local Inbucket fallback unless you configure an external relay. The currently integrated services are Mastodon, Mattermost, n8n, and Supabase.
+SMTP is a shared, optional setting. Services that declare support for it offer configuration during setup or first launch. Choose **No** to continue without SMTP; OpenDock remembers the choice, and the service still starts. Email-dependent features may be unavailable until you configure a relay. Supabase keeps its local Inbucket fallback unless you configure an external relay. The currently integrated services are Docmost, Mastodon, Mattermost, n8n, and Supabase.
 
 To configure or change the relay later:
 
@@ -531,6 +532,7 @@ When you update the repository with `git pull`, OpenDock reads updated defaults 
 │       └── conf.d/
 └── services/
     ├── homepage/
+    ├── docmost/
     ├── immich/
     ├── jellyfin/
     ├── mastodon/

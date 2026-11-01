@@ -866,3 +866,52 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     Linux/macOS 양쪽 동작도 미검증이다. 이번 infra descriptor 이동은 정적
     구문/차이 검토까지만 했으며 setup/secrets 실행과 설정 migration 영향은
     아직 검증하지 않았다.
+
+## OD-018. 여러 사용자가 쓸 Notion 대안을 홈서버에 고르기
+
+- 상태: `seed`
+- 관련 작업: `codex/feature/docmost`의 Docmost 서비스 추가; 완료 후 커밋 해시 기록
+- 주제: `AppFlowy의 무료 좌석 제한을 확인하고 Docmost를 OpenDock 서비스로 검토하기`
+- 독자 질문: Notion 같은 협업 문서 도구를 자체 호스팅하려는 소규모 팀은 기능,
+  라이선스, 자원, 운영 복잡도를 어떤 순서로 비교해야 하는가?
+- 참고할 사항:
+  - 사용자는 홈서버에서 여러 사용자가 쓸 Notion 대안을 찾았다. AppFlowy Self-Hosted
+    무료 티어는 instance당 사용자 좌석 1개와 최대 3명의 guest editor를 구분해 제공하므로,
+    여러 일반 사용자 계정 요구와 맞지 않는다는 점을 공식 배포 README에서 확인했다.
+  - Docmost 공식 문서는 실시간 공동 편집, Spaces, self-host Docker 구성을 설명한다.
+    공식 Community/Business 가격표는 Community의 핵심 협업 기능과 Business 전용 기능을
+    구분하며 Bases와 Kanban은 Business feature로 나열한다. 따라서 “Notion 대체”라는
+    표현만으로 모든 데이터베이스 기능이 무료라고 가정하지 않고 사용 목적과 요금표를
+    대조해야 한다.
+  - OpenDock 파일럿은 별도 `codex/feature/docmost` branch에서 service descriptor,
+    `.env.default`, 기본 hostname `docmost`, PostgreSQL shared-database 초기화,
+    shared Redis DB index 1, 선택적 SMTP 연결, Caddy handler, 서비스별 README와
+    `knowledge` group으로 구성한다.
+    Compose가 제공하는 PostgreSQL/Redis를 중복 기동하지 않고 OpenDock의 공통 infra를
+    사용하는 방향이다.
+  - 업로드 파일은 Compose named volume에 두고, 제거 계약은 Docmost 전용 shared PostgreSQL
+    database/role과 upload volume만 소유한다. 공통 infra volume이나 다른 서비스 상태는
+    제거하지 않는다. SMTP가 없더라도 서비스 실행은 허용하되 초대 메일 등은 relay 설정이
+    필요하다고 안내한다.
+  - 실제 자원 사용량은 서버 사양과 사용자 규모에 따라 달라지며 공식 문서에서 최소 RAM을
+    확인하지 못했다. 따라서 저사양 서버에서도 충분하다고 추측하지 않는다.
+  - 첫 사용자 실행에서 `docmost/docmost:v0.97.0: not found`가 발생했다. GitHub release
+    이름은 `v0.97.0`이지만 Docker Hub의 실제 image tag는 `0.97.0`으로 `v` prefix가 없다.
+    `.env.default`를 `0.97.0`으로 수정했고 사용자가 다시 실행해 기동을 확인했다.
+    Docker Hub tag 페이지는 linux/amd64와 linux/arm64 manifest를 표시한다.
+  - 사용자는 초기 `Create workspace` 화면이 공개 가입인지 질문했다. 공식 설치 안내와
+    화면의 동작은 첫 workspace/admin을 생성하는 최초 설정 흐름이며, 이 단계는 가입 확인
+    메일을 발송하지 않는다. 사용자는 이후 Forgot password 이메일 발송을 실환경에서
+    확인해 OpenDock shared SMTP 설정이 Docmost에 적용됨을 검증했다. 초대 이메일 수신은
+    아직 따로 확인하지 않았다.
+- 보존할 교훈:
+  - SaaS 대안 선정은 화면 기능 비교만이 아니라 무료 계정의 정의(사용자와 게스트),
+    라이선스 기능 구분, 데이터 자원 소유권, update/backup 운영모델을 함께 봐야 한다.
+  - OpenDock service contribution은 upstream의 Compose를 그대로 복사하는 것보다 공통
+    infra 재사용과 삭제 경계를 명확히 하면서 쉬운 launch UX를 보존하는 작업이다.
+- 검증 상태: 공식 AppFlowy, Docmost 문서와 Compose 구성을 조사하고 OpenDock service
+  파일을 작성했다. 사용자는 Docker image tag 수정 후 launch와 초기 workspace/admin 설정,
+  Forgot password 메일 발송을 실환경에서 확인했다. 초대 메일 수신과 실제 다중 사용자 협업은
+  아직 별도 검증되지 않았다. 현재 branch에서 catalog discovery, config/Compose rendering,
+  route publish, descriptor 기반 removal과 OpenDock command-level setup 동작도 아직 검증하지
+  않았다.
