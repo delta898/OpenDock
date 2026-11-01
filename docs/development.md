@@ -126,6 +126,9 @@ owns the MariaDB service, shared dependency group, and database removal adapter.
 
 ## Contributing a service
 
+The contributor workflow is documented in [Adding a Service to OpenDock](adding-services.md).
+For an AI-assisted contribution, start from the [service contribution meta prompt](prompts/add-service.md).
+
 OpenDock treats a service as a small extension unit. The target contribution
 layout is:
 

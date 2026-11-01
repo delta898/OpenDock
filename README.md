@@ -590,4 +590,7 @@ removed.
 
 ## Development
 
-For service conventions, publish automation details, and contribution notes, see [docs/development.md](docs/development.md).
+For service conventions, see [docs/development.md](docs/development.md) and
+[Adding a Service to OpenDock](docs/adding-services.md). To have an AI assistant
+prepare a contribution from service-specific inputs, use the
+[service contribution meta prompt](docs/prompts/add-service.md).

@@ -836,6 +836,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     shared database를 보존하는 순서 테스트도 포함했다. 실제 Docker/Cloudflare 환경 동작은
     여기서 검증하지 않았다. shared descriptor 이동 후에도 Python 3.15에서 전체 36개 테스트와
     TOML/catalog 검증을 다시 통과했다.
+  - 서비스 추가 규격을 처음 보는 기여자와 AI가 따를 수 있도록
+    `docs/adding-services.md`와 `docs/prompts/add-service.md`를 작성했다. Compose와 유효한
+    descriptor만 있으면 중앙 CLI 분기 없이 catalog가 검색한다는 점, 공개 Caddy route에는
+    gateway snippet이 필요하고 미지원 shared group/capability는 플랫폼 변경이라는 경계를
+    명시했다. 실제 신규 서비스를 이 guide/prompt만으로 완성한 기여자 검증은 아직 없다.
   - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
     `HERMES_SUBDOMAIN`이 변경된 것으로 표시됐다. 기본값 migration 직후 setup이
     이미 실효값인 tracked default를 private `.env`에 다시 쓰는 경로로 판단해,
