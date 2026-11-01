@@ -760,6 +760,10 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     Immich는 별도 Postgres 컨테이너와 bind-mounted DB, 업로드된 사진·영상 library,
     model cache volume을 사용하므로 이 세 데이터 범주를 제거 계획에 드러내고 삭제 경고를
     문서화했다.
+    Supabase는 DB/storage bind data 외에 Git에서 제외된 `functions.env`를 사용한다.
+    이를 descriptor의 private `config_files`로 선언하고, 공통 remover가 삭제 전에
+    restrictive backup을 남기는 처리를 추가했다. 추적되는 Edge Function source와 config는
+    제거 대상에서 뺐다.
   - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
     `[[commands]]`로 옮겼다. Hermes, WordPress, Supabase가 자신의 명령 이름,
     설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.

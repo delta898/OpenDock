@@ -99,6 +99,9 @@ changes.
   removed: containers, images, named volumes, bind-mounted data paths, service
   database/schema, service-specific configuration, and public routes as
   applicable.
+- If a service has additional ignored secret/config files beyond `.env`, declare
+  them under `removal.config_files`; back them up with restrictive permissions
+  before deletion and list them in the plan.
 - Treat resources according to ownership. Never remove shared infra databases
   or volumes, global OpenDock configuration such as the primary domain,
   resources belonging to another service, or user content outside the selected

@@ -147,6 +147,18 @@ Restart Supabase after adding or changing function source code:
 ./opendock restart supabase
 ```
 
+## Remove
+
+Preview the removal plan with `./opendock remove supabase --dry-run`. Complete
+removal asks for explicit confirmation and deletes the Supabase containers,
+Compose named volumes, images, configured public route, service-local settings,
+`services/supabase/data/db/`, and `services/supabase/data/storage/`. This
+permanently deletes the Supabase database and uploaded objects. The ignored
+`services/supabase/functions.env` is also removed after a permission-restricted
+backup is saved under `backups/config/services/supabase/`. Tracked configuration
+and Edge Function source under `services/supabase/config/` are preserved, as
+are shared infrastructure and the gateway.
+
 ## Backups
 
 Back up both persistent directories together:

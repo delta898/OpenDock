@@ -104,3 +104,7 @@ default = "OpenDock"
 name = "SUPABASE_STUDIO_DEFAULT_PROJECT"
 kind = "defaulted-choice"
 default = "OpenDock"
+
+[removal]
+data_paths = ["data/db", "data/storage"]
+config_files = ["functions.env"]

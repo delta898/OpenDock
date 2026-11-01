@@ -151,6 +151,20 @@ def build_plan(service):
 
     declared_paths = list(removal.get("data_paths", ()))
     paths = {relative: owned_path(service, relative) for relative in declared_paths}
+    declared_config_files = list(removal.get("config_files", ()))
+    config_files = []
+    for relative in declared_config_files:
+        path = owned_path(service, relative)
+        if path.is_symlink():
+            raise RemovalError(
+                f"Refusing to remove declared config through a symlink: {path}"
+            )
+        if path.exists() and not path.is_file():
+            raise RemovalError(
+                f"Declared private config is not a regular file: {path}"
+            )
+        if path.is_file():
+            config_files.append(relative)
     all_routes = routes_for_removal(domains)
     routes = [route for route in all_routes
               if route.get("type") == "docker" and route.get("target") == service]
@@ -196,6 +210,7 @@ def build_plan(service):
         "volumes": volumes,
         "images": images,
         "data_paths": custom_data,
+        "config_files": config_files,
         "configured_keys": configured_keys,
         "remove_service_config": service_config.exists() or legacy_service_config.exists(),
         "migrate_legacy_config": LEGACY_ENV.is_file(),
@@ -230,6 +245,11 @@ def print_plan(plan):
         print("    Cloudflare API cleanup unavailable; cloudflare.env is absent")
     for relative in plan["data_paths"]:
         print(f"  Delete declared service data: services/{name}/{relative}/")
+    if plan["config_files"]:
+        print(f"  Remove additional private configuration for {definition.display_name}:")
+        for relative in plan["config_files"]:
+            print(f"    services/{name}/{relative}")
+        print("    A permission-restricted backup will be retained.")
     print(f"  Remove {definition.display_name} settings from services/{name}/.env:")
     for key in plan["configured_keys"] or ["(none configured)"]:
         print(f"    {key}")
@@ -241,10 +261,11 @@ def print_plan(plan):
 
 
 def backup_service_config(service, service_config):
-    backup_dir = ROOT / "backups" / "config" / "services" / service
+    relative = service_config.relative_to(ROOT / "services" / service)
+    backup_dir = ROOT / "backups" / "config" / "services" / service / relative.parent
     backup_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
-    backup = backup_dir / f".env.{timestamp}.bak"
+    backup = backup_dir / f"{relative.name}.{timestamp}.bak"
     shutil.copy2(service_config, backup)
     backup.chmod(0o600)
     return backup
@@ -258,6 +279,20 @@ def remove_service_config(service):
         raise RemovalError(f"Refusing to remove service configuration symlink: {service_config}")
     backup_service_config(service, service_config)
     service_config.unlink()
+
+
+def remove_additional_config_file(service, relative):
+    path = owned_path(service, relative)
+    if not path.is_file():
+        return
+    if path.is_symlink():
+        raise RemovalError(f"Refusing to remove service config symlink: {path}")
+    backup = backup_service_config(service, path)
+    path.unlink()
+    print(
+        f"Removed services/{service}/{relative}; "
+        f"restricted backup: {backup.relative_to(ROOT)}"
+    )
 
 
 def remove_routes(service, plan):
@@ -315,6 +350,8 @@ def remove_resources(plan):
     for relative in plan["data_paths"]:
         remove_declared_data(service, relative)
     remove_service_config(service)
+    for relative in plan["config_files"]:
+        remove_additional_config_file(service, relative)
 
     for image in plan["images"]:
         result = run_command(["docker", "image", "rm", image], capture=True, check=False)
