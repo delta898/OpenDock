@@ -10,9 +10,9 @@ https://cloud.<STACK_DOMAIN>
 
 ## Configuration
 
-Service defaults live in `services/nextcloud/.env`.
+Service defaults live in `services/nextcloud/.env.default`; local values and secrets are stored in `services/nextcloud/.env`.
 
-Generated secrets live in the repository-level `common.env`:
+Generated secrets live in the repository-level `services/nextcloud/.env`:
 
 ```env
 NEXTCLOUD_DB_PASSWORD=change-nextcloud-db-password

@@ -7,11 +7,10 @@ from pathlib import Path
 from typing import Optional
 
 from opendock_groups import group_services, validate_services
+import opendock_settings as SETTINGS
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-COMMON_ENV = ROOT_DIR / "common.env"
-COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 SECRETS_SCRIPT = ROOT_DIR / "scripts" / "opendock-secrets.py"
 
 
@@ -65,7 +64,7 @@ CONFIG_FIELDS = {
             "NEXTCLOUD_ADMIN_PASSWORD",
             "initial-credential",
             note=(
-                "Used only during first installation. Changing common.env later "
+                "Used only during first installation. Changing this setting later "
                 "does not reset an installed Nextcloud account."
             ),
         ),
@@ -129,6 +128,19 @@ CONFIG_FIELDS = {
         ),
         Field("SUPABASE_STUDIO_DEFAULT_ORGANIZATION", "defaulted-choice", default="OpenDock"),
         Field("SUPABASE_STUDIO_DEFAULT_PROJECT", "defaulted-choice", default="OpenDock"),
+    ],
+    "hermes": [
+        Field("HERMES_SUBDOMAIN", "defaulted-choice", default="hermes"),
+        Field("HERMES_DASHBOARD_USERNAME", "defaulted-choice", default="opendock"),
+        Field(
+            "HERMES_DASHBOARD_PASSWORD",
+            "secret-user",
+            note=(
+                "Used at runtime for Hermes dashboard login. Enter a password; "
+                "OpenDock stores it privately and does not display it."
+            ),
+        ),
+        Field("HERMES_DASHBOARD_SECRET", "generated-secret"),
     ],
 }
 
@@ -275,57 +287,15 @@ def values_to_generate(fields, values, chosen):
     return keys
 
 
-def update_common_env(updates, selected_keys, should_backup):
-    lines = COMMON_ENV.read_text().splitlines()
-    changed = []
-    kept = []
-    seen = set()
-    updated_lines = []
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            updated_lines.append(line)
-            continue
-
-        key, current = line.split("=", 1)
-        key = key.strip()
-        if key not in selected_keys:
-            updated_lines.append(line)
-            continue
-
-        seen.add(key)
-        if key in updates and current != updates[key]:
-            updated_lines.append(f"{key}={updates[key]}")
-            changed.append(key)
-        else:
-            updated_lines.append(line)
-            kept.append(key)
-
-    missing = sorted(selected_keys - seen)
-    if missing:
-        if updated_lines and updated_lines[-1].strip():
-            updated_lines.append("")
-        updated_lines.append("# OpenDock setup values.")
-        for key in missing:
-            if key in updates:
-                updated_lines.append(f"{key}={updates[key]}")
-                changed.append(key)
-
-    if changed and should_backup:
-        backup = SECRETS.backup_common_env()
-    else:
-        backup = None
-
-    COMMON_ENV.write_text("\n".join(updated_lines) + "\n")
-    COMMON_ENV.chmod(0o600)
-    return changed, kept, backup
+def update_settings(updates):
+    changed = SETTINGS.write_values(updates)
+    return changed, [], SETTINGS.BACKUPS_CREATED[:]
 
 
 def print_summary(changed, generated_keys, backup):
     print()
     if changed:
-        print("Updated common.env:")
+        print("Updated OpenDock configuration:")
         for key in sorted(changed):
             if key in generated_keys:
                 print(f"  {key} generated")
@@ -336,21 +306,26 @@ def print_summary(changed, generated_keys, backup):
 
     if backup:
         print()
-        print(f"Backup: {backup.relative_to(ROOT_DIR)}")
+        for path in backup:
+            print(f"Backup: {path.relative_to(ROOT_DIR)}")
 
     if generated_keys:
         print()
-        print("Generated values were not printed; see common.env when needed.")
+        print("Generated values were not printed; see the corresponding owner-specific .env file.")
 
 
 def print_credential_notices(changed):
+    if "HERMES_DASHBOARD_PASSWORD" in changed:
+        print()
+        print("Hermes dashboard password is stored in private services/hermes/.env.")
+        print("Run './opendock launch hermes' to apply a changed password.")
     if "NEXTCLOUD_ADMIN_PASSWORD" in changed:
         print()
-        print("Nextcloud initial admin password is stored in common.env.")
-        print("Changing common.env later will not reset an installed Nextcloud password.")
+        print("Nextcloud initial admin password is stored in services/nextcloud/.env.")
+        print("Changing it later will not reset an installed Nextcloud password.")
     if "MASTODON_ADMIN_PASSWORD" in changed:
         print()
-        print("Mastodon owner password is stored in common.env.")
+        print("Mastodon owner password is stored in services/mastodon/.env.")
         print("It is used only when OpenDock creates the first Mastodon owner account.")
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
@@ -363,8 +338,8 @@ def main():
     print("Secrets are generated or kept without printing their values.")
     print()
 
-    created = SECRETS.ensure_common_env()
-    values = SECRETS.parse_env(COMMON_ENV)
+    SETTINGS.initialize()
+    values = SETTINGS.load_values(process_env=False)
 
     chosen = {}
     for field in fields:
@@ -395,10 +370,7 @@ def main():
     updates.update({k: v for k, v in chosen.items() if v != "__GENERATE__"})
     updates.update(generated)
 
-    selected_keys = {field.name for field in fields}
-    changed, _kept, backup = update_common_env(
-        updates, selected_keys, should_backup=not created
-    )
+    changed, _kept, backup = update_settings(updates)
 
     print_summary(changed, set(generated), backup)
     print_credential_notices(changed)

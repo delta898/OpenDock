@@ -10,7 +10,7 @@ https://media.<STACK_DOMAIN>
 
 ## Configuration
 
-Service defaults live in `services/jellyfin/.env`.
+Service defaults live in `services/jellyfin/.env.default`; local values and secrets are stored in `services/jellyfin/.env`.
 
 Jellyfin does not require stack-level secrets for the default setup. Create the initial admin user in the Jellyfin web UI after first launch.
 

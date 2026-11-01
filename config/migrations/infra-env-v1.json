@@ -1,0 +1,5 @@
+{
+  "MARIADB_VERSION": "11.8-noble",
+  "POSTGRES_VERSION": "18-bookworm",
+  "REDIS_VERSION": "8-alpine"
+}

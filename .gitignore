@@ -3,12 +3,21 @@
 common.env
 cloudflare.env
 .sync.env
+.sync.env.toml
 *.swp
 __pycache__/
+/config/**/*.env
+/config/.service-default-migration-v1
+/config/.infra-default-migration-v1
+/config/.gateway-default-migration-v1
+services/*/.env
+/infra/.env
+/gateway/.env
 
 services/*/data/
 services/*/backups/
 backups/common-env/
+backups/config/
 
 # User-provided Supabase Edge Function secrets. Keep the example in Git.
 services/supabase/functions.env

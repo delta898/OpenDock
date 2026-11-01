@@ -19,6 +19,7 @@ chat.<your-domain>    -> Mattermost
 supabase.<your-domain> -> Supabase
 n8n.<your-domain>     -> n8n
 uptime.<your-domain>  -> Uptime Kuma
+hermes.<your-domain>  -> Hermes Agent dashboard
 ```
 
 Shared infrastructure:
@@ -32,28 +33,71 @@ Caddy
 
 ## Requirements
 
-- Linux or macOS with Python 3 and Docker Compose
+- Linux or macOS with Python 3.11+ and Docker Compose
 - rsync and SSH for remote sync
-- A domain managed by Cloudflare
-- A Cloudflare Tunnel connected to this server
+- For public hosting: a domain managed by Cloudflare and a Cloudflare Tunnel
+  connected to this server
 
 OpenDock includes an Ubuntu bootstrap script that installs prerequisites and clones this repository to `~/OpenDock` by default.
+
+## How OpenDock Routes Traffic
+
+OpenDock connects a **hostname** to a **target**. A target is either a Docker
+service registered in OpenDock, such as `wordpress`, or the special target
+`static` for files served by Caddy.
+
+```text
+blog.example.com  -> wordpress (Docker service)
+docs.example.com  -> static    (files in static-sites/docs.example.com/)
+```
+
+There are two kinds of routes:
+
+- **Default routes** are derived from the primary domain and each service's
+  default subdomain. For example, `STACK_DOMAIN=example.com` and
+  `WORDPRESS_SUBDOMAIN=blog` provide `blog.example.com -> wordpress` without
+  running `route add`.
+- **Additional routes** are stored in the host-local `domains.conf` file. Add
+  one explicitly with `./opendock route add <hostname> <service|static>`.
+
+`launch` accepts either a service name or a hostname.
+`./opendock launch wordpress` starts the service at its default hostname.
+`./opendock launch blog.example.com` applies a hostname that already has a
+route. An arbitrary hostname is not automatically assigned a service: add its
+route first. If one service has multiple hostnames, use the hostname form to
+choose which route to publish.
+
+For a static route, OpenDock creates `static-sites/<hostname>/` and configures
+Caddy to serve files from it. Put an `index.html` and other site files there;
+no Hugo process or separate web-server container is required. `launch` applies
+the route and prints the web root, but does not create or upload site content.
+
+`launch` is the managed path: it checks configuration, starts the required
+shared infrastructure and service when applicable, updates Caddy, and
+publishes configured Cloudflare routes. `up` is a direct Docker Compose
+operation for users who want to manage those steps themselves; it does not
+start prerequisites or publish routes.
+
+Cloudflare Tunnel is the default public entrypoint. To make publishing
+automatic, configure `cloudflare.env` with a token, tunnel ID, and access to
+the zones used by your routes. Without those API credentials, OpenDock can
+still apply local Caddy routes and print the routes to configure manually in
+Cloudflare.
 
 ## Setup Overview
 
 For a typical Cloudflare Tunnel setup:
 
-1. Create or log in to a Cloudflare account.
-2. Add your domain to Cloudflare and update its nameservers.
-3. Create a Cloudflare Tunnel and connect it to your home server.
-4. Create a Cloudflare API token.
-5. Run the Ubuntu bootstrap script.
-6. Run `./opendock setup` to configure the primary domain and generate secrets.
-7. Configure optional Cloudflare credentials in `cloudflare.env`.
-8. Run `./opendock launch <hostname>` (for example, `./opendock launch blog.example.com`).
+1. Put the domain in Cloudflare and connect a Cloudflare Tunnel to this server.
+2. Clone OpenDock and run `./opendock setup` to set the primary domain.
+3. Optionally configure Cloudflare API credentials for automatic DNS and
+   Tunnel updates; otherwise set up the public hostname in Cloudflare yourself.
+4. Run `./opendock launch wordpress` to start the default WordPress route.
 
-That hostname's Docker service is started (or its static route is applied),
-Cloudflare is synced when configured, and the public URL is printed.
+For another hostname, first run
+`./opendock route add <hostname> <service|static>`, then
+`./opendock launch <hostname>`. Static routes serve files from
+`static-sites/<hostname>/`.
 
 ## Quick Start
 
@@ -67,7 +111,7 @@ The bootstrap script installs base packages from Ubuntu repositories:
 
 ```text
 git
-python3
+python3 (3.11 or newer)
 curl
 ca-certificates
 ```
@@ -95,7 +139,7 @@ After the default bootstrap completes, enter the cloned repository:
 cd ~/OpenDock
 ```
 
-On macOS, install Python 3 and Docker Desktop (with Docker Compose), then clone
+On macOS, install Python 3.11+ and Docker Desktop (with Docker Compose), then clone
 the repository. OpenDock uses the same `./opendock` commands on Linux and macOS.
 Run `./opendock help` to see available commands. GNU Make is only needed if you
 use the older `make ...` compatibility commands.
@@ -121,14 +165,29 @@ Create and review the local env file:
 
 `./opendock setup` asks for values that need your intent, such as the main domain, and keeps existing values when you press Enter. It also generates local passwords and app secrets without printing them.
 
-If you prefer to edit by hand, copy the example file and set at least the main domain:
+The shortest first-run path is:
 
 ```sh
-cp common.env.example common.env
-nano common.env
+./opendock list
+./opendock setup
+./opendock launch wordpress
 ```
 
-OpenDock also generates local passwords and app secrets automatically before `./opendock up` and `./opendock launch`. Existing real values in `common.env` are kept. If `common.env` must be updated, the previous file is backed up under `backups/common-env/`.
+The first command shows available services. Setup asks for the primary domain;
+launching WordPress uses its default `blog` subdomain. Hermes can also be
+started with `./opendock launch hermes`; its first launch runs the Hermes model
+onboarding if no model has been configured yet.
+
+Local settings are created by `./opendock setup`. To edit them by hand, use the
+owner-specific local files after setup:
+
+```sh
+nano config/core.env
+nano services/wordpress/.env
+nano services/hermes/.env
+```
+
+OpenDock also generates local passwords and app secrets automatically before `./opendock up` and `./opendock launch`. Existing values are kept. Before a config file changes, its previous version is backed up under `backups/config/`. Existing installations using `common.env` are migrated automatically the next time OpenDock setup or startup initializes configuration; the original file is retained in that backup directory.
 
 You can also generate values explicitly:
 
@@ -137,9 +196,9 @@ You can also generate values explicitly:
 ./opendock secrets nextcloud
 ```
 
-Nextcloud's generated admin password is the initial login password for the first installation. The value is stored in `NEXTCLOUD_ADMIN_PASSWORD` in `common.env`; changing it later does not reset an already installed Nextcloud account.
+Nextcloud's generated admin password is the initial login password for the first installation. The value is stored in `services/nextcloud/.env`; changing it later does not reset an already installed Nextcloud account.
 
-The default subdomains are already defined in `common.env.example`:
+Default subdomains are defined in each service's `services/<service>/.env.default`:
 
 ```env
 HOMEPAGE_SUBDOMAIN=home
@@ -150,57 +209,57 @@ JELLYFIN_SUBDOMAIN=media
 MASTODON_SUBDOMAIN=social
 MATTERMOST_SUBDOMAIN=chat
 SUPABASE_SUBDOMAIN=supabase
+HERMES_SUBDOMAIN=hermes
 N8N_SUBDOMAIN=n8n
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
 
-The default route list uses these subdomains under `STACK_DOMAIN`. Start a
-service by its public hostname. Add extra hostnames with `./opendock route`:
+The default route list uses these subdomains under `STACK_DOMAIN`. You can
+inspect it with `./opendock route show`. The default WordPress route is
+available immediately after setup; additional hostnames need an explicit
+mapping:
 
 ```sh
-./opendock route show
 ./opendock route add blog2.example.com wordpress
+./opendock launch blog2.example.com
 ./opendock route add docs.example.org static
 ./opendock launch docs.example.org
-./opendock route remove docs.example.org
 ```
 
-Docker targets use their service name. Static routes serve files from
-`static-sites/<hostname>/`; OpenDock creates that directory when the route is
-added. Caddy serves files directly without a separate runtime. `./opendock launch
-<hostname>` starts the mapped Docker service or, for a static route, prints the
-web root and applies Caddy plus Cloudflare routing. The user places static
-content in the printed directory. All mapped Cloudflare zones must belong to
-the Tunnel's account, and the API token needs access to each zone.
+Docker targets use their registered service name. For a static route,
+`route add` creates `static-sites/<hostname>/`; `launch` prints that web root
+and applies Caddy plus Cloudflare routing. Place your files in that directory.
+All mapped Cloudflare zones must belong to the Tunnel's account, and the API
+token needs access to each zone when automatic Cloudflare sync is enabled.
 
 `./opendock route remove <hostname>` removes that route from OpenDock and Caddy and,
 when Cloudflare credentials are configured, removes the Tunnel entry plus only
 a DNS CNAME pointing to this Tunnel. Unrelated DNS records are preserved.
-Static files are preserved. `./opendock launch <service>` is
-still supported for compatibility; prefer hostname-based launch for new usage.
+Static files are preserved. Launching by service name selects its default
+hostname; launching by hostname selects a specific route.
 
 `domains.conf` and `static-sites/` are host-owned configuration and content, so
 the general `./opendock sync` code deployment preserves them on the remote server.
 Create the route map and deploy static files on the server.
 
-Start the default WordPress hostname (replace the domain with the value from
-`./opendock setup`):
+Start the default WordPress service. OpenDock derives its hostname from the
+primary domain and `WORDPRESS_SUBDOMAIN`, so no `route add` is needed:
 
 ```sh
 ./opendock launch blog.primary.com
 ```
 
-`./opendock launch <hostname>` starts the mapped Docker service, reloads Caddy, and
-publishes the hostname if `cloudflare.env` exists. For a static route, it prints
-the web root and applies routing without starting a Docker service. The legacy
-`./opendock launch <service>` form remains available for compatibility.
+For custom or secondary hostnames, add the mapping first. Static content is
+managed by the user; OpenDock applies its serving and publishing route:
 
 ```sh
 ./opendock route add docs.primary.com static
 ./opendock launch docs.primary.com
 ```
 
-Before starting services, OpenDock fills generated secrets and checks `common.env` for required values. This helps catch missing external settings after `git pull` adds a new service.
+Before starting services, OpenDock fills generated secrets and checks the
+layered configuration for required values. This helps catch missing external
+settings after `git pull` adds a new service.
 
 ## Cloudflare Publishing
 
@@ -274,12 +333,20 @@ Removing that block lets Caddy restore its default HTTP-to-HTTPS redirects. Do n
 
 ## Common Commands
 
-Show configured image tags and Docker's current container state:
+`info` shows OpenDock's product metadata along with configured image tags and
+container state:
 
 ```sh
+./opendock --version
 ./opendock info
 ./opendock info wordpress
 ```
+
+OpenDock's name, current version, description, Python requirement, and project
+links are maintained in `pyproject.toml`. The `vMAJOR.MINOR.PATCH` Git tag is
+the release marker and must match the `version` field. Push a matching tag (for
+example, `v0.1.0`) to run the release workflow; ordinary branch pushes and pull
+requests continue to run the CLI CI workflow.
 
 Renovate tracks image and GitHub Actions updates and opens reviewable pull
 requests. To enable the Cloud-Hosted GitHub App, follow [docs/renovate.md](docs/renovate.md).
@@ -323,20 +390,22 @@ Review or update local setup interactively:
 ./opendock setup media
 ```
 
-`./opendock setup mail` stores common SMTP relay settings in `common.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon, Mattermost, and n8n.
+`./opendock setup mail` stores shared SMTP relay settings in `config/shared/mail.env`. OpenDock maps those values only into services that support official environment-based mail configuration, currently Mastodon, Mattermost, and n8n.
 
-Run a service-specific action:
+Run a service-specific command:
 
 ```sh
-./opendock action supabase api-keys
-./opendock action supabase functions-secrets
-./opendock action wordpress
-./opendock action wordpress multisite
+./opendock list services
+./opendock service supabase api-keys
+./opendock service supabase functions-secrets
+./opendock service wordpress
+./opendock service wordpress multisite
+./opendock service hermes onboard
 ```
 
-`./opendock action <service>` lists available actions for that service. Actions are for service-specific setup helpers that do not belong in the shared command set.
-The Supabase API-key action prints only the client-safe publishable key and
-keeps all elevated keys hidden. The Functions action creates or inspects the
+`./opendock service <service>` lists available commands for that service. These commands provide service-specific helpers without adding every special case to the shared command set.
+The Supabase API-key command prints only the client-safe publishable key and
+keeps all elevated keys hidden. The Functions command creates or inspects the
 local Edge Function secrets file without printing its values; a normal
 `./opendock launch supabase` also creates the empty, usable file automatically.
 
@@ -370,35 +439,35 @@ Publish routes:
 ./opendock publish media
 ```
 
-Hostname-first launch:
+Launch by the default service name or by an explicitly mapped hostname:
 
 ```sh
-./opendock launch blog.example.com
+./opendock launch wordpress
 ./opendock route add docs.example.com static
 ./opendock launch docs.example.com
 ```
 
-The legacy service/group form remains available for compatibility:
+The service-name form selects that service's default route. Use a hostname when
+you have added multiple routes for the same service:
 
 ```sh
 ./opendock launch wordpress
 ./opendock launch media
 ```
 
-Prefer hostnames for new usage. A legacy service launch fails if that service
-maps to multiple hostnames; launch the intended hostname instead.
+An unknown hostname fails with instructions to add a route. `route add` only
+records the mapping and prepares a static web root; `launch` applies the route
+to Caddy and publishes it.
 
 Service groups are defined in `services/groups.conf`. Groups are convenience aliases for multiple services, for example `media` expands to Immich and Jellyfin. Use `./opendock list groups` to see the available groups.
 
 Enable WordPress subdirectory multisite:
 
 ```sh
-./opendock action wordpress multisite
+./opendock service wordpress multisite
 ```
 
 This command converts the launched WordPress site into subdirectory multisite mode, for example `https://blog.example.com/site-name/`. It prints a warning and asks for confirmation before changing anything. Before conversion, it backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database under `services/wordpress/backups/`.
-
-The legacy shortcut `./opendock wp-multisite` is still available temporarily, but it is deprecated.
 
 Inspect or stop:
 
@@ -413,25 +482,27 @@ The WordPress service includes practical PHP defaults for media, theme, and plug
 
 ## Configuration Files
 
+Configuration ownership and precedence are documented in [`config/README.md`](config/README.md).
+
 Local files ignored by Git:
 
 ```text
-common.env       required local stack settings and secrets
+config/          private core, infrastructure, shared, and service settings
 cloudflare.env   optional Cloudflare API settings
-.sync.env        optional rsync test-machine settings
+.sync.env.toml   optional rsync test-machine settings
+infra/.env       legacy defaults, migrated automatically on first use
+gateway/.env     legacy defaults, migrated automatically on first use
 ```
 
 Committed defaults:
 
 ```text
-common.env.example
+config/**/*.env.default
+services/*/.env.default
 cloudflare.env.example
-infra/.env
-gateway/.env
-services/*/.env
 ```
 
-When you update the repository with `git pull`, compare new values in `common.env.example` with your local `common.env`. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
+When you update the repository with `git pull`, OpenDock reads updated defaults from tracked `.env.default` files. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
 
 ## Directory Layout
 
@@ -461,14 +532,16 @@ When you update the repository with `git pull`, compare new values in `common.en
 Copy the example sync config and edit it locally:
 
 ```sh
-cp .sync.env.example .sync.env
+cp .sync.env.toml.example .sync.env.toml
 ```
 
-Then set your test machine connection:
+Then set the target connection in TOML:
 
-```env
-SYNC_TEST_REMOTE=user@test-host
-SYNC_TEST_PATH=/home/user/OpenDock
+```toml
+[targets.test]
+remote = "user@test-host"
+path = "/home/user/OpenDock"
+ssh_port = 22 # optional; defaults to 22
 ```
 
 Preview first:
@@ -483,9 +556,21 @@ Then sync:
 ./opendock sync test
 ```
 
-Runtime data and local secrets such as `services/*/data/`, `common.env`,
-`cloudflare.env`, `.sync.env`, and `services/supabase/functions.env` are
-excluded. Their committed example files remain available on the destination.
+Sync mirrors tracked files and non-ignored untracked files from the working tree,
+so you can test new files before `git add` or commit. Untracked files ignored by
+Git are not sent. Runtime data, backups, static site contents, host configuration,
+and local secrets such as `.git/`, `services/*/data/`, `services/*/backups/`,
+`static-sites/` contents, private `config/*.env` files (and the legacy
+`common.env` migration input), `cloudflare.env`, `.sync.env.toml`,
+`*.env` files, `domains.conf`, the generated Caddy routes file, and
+`services/supabase/functions.env` are protected on the destination. The tracked
+`static-sites/README.md` and other committed examples remain deployable.
+
+Other destination-only files are treated as repository files and removed, so
+the sync destination should be dedicated to an OpenDock checkout. This also
+cleans up stale code from earlier syncs. Use `./opendock sync test --dry-run`
+first to review both file transfers and destination-only files that would be
+removed.
 
 ## Development
 

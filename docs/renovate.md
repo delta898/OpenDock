@@ -7,8 +7,8 @@ workflow.
 
 ## Enable the Cloud-Hosted App
 
-1. Merge `renovate.json` and the `renovate:` annotations in the tracked `.env`
-   files into the repository's default branch.
+1. Merge `renovate.json` and the `renovate:` annotations in tracked
+   `.env.default` files into the repository's default branch.
 2. Open the [Renovate GitHub App](https://github.com/apps/renovate) while signed
    in to the account or organization that owns OpenDock.
 3. Install it and grant access to the OpenDock repository.
@@ -24,7 +24,7 @@ the Cloud-Hosted App.
 
 - Docker images in Compose files are handled by Renovate's built-in Docker
   Compose manager when they are literal image references.
-- Most OpenDock tags are stored in `.env` files and interpolated in Compose.
+- OpenDock tags are stored in tracked `.env.default` files and interpolated in Compose.
   The `renovate:` comments identify the Docker image associated with each tag;
   `renovate.json` uses the regex custom manager to update those values.
 - GitHub Actions references such as `actions/checkout@v4` are detected by the
@@ -46,7 +46,8 @@ container state Docker reports. To show one service or project, pass its name:
 ./opendock info supabase
 ```
 
-The configured tag comes from the repository's `.env` and shell environment.
+The configured tag comes from the owning `.env.default`, its private `.env`
+override when present, and the shell environment.
 The running column reports the image and status of containers Docker knows
 about. If Docker is unavailable, the command still displays configured image
 tags and reports that runtime state could not be read.

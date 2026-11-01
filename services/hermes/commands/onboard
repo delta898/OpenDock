@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+root="${OPENDOCK_ROOT:-$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)}"
+service_dir="$root/services/hermes"
+sandbox_dir="$service_dir/data/sandboxes"
+socket_path="${DOCKER_SOCKET:-/var/run/docker.sock}"
+
+if ! "$root/opendock" check-config hermes; then
+    echo "Hermes configuration is incomplete. Run './opendock setup hermes' first." >&2
+    exit 1
+fi
+
+"$root/opendock" up infra
+mkdir -p "$sandbox_dir"
+export HERMES_SANDBOX_DIR="$sandbox_dir"
+export DOCKER_SOCKET_GID="$(python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_gid if os.path.exists(sys.argv[1]) else 0)' "$socket_path")"
+
+set -- docker compose --project-directory "$service_dir"
+for env_file in \
+    "$root/config/core.env.default" \
+    "$root/config/core.env" \
+    "$root/config/infra.env.default" \
+    "$root/config/infra.env" \
+    "$root/config/shared/mail.env.default" \
+    "$root/config/shared/mail.env" \
+    "$service_dir/.env.default" \
+    "$service_dir/.env"
+do
+    if [ -f "$env_file" ]; then
+        set -- "$@" --env-file "$env_file"
+    fi
+done
+
+exec "$@" \
+    -f "$service_dir/compose.yml" \
+    -p hermes \
+    run --rm hermes setup

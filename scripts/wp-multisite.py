@@ -7,12 +7,11 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from opendock_settings import load_values
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-COMMON_ENV = ROOT_DIR / "common.env"
-COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 WORDPRESS_DIR = ROOT_DIR / "services" / "wordpress"
-WORDPRESS_ENV = WORDPRESS_DIR / ".env"
 WEBROOT = WORDPRESS_DIR / "data" / "webroot"
 BACKUP_DIR = WORDPRESS_DIR / "backups"
 CONTAINER_WEBROOT = "/var/www/html"
@@ -34,42 +33,8 @@ MULTISITE_CONSTANTS = (
 )
 
 
-def parse_env_file(path):
-    values = {}
-    if not path.exists():
-        return values
-
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-
-        values[key] = value
-
-    return values
-
-
 def load_env():
-    if not COMMON_ENV.exists():
-        raise SystemExit(
-            "Missing required file: common.env\n\n"
-            "To continue:\n"
-            "  cp common.env.example common.env\n"
-            "  nano common.env\n"
-            "  ./opendock check-config"
-        )
-
-    env = {}
-    env.update(parse_env_file(COMMON_ENV_EXAMPLE))
-    env.update(parse_env_file(COMMON_ENV))
-    env.update(parse_env_file(WORDPRESS_ENV))
+    env = load_values(service="wordpress", process_env=False)
     env.update(os.environ)
     return env
 
@@ -84,7 +49,7 @@ def wordpress_hostname(env):
     subdomain = env.get("WORDPRESS_SUBDOMAIN", "blog").strip()
     domain = env.get("STACK_DOMAIN", "").strip()
     if not domain:
-        raise SystemExit("Missing STACK_DOMAIN in common.env")
+        raise SystemExit("Missing STACK_DOMAIN. Run './opendock setup' to configure the core domain.")
     if domain == "example.com":
         raise SystemExit("Refusing to enable multisite with STACK_DOMAIN=example.com")
     return f"{subdomain}.{domain}" if subdomain else domain

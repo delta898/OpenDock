@@ -3,11 +3,14 @@ import json
 import subprocess
 import time
 from pathlib import Path
+import sys
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SERVICE_DIR = ROOT_DIR / "services" / "supabase"
-COMMON_ENV = ROOT_DIR / "common.env"
+sys.path.insert(0, str(ROOT_DIR / "scripts"))
+from opendock_settings import load_values
+
 SERVICE_ENV = SERVICE_DIR / ".env"
 FUNCTIONS_ENV = SERVICE_DIR / "functions.env"
 
@@ -27,10 +30,7 @@ def parse_env(path):
 
 
 def load_env():
-    values = {}
-    values.update(parse_env(COMMON_ENV))
-    values.update(parse_env(SERVICE_ENV))
-    return values
+    return load_values(service="supabase", process_env=False)
 
 
 def run(*command):
@@ -213,7 +213,7 @@ def print_functions_secrets_notice():
         print(f"  User variables loaded: {configured} (values hidden)")
     else:
         print("  User variables loaded: none (optional)")
-    print("  Manage: ./opendock action supabase functions-secrets")
+    print("  Manage: ./opendock service supabase functions-secrets")
     print("  Apply changes: ./opendock up supabase")
 
 
@@ -241,7 +241,7 @@ def main():
     check_database(env)
     check_http(env)
     print("Supabase is ready.")
-    print("Client API key: ./opendock action supabase api-keys")
+    print("Client API key: ./opendock service supabase api-keys")
     print_functions_secrets_notice()
     return 0
 

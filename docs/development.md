@@ -54,7 +54,7 @@ The script also:
 The script intentionally does not:
 
 - run `apt upgrade`
-- create or edit `common.env`
+- initialize or edit the owner-specific files under `config/`
 - create or edit `cloudflare.env`
 - create a Cloudflare Tunnel
 - run `./opendock launch`
@@ -125,7 +125,7 @@ Group names are target aliases for multiple services. They are supported by setu
 
 `up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
 
-`setup` is the interactive OpenDock setup workflow. It creates `common.env` when missing, asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and backs up `common.env` before mutation.
+`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default` and each service's defaults from `services/<service>/.env.default`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env`, `infra/.env`, `gateway/.env`, and old `config/services/*.env` installations are migrated to their owners on initialization, with restrictive backups retained.
 
 `launch <hostname>` is the primary workflow. It resolves exactly one route,
 starts `infra` and the mapped Docker service when the route is Docker-backed, or
@@ -138,25 +138,25 @@ After starting services, `launch` runs service-owned post-launch hooks named `se
 
 Do not create initial app accounts in OpenDock when the service provides a first-run web setup flow. WordPress, Jellyfin, Uptime Kuma, and Mattermost follow this model. Use post-launch account bootstrap only when a service cannot be reached or administered after launch without an initial account created outside the web UI.
 
-`action` is the shared entry point for service-specific manual workflows:
+`service` is the namespace for service-specific manual commands:
 
 ```sh
-./opendock action <service>
-./opendock action <service> <action>
+./opendock service <service>
+./opendock service <service> <command>
 ```
 
-Actions live at `services/<service>/actions/<action>` and must be executable. `./opendock action <service>` lists executable actions for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_ACTION` to the action process.
+Commands live at `services/<service>/commands/<command>` and must be executable. `./opendock service <service>` lists executable commands for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_SERVICE_COMMAND` to the command process.
 
 Supabase Edge Function user secrets follow the same local-template pattern as
 other OpenDock configuration. `./opendock launch supabase` creates the ignored
 `services/supabase/functions.env` from `functions.env.example`; the optional
-`./opendock action supabase functions-secrets` action reports configured names and
+`./opendock service supabase functions-secrets` command reports configured names and
 application instructions without revealing values. Keep this file outside
 `config/functions/`, because that source directory is also mounted in Studio.
 
-WordPress multisite is exposed as `./opendock action wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
+WordPress multisite is exposed as `./opendock service wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
 
-`./opendock wp-multisite` remains as a temporary deprecated shortcut for backward compatibility. New service-specific workflows should use `./opendock action <service> <action>` instead of adding new top-level CLI commands.
+Keep service-specific workflows under `./opendock service <service> <command>` instead of adding new top-level CLI commands. `./opendock list services` lists installed services; `./opendock up services` starts them all.
 
 ## Config Validation
 
@@ -187,11 +187,11 @@ launch
 
 Validation rules:
 
-- `common.env` must exist.
+- `config/core.env` must contain the main stack domain.
 - Compose variables without defaults, such as `${IMMICH_DB_PASSWORD}`, are required.
 - Compose variables with defaults, such as `${JELLYFIN_SUBDOMAIN:-media}`, are optional.
 - Required values that are empty fail validation.
-- Required secret-like values ending in `PASSWORD`, `SECRET`, `TOKEN`, or `KEY` fail validation if they still match the placeholder in `common.env.example`.
+- Required secret-like values ending in `PASSWORD`, `SECRET`, `TOKEN`, or `KEY` fail validation if they still match their corresponding tracked defaults (`.env.default` or legacy `.env.example`).
 - `STACK_DOMAIN=example.com` is treated as a placeholder.
 
 Automatic validation uses quiet mode and prints only failures. Manual `./opendock check-config` also prints optional values that will use defaults.
@@ -200,16 +200,16 @@ Secret generation rules:
 
 - `./opendock check-config` is read-only and never changes files.
 - `./opendock setup [target]` interactively fills user-facing values and generated secrets.
-- `./opendock secrets [target]` fills generated passwords and app secrets in `common.env`.
-- `./opendock up`, `./opendock services`, and `./opendock launch` run the same generator before validation.
+- `./opendock secrets [target]` fills generated passwords and app secrets in their owner-specific configuration files.
+- `./opendock up <target>`, `./opendock up services`, and `./opendock launch` run the same generator before validation.
 - Existing real values are kept. Empty or placeholder values are generated.
-- Before `common.env` is changed, the previous file is backed up under `backups/common-env/`.
+- Before a configuration file is changed, its previous version is backed up under `backups/config/`.
 - Do not auto-generate external values such as `STACK_DOMAIN`, Cloudflare tokens, tunnel IDs, or SMTP credentials.
-- Initial login passwords, such as `NEXTCLOUD_ADMIN_PASSWORD`, may be generated, but docs must explain where to find them and whether changing `common.env` later affects an installed app.
+- Initial login passwords, such as `NEXTCLOUD_ADMIN_PASSWORD`, may be generated, but docs must explain where to find them and whether changing the value later affects an installed app.
 
 Mail setup rules:
 
-- `./opendock setup mail` stores common outbound SMTP relay values in `common.env`.
+- `./opendock setup mail` stores shared outbound SMTP relay values in `config/shared/mail.env`.
 - Map common SMTP values only into services that support official environment-based core mail configuration.
 - Do not configure plugin-based, UI-only, or notification-provider mail settings from OpenDock.
 
@@ -222,7 +222,7 @@ route map is initialized:
 STACK_DOMAIN=example.com
 ```
 
-Each service may define a subdomain variable in `common.env`:
+Each service may define a subdomain variable in its service-owned local configuration file, with defaults in the matching `.env.default`:
 
 ```env
 WORDPRESS_SUBDOMAIN=blog
@@ -320,7 +320,7 @@ Cloudflare publishing follows the resolved route list.
 Inputs:
 
 ```text
-common.env
+config/
 cloudflare.env
 services/*/compose.yml
 gateway/caddy/conf.d/*.caddy
@@ -354,7 +354,7 @@ For multi-container services:
 
 - Keep all containers in a single `services/<name>/compose.yml`.
 - Use a shared `shared-net` external network so all containers can reach each other and the Caddy gateway.
-- Pin versions in `services/<name>/.env` as with single-container services.
+- Pin versions in `services/<name>/.env.default` as with single-container services.
 - Route all public traffic through one gateway container (e.g. Kong) rather than exposing each container through Caddy separately.
 - The Caddy route file should proxy to the internal gateway container only.
 
@@ -390,7 +390,7 @@ services/<service-name>/README.md
 gateway/caddy/conf.d/<service-name>.caddy
 ```
 
-Add a default subdomain to `common.env.example` if the desired public name differs from the service directory name:
+Add defaults to `services/<service>/.env.default` and keep local overrides in the ignored `services/<service>/.env`:
 
 ```env
 PLEX_SUBDOMAIN=media
@@ -402,7 +402,7 @@ Then verify:
 ./opendock list services
 ./opendock check-config <service-name>
 ./opendock publish <service-name>
-docker compose --project-directory services/<service-name> --env-file common.env.example --env-file services/<service-name>/.env -f services/<service-name>/compose.yml config
+./opendock config <service-name>
 ```
 
 ## Storage Policy
@@ -432,7 +432,7 @@ Services should use shared MariaDB, PostgreSQL, or Redis when the generic infras
 ## Image Policy
 
 - Avoid `latest`.
-- Keep image versions in `.env`, not in `compose.yml`.
+- Keep image versions in tracked `.env.default` files, not in `compose.yml`.
 - Prefer Ubuntu Noble based images by default.
 - Use Alpine only when the image has clear advantages and low compatibility risk.
 
@@ -451,8 +451,13 @@ git diff --check
 For changed Compose projects:
 
 ```sh
-docker compose --project-directory <dir> --env-file common.env.example --env-file <dir>/.env -f <dir>/compose.yml config
+./opendock config <service-name>
 ```
+
+OpenDock resolves tracked platform defaults, their private owner files, then
+the selected service's `services/<service>/.env.default` and private
+`services/<service>/.env` override, followed by process environment. Direct
+`docker compose config` calls must pass the applicable files in that same order.
 
 For Caddy changes:
 

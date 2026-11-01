@@ -6,8 +6,9 @@ from pathlib import Path
 ROOT_DIR = Path(
     os.environ.get("OPENDOCK_ROOT", Path(__file__).resolve().parents[3])
 ).resolve()
-COMMON_ENV = ROOT_DIR / "common.env"
-SERVICE_ENV = ROOT_DIR / "services" / "supabase" / ".env"
+import sys
+sys.path.insert(0, str(ROOT_DIR / "scripts"))
+from opendock_settings import load_values
 
 
 def parse_env(path):
@@ -24,8 +25,7 @@ def parse_env(path):
 
 
 def main():
-    values = parse_env(COMMON_ENV)
-    values.update(parse_env(SERVICE_ENV))
+    values = load_values(service="supabase", process_env=False)
     publishable = values.get("SUPABASE_PUBLISHABLE_KEY", "")
     if not publishable.startswith("sb_publishable_"):
         print("Supabase publishable key has not been generated yet.")
@@ -39,7 +39,7 @@ def main():
     print(f"  Publishable key: {publishable}")
     print()
     print("Use SUPABASE_PUBLISHABLE_KEY in browsers, desktop/mobile apps, and CLIs.")
-    print("SUPABASE_SECRET_KEY and legacy service-role/JWT values remain hidden in common.env.")
+    print("SUPABASE_SECRET_KEY and legacy service-role/JWT values remain hidden in services/supabase/.env.")
     return 0
 
 

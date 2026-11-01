@@ -1,6 +1,12 @@
 # Smart Config Design Notes
 
-This document captures the next configuration direction for OpenDock. It is a working design note so the work can continue from another machine without losing context.
+> Historical design record. These notes describe the original `common.env`-based
+> implementation and use older `make` command examples. The current owner-based
+> configuration layout, default/local file pairs, migration behavior, and current
+> CLI commands are documented in [`config/README.md`](../config/README.md),
+> [`docs/development.md`](development.md), and the root `AGENTS.md`.
+
+This document preserves the early smart-config design decisions for context.
 
 ## Current Context
 
@@ -93,6 +99,26 @@ Rules:
 - Prompt without a default unless a real existing value is present.
 - Empty input is invalid.
 - Existing real values can be shown as defaults for confirmation.
+
+### secret-user
+
+Values the operator chooses that must be stored as secrets and supplied to an
+application at runtime.
+
+Examples:
+
+```text
+SMTP_PASSWORD
+HERMES_DASHBOARD_PASSWORD
+```
+
+Rules:
+
+- Prompt without echoing the entered value.
+- Require a non-empty value when it is not already configured.
+- Keep existing values unless the operator explicitly chooses to replace them.
+- Store the value in the owning private `.env` file; never print it in summaries.
+- Explain when a running service must be recreated to apply a change.
 
 ### generated-secret
 

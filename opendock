@@ -2,6 +2,7 @@
 """OpenDock's repository-local command line interface."""
 
 import argparse
+import fnmatch
 import importlib.util
 import json
 import os
@@ -12,29 +13,95 @@ import sys
 import textwrap
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11 can use the rest of the CLI, but not TOML sync config.
+    tomllib = None
+
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "scripts"))
 SERVICES = ROOT / "services"
 GROUPS = SERVICES / "groups.conf"
+SYNC_CONFIG = ROOT / ".sync.env.toml"
 CHECKED = {"up", "restart", "start", "build", "config"}
 LIFECYCLE = CHECKED | {"down", "stop", "ps", "pull"}
 EXCLUDES = (
-    ".git/", ".sync.env", "common.env", "domains.conf",
-    "gateway/caddy/conf.d/zz-opendock-routes.caddy", "static-sites/",
-    "cloudflare.env", "services/supabase/functions.env",
-    "services/*/data/", "**/data/", ".DS_Store",
+    ".git/", ".sync.env", ".sync.env.toml", "common.env", "domains.conf",
+    "gateway/caddy/conf.d/zz-opendock-routes.caddy",
+    "cloudflare.env", "*.env", "services/supabase/functions.env",
+    "services/*/data/", "**/data/", "services/*/backups/",
+    "backups/", ".DS_Store",
 )
+REMOTE_SYNC_PRUNE = r'''
+import json, os, sys
+
+mode, root = sys.argv[1:]
+root = os.path.realpath(root)
+data = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+if not isinstance(data, list) or not all(isinstance(item, str) for item in data):
+    raise ValueError("invalid OpenDock sync file list")
+current = {os.fsdecode(bytes.fromhex(item)) for item in data}
+protected_files = {
+    ".sync.env", ".sync.env.toml", "common.env", "cloudflare.env", "domains.conf",
+    "gateway/caddy/conf.d/zz-opendock-routes.caddy",
+    "services/supabase/functions.env",
+}
+# Keep these destination protections aligned with EXCLUDES and .gitignore.
+protected_dirs = {".git", "data", "backups"}
+
+def protected(rel):
+    parts = rel.split(os.sep)
+    if (rel in protected_files or any(part in protected_dirs for part in parts)
+            or any(part.endswith(".env") for part in parts)):
+        return True
+    # Preserve static web content, but keep its tracked repository README in sync.
+    if rel.startswith("static-sites/") and rel != "static-sites/README.md":
+        return True
+    return False
+
+def prune(directory, relative=""):
+    removed = 0
+    for entry in sorted(os.scandir(directory), key=lambda item: item.name):
+        rel = os.path.join(relative, entry.name) if relative else entry.name
+        if protected(rel):
+            continue
+        if entry.is_dir(follow_symlinks=False):
+            removed += prune(entry.path, rel)
+            if mode == "apply":
+                try:
+                    os.rmdir(entry.path)
+                except OSError:
+                    pass
+            continue
+        normalized = rel.replace(os.sep, "/")
+        if normalized in current or entry.name == ".DS_Store":
+            continue
+        if mode == "preview":
+            print("Would remove destination-only repository file: " + normalized)
+        elif mode == "apply":
+            os.unlink(entry.path)
+            print("Removed destination-only repository file: " + normalized)
+        else:
+            raise ValueError("unknown OpenDock sync mode")
+        removed += 1
+    return removed
+
+removed = prune(root)
+print("Destination-only repository files removed: {}".format(removed))
+'''
 
 
 class CLIError(Exception):
     pass
 
 
-def run(*args, env=None, capture=False, quiet=False):
+def run(*args, env=None, capture=False, quiet=False, input_data=None):
     try:
         result = subprocess.run(
             [str(arg) for arg in args], cwd=ROOT, env=env,
-            text=True, stdout=subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None),
+            input=input_data, text=not isinstance(input_data, bytes),
+            stdout=subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None),
             stderr=subprocess.DEVNULL if quiet else None, check=False,
         )
     except FileNotFoundError as exc:
@@ -42,6 +109,77 @@ def run(*args, env=None, capture=False, quiet=False):
     if result.returncode:
         raise CLIError(f"Command failed ({result.returncode}): {args[0]}")
     return result.stdout.strip() if capture else None
+
+
+def sync_file_list(raw_paths):
+    """Return safe repository paths selected for deployment."""
+    selected = []
+    for raw_path in raw_paths.split(b"\0"):
+        if not raw_path:
+            continue
+        rel = os.fsdecode(raw_path)
+        parts = rel.split("/")
+        excluded = rel.startswith("static-sites/") and rel != "static-sites/README.md"
+        for pattern in EXCLUDES:
+            if excluded:
+                break
+            if pattern.endswith("/"):
+                directory = pattern[:-1]
+                if directory.startswith("**/"):
+                    directory = directory[3:]
+                    matches = directory in parts[:-1]
+                else:
+                    matches = any(
+                        fnmatch.fnmatchcase("/".join(parts[:index]), directory)
+                        for index in range(1, len(parts))
+                    )
+                if matches:
+                    excluded = True
+                    break
+            elif "*" in pattern:
+                if any(fnmatch.fnmatchcase(part, pattern) for part in parts):
+                    excluded = True
+                    break
+            elif rel == pattern or pattern in parts:
+                excluded = True
+                break
+        if excluded:
+            continue
+        full_path = ROOT / rel
+        try:
+            full_path.lstat()
+        except FileNotFoundError:
+            # A tracked file deleted from the worktree is not part of this deployment.
+            continue
+        if not full_path.is_symlink() and not full_path.is_file():
+            continue
+        selected.append(raw_path)
+    if not selected:
+        raise CLIError("No repository files found to sync after applying safety exclusions.")
+    file_list = b"\0".join(selected) + b"\0"
+    remote_list = json.dumps([path.hex() for path in selected], separators=(",", ":")).encode("utf-8")
+    return file_list, remote_list
+
+
+def remote_sync_prune(remote, path, port, mode, file_list):
+    command = "python3 -c {} {} {}".format(
+        shlex.quote(REMOTE_SYNC_PRUNE), shlex.quote(mode), shlex.quote(path)
+    )
+    args = ["ssh"]
+    if port:
+        args += ["-p", str(port)]
+    args += [remote, command]
+    try:
+        result = subprocess.run(
+            args, cwd=ROOT, input=file_list, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, check=False,
+        )
+    except FileNotFoundError as exc:
+        raise CLIError("Required command not found: ssh") from exc
+    if result.returncode:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise CLIError("Could not reconcile remote files" + (f": {detail}" if detail else "."))
+    return result.stdout
 
 
 def services():
@@ -75,6 +213,14 @@ def targets(name):
     raise CLIError(f"Unknown target or missing compose.yml: {name}")
 
 
+def includes_hermes(name):
+    if name in services():
+        return name == "hermes"
+    if name in ("all", "services") or name in groups():
+        return "hermes" in targets(name)
+    return False
+
+
 def script(name, *args, env=None):
     run(sys.executable, ROOT / "scripts" / name, *args, env=env)
 
@@ -87,6 +233,14 @@ def domains_module():
     return module
 
 
+def settings_module():
+    path = ROOT / "scripts" / "opendock_settings.py"
+    spec = importlib.util.spec_from_file_location("opendock_settings", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def check_config(target, quiet=False):
     env = os.environ.copy()
     if quiet:
@@ -94,19 +248,27 @@ def check_config(target, quiet=False):
     run(ROOT / "scripts/check-config.sh", target, env=env)
 
 
-def compose(target, *args):
+def compose(target, *args, capture=False, quiet=False):
     directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
     if not (directory / "compose.yml").is_file():
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
-    if not (ROOT / "common.env").is_file():
-        raise CLIError("Missing common.env. Run './opendock setup' or copy common.env.example first.")
+    settings = settings_module()
+    settings.initialize()
     if target == "gateway" and args[0] in ("up", "start", "restart"):
         script("opendock-domains.py", "render")
-    command = ["docker", "compose", "--project-directory", str(directory),
-               "--env-file", str(ROOT / "common.env")]
-    if (directory / ".env").is_file():
-        command += ["--env-file", str(directory / ".env")]
-    run(*command, "-f", directory / "compose.yml", "-p", target, *args)
+    command = ["docker", "compose", "--project-directory", str(directory)]
+    for env_file in settings.compose_env_files(target):
+        command += ["--env-file", str(env_file)]
+    env = os.environ.copy()
+    if target == "hermes":
+        socket_path = Path(env.get("DOCKER_SOCKET", "/var/run/docker.sock"))
+        if socket_path.exists():
+            env["DOCKER_SOCKET_GID"] = str(socket_path.stat().st_gid)
+        sandbox_path = ROOT / "services" / "hermes" / "data" / "sandboxes"
+        sandbox_path.mkdir(parents=True, exist_ok=True)
+        env["HERMES_SANDBOX_DIR"] = str(sandbox_path)
+    return run(*command, "-f", directory / "compose.yml", "-p", target, *args,
+               env=env, capture=capture, quiet=quiet)
 
 
 def lifecycle(command, target):
@@ -151,7 +313,99 @@ def publish(target):
     run(ROOT / "scripts/publish-cloudflare.sh", target)
 
 
+def hermes_model_is_configured():
+    """Read Hermes' configured default model without exposing its value."""
+    try:
+        output = compose(
+            "hermes", "run", "--rm", "--no-deps", "hermes",
+            "config", "get", "model", capture=True,
+        )
+    except CLIError:
+        return None
+    if not output.strip():
+        return False
+    default = re.search(r"(?m)^\s*default:\s*(.*?)\s*$", output)
+    if default:
+        value = default.group(1).strip().strip("\"'")
+        return bool(value) and value.lower() not in {"null", "none", "unset"}
+    try:
+        value = json.loads(output)
+    except json.JSONDecodeError:
+        return None
+
+    def configured(item):
+        if isinstance(item, str):
+            return bool(item.strip()) and item.strip().lower() not in {"null", "none", "unset"}
+        if isinstance(item, dict):
+            if "default" in item:
+                return configured(item["default"])
+            if "model" in item:
+                return configured(item["model"])
+        if isinstance(item, list):
+            return any(configured(child) for child in item)
+        return False
+
+    return configured(value)
+
+
+def hermes_data_volume_exists():
+    """Return whether Hermes' persistent Compose volume exists before probing it."""
+    volumes = run("docker", "volume", "ls", "--format", "{{.Name}}", capture=True)
+    return "hermes_hermes_data" in volumes.splitlines()
+
+
+def ensure_hermes_ready():
+    """Configure Hermes and run its interactive first-run setup only as needed."""
+    settings = settings_module()
+    settings.initialize()
+    needs_config = not (ROOT / "config" / "core.env").is_file()
+    if not needs_config:
+        try:
+            check_config("hermes", quiet=True)
+        except CLIError:
+            needs_config = True
+    if needs_config:
+        print("==> hermes: configuration required", flush=True)
+        script("opendock-config.py", "hermes")
+        check_config("hermes", quiet=True)
+
+    print("==> infra: launch prerequisite", flush=True)
+    lifecycle("up", "infra")
+    # `docker compose run` creates declared named volumes even for a read-only
+    # config query. On a clean install, that probe itself can seed Hermes state
+    # and make the following model check look like onboarding already happened.
+    # Detect a missing volume first and go straight to the wizard.
+    if hermes_data_volume_exists():
+        print("==> hermes: checking onboarding status", flush=True)
+        model_ready = hermes_model_is_configured()
+        if model_ready is None:
+            raise CLIError(
+                "Could not inspect Hermes' model configuration. "
+                "Run './opendock service hermes onboard' to open its setup manually."
+            )
+    else:
+        print("==> hermes: no data volume found; first-run onboarding required", flush=True)
+        model_ready = False
+    if model_ready:
+        print("==> hermes: onboarding already complete; skipping", flush=True)
+        return
+
+    print("==> hermes: onboarding required", flush=True)
+    print("==> hermes: first-run onboarding", flush=True)
+    compose("hermes", "run", "--rm", "hermes", "setup")
+    if hermes_model_is_configured() is not True:
+        raise CLIError(
+            "Hermes onboarding did not configure a default model. "
+            "Run './opendock setup hermes' and complete the Hermes setup prompts."
+        )
+
+
 def launch(target):
+    infra_started = False
+    if includes_hermes(target):
+        ensure_hermes_ready()
+        infra_started = True
+
     # Reuse the route resolver, including validation of host-owned domains.conf.
     domains = domains_module()
     routes = domains.resolve_routes()
@@ -172,7 +426,11 @@ def launch(target):
         return
     if route:
         service = route["target"]
-        lifecycle("up", "infra")
+        if service == "hermes" and not infra_started:
+            ensure_hermes_ready()
+            infra_started = True
+        if not infra_started:
+            lifecycle("up", "infra")
         lifecycle("up", service)
         post_launch(service)
         reload_gateway()
@@ -185,9 +443,16 @@ def launch(target):
     if len(matches) > 1:
         raise CLIError(f"'{target}' has multiple hostnames; use one of:\n" +
                        "\n".join(f"  ./opendock launch {host}" for host in matches))
+    if target in services() and not matches:
+        default = next((r for r in domains.default_routes()
+                        if r["type"] == "docker" and r["target"] == target), None)
+        if default:
+            print(f"==> route: add default hostname {default['hostname']}", flush=True)
+            script("opendock-domains.py", "add", default["hostname"], target)
     if target not in ("all", "infra"):
-        print("==> infra: launch prerequisite", flush=True)
-        lifecycle("up", "infra")
+        if not infra_started:
+            print("==> infra: launch prerequisite", flush=True)
+            lifecycle("up", "infra")
     lifecycle("up", target)
     post_launch(target)
     if target != "infra":
@@ -221,36 +486,72 @@ def route(command, hostname=None, service=None):
 def sync(name, dry_run=False):
     if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
         raise CLIError("Sync target must contain only letters, digits, '_' or '-'.")
-    values = {}
-    config = ROOT / ".sync.env"
-    if config.is_file():
-        for raw in config.read_text().splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            key, value = line.split("=", 1)
-            parts = shlex.split(value, comments=True)
-            values[key.strip()] = parts[0] if parts else ""
-    prefix = f"SYNC_{name.upper().replace('-', '_')}_"
-    remote = os.environ.get(prefix + "REMOTE", values.get(prefix + "REMOTE", ""))
-    path = os.environ.get(prefix + "PATH", values.get(prefix + "PATH", ""))
-    port = os.environ.get(prefix + "SSH_PORT", values.get(prefix + "SSH_PORT", ""))
+    if tomllib is None:
+        raise CLIError("Sync target config uses TOML and requires Python 3.11 or newer.")
+    config = SYNC_CONFIG
+    if not config.is_file():
+        raise CLIError("Missing .sync.env.toml. Copy .sync.env.toml.example and configure a [targets.<name>] section.")
+    try:
+        with config.open("rb") as stream:
+            settings = tomllib.load(stream)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise CLIError(f"Could not read .sync.env.toml: {exc}") from exc
+    targets = settings.get("targets", {})
+    target = targets.get(name) if isinstance(targets, dict) else None
+    if not isinstance(target, dict):
+        available = ", ".join(sorted(targets)) if isinstance(targets, dict) and targets else "none"
+        raise CLIError(f"Unknown sync target '{name}'. Available targets: {available}.")
+    unknown = sorted(set(target) - {"remote", "path", "ssh_port"})
+    if unknown:
+        raise CLIError(f"Unknown key(s) under [targets.{name}]: {', '.join(unknown)}")
+    remote = target.get("remote", "")
+    path = target.get("path", "")
+    port = target.get("ssh_port", 22)
     if not remote or not path:
-        raise CLIError(f"Set {prefix}REMOTE and {prefix}PATH in .sync.env")
-    if port and not port.isdigit():
-        raise CLIError(f"{prefix}SSH_PORT must be a port number")
+        raise CLIError(f"Set both 'remote' and 'path' under [targets.{name}] in .sync.env.toml")
+    if not isinstance(remote, str) or not isinstance(path, str):
+        raise CLIError(f"'remote' and 'path' under [targets.{name}] must be strings")
+    if not path.startswith("/") or ".." in Path(path).parts:
+        raise CLIError(f"'path' under [targets.{name}] must be absolute and contain no '..' components")
+    if not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535:
+        raise CLIError(f"'ssh_port' under [targets.{name}] must be an integer from 1 to 65535")
     env = os.environ.copy()
-    if port:
-        env["RSYNC_RSH"] = f"ssh -p {port}"
+    env["RSYNC_RSH"] = f"ssh -p {port}"
     print(f"Sync target: {name}\nSource: {ROOT}/\nDestination: {remote}:{path}/", flush=True)
     if dry_run:
         print("Mode: dry-run", flush=True)
-    options = ["-azih", "--delete"] + (["--dry-run"] if dry_run else [])
+    print("Scope: tracked and non-ignored untracked repository files.", flush=True)
+    print("Source-only files are applied; destination-only files are pruned except protected runtime paths.", flush=True)
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise CLIError("Required command not found: git") from exc
+    if listed.returncode:
+        detail = listed.stderr.decode("utf-8", errors="replace").strip()
+        raise CLIError(f"Could not list repository files for sync: {detail}")
+    if not listed.stdout:
+        raise CLIError("No Git-managed or non-ignored repository files found to sync.")
+
+    file_list, remote_list = sync_file_list(listed.stdout)
+    options = ["-azih", "--checksum", "--from0", "--files-from=-"]
+    if dry_run:
+        options.append("--dry-run")
     for value in EXCLUDES:
         options.append(f"--exclude={value}")
-    options += ["--include=common.env.example", "--include=cloudflare.env.example",
+    options += ["--include=cloudflare.env.example",
                 "--include=services/supabase/functions.env.example"]
-    run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/", env=env)
+    run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/",
+        env=env, input_data=file_list)
+    prune_output = remote_sync_prune(
+        remote, path, port, "preview" if dry_run else "apply", remote_list
+    )
+    sys.stdout.write(prune_output.decode("utf-8", errors="replace"))
     print("Done.")
 
 
@@ -277,25 +578,13 @@ def list_targets(kind=None):
         print("\n".join(f"  {name}" for name in group_names) if group_names else "  (none)")
 
 
-def parse_dotenv(path):
-    values = {}
-    if not path.is_file():
-        return values
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip("\"'")
-    return values
-
-
 def configured_images(target):
     directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
     compose_file = directory / "compose.yml"
     if not compose_file.is_file():
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
-    values = parse_dotenv(directory / ".env")
+    settings = settings_module()
+    values = settings.load_values(process_env=True)
     values.update(os.environ)
     result = []
     service_name = None
@@ -339,6 +628,7 @@ def running_containers():
 
 
 def show_info(name=None):
+    metadata = project_metadata()
     projects = ["infra"]
     if (ROOT / "gateway/compose.yml").is_file():
         projects.append("gateway")
@@ -346,6 +636,9 @@ def show_info(name=None):
     if name:
         projects = targets(name)
     containers, note = running_containers()
+    print(f"{metadata['name']} {metadata['version']}")
+    print(metadata["description"])
+    print()
     print(f"{'TARGET':<18} {'SERVICE':<24} {'CONFIGURED IMAGE':<48} {'RUNNING'}")
     print("-" * 112)
     for project in projects:
@@ -360,14 +653,29 @@ def show_info(name=None):
         print(f"\n{note}")
 
 
+def project_metadata():
+    metadata_file = ROOT / "pyproject.toml"
+    try:
+        with metadata_file.open("rb") as file:
+            project = tomllib.load(file)["project"]
+    except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as exc:
+        raise CLIError(f"Could not read OpenDock project metadata: {exc}") from exc
+    return {
+        "name": project["name"],
+        "version": project["version"],
+        "description": project["description"],
+    }
+
+
 def print_guide():
     print(textwrap.dedent("""\
         OpenDock — setup, run, and publish services
 
         Start here
-          ./opendock setup                         Configure your primary domain
-          ./opendock launch blog.example.com       Start and publish one hostname
           ./opendock list                          See available services and groups
+          ./opendock setup                         Configure your primary domain
+          ./opendock launch wordpress              Configure and start WordPress
+          ./opendock launch hermes                 Configure, onboard, and launch Hermes
 
         Domains and static sites
           ./opendock route show [hostname]         Show configured routes
@@ -384,10 +692,11 @@ def print_guide():
           Static files go in static-sites/docs.example.org/.
 
         Configuration and inspection
+          ./opendock --version                     Show the OpenDock product version
           ./opendock setup [target]                 Set up all or one service/group
           ./opendock check-config [target]          Validate configuration
           ./opendock secrets [target]               Generate missing secrets
-          ./opendock info [target]                  Show image tags and container status
+          ./opendock info [target]                  Show product, image, and container info
           ./opendock ps [target]                    Show container status (default: all)
           ./opendock logs <service>                 Follow one service's logs
 
@@ -399,12 +708,22 @@ def print_guide():
           ./opendock publish [target]              Sync routes without starting services
 
         Other
-          ./opendock action <service>               List that service's actions
-          ./opendock action <service> <action>      Run one service-specific action
-          Examples: action wordpress → multisite
-                    action supabase  → api-keys, functions-secrets
+          ./opendock remove <service>                 Remove all owned resources (confirms first)
+          ./opendock remove hermes --dry-run           Preview removal without changes
+          ./opendock service <service>              List service-specific commands
+          ./opendock service <service> <command>    Run one service-specific command
+          Examples: service wordpress multisite
+                    service supabase  api-keys
+                    service supabase  functions-secrets
+                    service hermes    onboard  (re-run Hermes' interactive setup)
           ./opendock sync <name> --dry-run          Preview deployment to a remote
           ./opendock sync <name>                    Deploy code to a remote
+
+        Help at each level
+          ./opendock route --help
+          ./opendock route add --help
+          ./opendock service hermes --help
+          ./opendock service hermes onboard --help
 
         Targets: a service (wordpress), group (media), infra, gateway,
                  services (all apps), or all (core and apps).
@@ -414,37 +733,136 @@ def print_guide():
 
 
 def parser():
+    metadata = project_metadata()
     p = argparse.ArgumentParser(
         prog="./opendock", description="Configure, run, and publish OpenDock services.",
         epilog="Start here: ./opendock setup, then ./opendock launch blog.example.com. "
                "Use './opendock <command> --help' for command options.",
     )
+    p.add_argument(
+        "--version", action="version",
+        version=f"{metadata['name']} {metadata['version']}",
+        help="Show the OpenDock product version and exit",
+    )
     sub = p.add_subparsers(dest="command", required=True)
-    sub.add_parser("help", help="Show this guide")
-    l = sub.add_parser("list", help="List services and groups")
-    l.add_argument("kind", nargs="?", choices=("services", "groups"))
-    info = sub.add_parser("info", help="Show configured image tags and running containers")
-    info.add_argument("target", nargs="?", help="One service, group, infra, or gateway")
+    sub.add_parser("help", help="Show the getting-started guide",
+                   description="Show the common OpenDock workflows and examples.")
+    l = sub.add_parser(
+        "list", help="List services and groups",
+        description="List installed services or the named service groups.",
+        epilog="Examples:\n  ./opendock list\n  ./opendock list services\n  ./opendock list groups",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    l.add_argument("kind", nargs="?", choices=("services", "groups"),
+                   help="Show only services or groups; omit to show both.")
+    info = sub.add_parser(
+        "info", help="Show configured image tags and running containers",
+        description="Show the effective image tag and Docker status for each target.",
+        epilog="Examples:\n  ./opendock info\n  ./opendock info wordpress\n  ./opendock info infra",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    info.add_argument("target", nargs="?", help="Service, group, infra, gateway, or all (default: all)")
     for command in sorted(LIFECYCLE):
-        item = sub.add_parser(command, help=f"Docker Compose {command} for a target")
+        item = sub.add_parser(
+            command, help=f"Docker Compose {command} for a target",
+            description={
+                "build": "Build images declared by the selected Compose target.",
+                "config": "Render and validate the selected Compose configuration.",
+                "down": "Stop and remove containers while preserving named volumes and data.",
+                "logs": "Follow logs for a service container.",
+                "ps": "Show containers for a target.",
+                "pull": "Pull images declared by the selected Compose target.",
+                "restart": "Restart existing target containers.",
+                "start": "Start existing stopped target containers.",
+                "stop": "Stop target containers without removing them.",
+                "up": "Create or update target containers in the background.",
+            }.get(command, f"Run Docker Compose {command} for a target."),
+            epilog=("Targets: service (wordpress), group (media), infra, gateway, services, or all.\n"
+                    f"Example: ./opendock {command} wordpress"),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
         if command in ("ps", "config"):
-            item.add_argument("target", nargs="?", default="all")
+            item.add_argument("target", nargs="?", default="all",
+                              help="Service, group, infra, gateway, services, or all (default: all)")
         else:
-            item.add_argument("target")
+            item.add_argument("target", help="Service, group, infra, gateway, services, or all")
     for command in ("setup", "secrets", "check-config", "publish", "launch"):
-        item = sub.add_parser(command)
-        item.add_argument("target", nargs="?", default="all")
-    logs = sub.add_parser("logs", help="Follow logs for one service")
-    logs.add_argument("target")
-    action = sub.add_parser("action", help="Run a service-specific action")
-    action.add_argument("service")
-    action.add_argument("name", nargs="?", default="")
-    route_cmd = sub.add_parser("route", help="Manage hostname routes")
+        descriptions = {
+            "setup": "Ask for user-facing settings and generate missing local configuration.",
+            "secrets": "Generate missing passwords, tokens, and application secrets.",
+            "check-config": "Check required settings before changing or starting services.",
+            "publish": "Apply configured host routes to Caddy and, when configured, Cloudflare.",
+            "launch": "Start a service, or apply and publish a hostname route. Hermes is onboarded on first launch.",
+        }
+        examples = {
+            "setup": ["./opendock setup", "./opendock setup hermes"],
+            "secrets": ["./opendock secrets", "./opendock secrets wordpress"],
+            "check-config": ["./opendock check-config", "./opendock check-config infra"],
+            "publish": ["./opendock publish", "./opendock publish blog.example.com"],
+            "launch": ["./opendock launch wordpress", "./opendock launch blog.example.com", "./opendock launch hermes"],
+        }[command]
+        target_help = {
+            "setup": "Service, group, infra, mail, or all (default: all)",
+            "secrets": "Service, group, or all (default: all)",
+            "check-config": "Service, group, infra, gateway, or all (default: all)",
+            "publish": "Hostname, service, group, or all (default: all)",
+            "launch": "Hostname, service, group, infra, gateway, or all (default: all)",
+        }[command]
+        item = sub.add_parser(
+            command, help=descriptions[command], description=descriptions[command],
+            epilog="Examples:\n" + "\n".join(f"  {example}" for example in examples),
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        item.add_argument("target", nargs="?", default="all",
+                          help=target_help)
+    remove_cmd = sub.add_parser(
+        "remove", help="Remove a service and its owned resources",
+        description="Plan and confirm removal of one service's containers, data, images, and routes.",
+        epilog="Examples:\n  ./opendock remove hermes --dry-run\n  ./opendock remove hermes",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    remove_cmd.add_argument("target", help="One registered service (currently: hermes)")
+    remove_cmd.add_argument("--dry-run", action="store_true",
+                            help="Show removal targets without changing anything")
+    logs = sub.add_parser(
+        "logs", help="Follow logs for one service",
+        description="Follow logs from one service, infra, or gateway target.",
+        epilog="Example: ./opendock logs wordpress",
+    )
+    logs.add_argument("target", help="One service, infra, or gateway (not a group)")
+    service_cmd = sub.add_parser(
+        "service", help="Show or run service-specific commands",
+        description="List a service's extra commands, or get help/run one of them.",
+        usage="./opendock service <service> [command] [arguments]",
+        epilog=("Examples:\n  ./opendock service hermes --help\n"
+                "  ./opendock service hermes onboard --help\n"
+                "  ./opendock service wordpress multisite --help"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    service_cmd.add_argument("service", help="Installed service name, such as hermes or wordpress")
+    service_cmd.add_argument("name", nargs="?", default="", metavar="command",
+                             help="Service-specific command; omit it to list available commands")
+    service_cmd.add_argument("args", nargs=argparse.REMAINDER, metavar="arguments",
+                             help="Additional arguments passed to the service command")
+    route_cmd = sub.add_parser(
+        "route", help="Manage hostname routes",
+        description="Add, show, or remove mappings from public hostnames to Docker or static sites.",
+        epilog=("Examples:\n  ./opendock route add blog.example.org wordpress\n"
+                "  ./opendock route add docs.example.org static\n"
+                "  ./opendock route show\n  ./opendock route remove docs.example.org"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     route_sub = route_cmd.add_subparsers(dest="route_command", required=True)
-    show = route_sub.add_parser("show")
-    show.add_argument("hostname", nargs="?")
+    show = route_sub.add_parser(
+        "show", help="Show all routes or one hostname",
+        description="Display the configured route mapping without changing it.",
+        epilog="Examples:\n  ./opendock route show\n  ./opendock route show blog.example.org",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    show.add_argument("hostname", nargs="?", help="Optional hostname to look up")
     add = route_sub.add_parser(
         "add", description="Map a full hostname to an installed Docker service or a static site.",
+        help="Map a hostname to a Docker service or static web root",
         epilog=("Examples:\n"
                 "  ./opendock route add blog.example.org wordpress\n"
                 "  ./opendock route add docs.example.org static\n\n"
@@ -455,15 +873,28 @@ def parser():
     add.add_argument("hostname", help="Full public hostname, e.g. docs.example.org")
     add.add_argument("service", metavar="service|static",
                      help="Installed service name (e.g. wordpress) or static")
-    remove = route_sub.add_parser("remove")
-    remove.add_argument("hostname")
-    sync_cmd = sub.add_parser("sync", help="Deploy code to a named remote")
-    sync_cmd.add_argument("name")
-    sync_cmd.add_argument("--dry-run", action="store_true")
-    old_sync = sub.add_parser("sync-dry-run", help="Compatibility alias for sync --dry-run")
-    old_sync.add_argument("name")
-    sub.add_parser("services", help="Compatibility alias for up services")
-    sub.add_parser("wp-multisite", help="Deprecated WordPress action alias")
+    route_remove = route_sub.add_parser(
+        "remove", help="Remove a hostname route",
+        description="Remove a route and sync its public route entries when configured.",
+        epilog="Example: ./opendock route remove docs.example.org",
+    )
+    route_remove.add_argument("hostname", help="Full hostname to remove")
+    sync_cmd = sub.add_parser(
+        "sync", help="Deploy code to a named remote",
+        description="Copy repository files to a configured remote and prune obsolete code files.",
+        epilog=("Configure .sync.env.toml first.\n"
+                "Examples:\n  ./opendock sync test --dry-run\n  ./opendock sync test"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    sync_cmd.add_argument("name", help="Remote name from the [targets.<name>] TOML section")
+    sync_cmd.add_argument("--dry-run", action="store_true",
+                          help="Preview file transfers and pruning without changing the remote")
+    old_sync = sub.add_parser(
+        "sync-dry-run", help="Compatibility alias for sync --dry-run",
+        description="Compatibility form of 'sync <name> --dry-run'.",
+        epilog="Example: ./opendock sync-dry-run test",
+    )
+    old_sync.add_argument("name", help="Remote name from .sync.env.toml")
     return p
 
 
@@ -493,6 +924,8 @@ def main(argv=None):
             compose(target[0], "logs", "-f")
         elif command == "setup":
             script("opendock-config.py", args.target)
+            if includes_hermes(args.target):
+                ensure_hermes_ready()
         elif command == "secrets":
             script("opendock-secrets.py", args.target)
         elif command == "check-config":
@@ -504,19 +937,22 @@ def main(argv=None):
             publish(args.target)
         elif command == "launch":
             launch(args.target)
+        elif command == "remove":
+            run(sys.executable, ROOT / "scripts" / "opendock-remove.py",
+                args.target, *( ["--dry-run"] if args.dry_run else [] ))
         elif command == "route":
             route(args.route_command, getattr(args, "hostname", None), getattr(args, "service", None))
-        elif command == "action":
-            script("opendock-action.py", args.service, args.name)
+        elif command == "service":
+            result = subprocess.run(
+                [sys.executable, ROOT / "scripts/opendock-service.py",
+                 args.service, args.name, *args.args],
+                cwd=ROOT,
+            )
+            return result.returncode
         elif command == "sync":
             sync(args.name, args.dry_run)
         elif command == "sync-dry-run":
             sync(args.name, True)
-        elif command == "services":
-            lifecycle("up", "services")
-        elif command == "wp-multisite":
-            print("Deprecated: use './opendock action wordpress multisite'.\n")
-            script("opendock-action.py", "wordpress", "multisite")
     except (CLIError, OSError, ValueError) as exc:
         print(f"OpenDock: {exc}", file=sys.stderr)
         return 1

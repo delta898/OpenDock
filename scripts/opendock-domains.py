@@ -7,10 +7,10 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from opendock_settings import load_values
+
 
 ROOT = Path(__file__).resolve().parents[1]
-COMMON_ENV = ROOT / "common.env"
-COMMON_ENV_EXAMPLE = ROOT / "common.env.example"
 DOMAINS_FILE = ROOT / "domains.conf"
 GENERATED_ROUTES = ROOT / "gateway" / "caddy" / "conf.d" / "zz-opendock-routes.caddy"
 STATIC_ROOT = ROOT / "static-sites"
@@ -37,7 +37,7 @@ def parse_env(path):
 def service_routes(env):
     domain = env.get("STACK_DOMAIN", "").strip()
     if not domain:
-        raise SystemExit("Missing STACK_DOMAIN in common.env")
+        raise SystemExit("Missing STACK_DOMAIN. Run './opendock setup' to configure the core domain.")
     routes = []
     for compose in sorted((ROOT / "services").glob("*/compose.yml")):
         service = compose.parent.name
@@ -78,8 +78,7 @@ def parse_domains_file():
 
 
 def resolve_routes():
-    env = parse_env(COMMON_ENV_EXAMPLE)
-    env.update(parse_env(COMMON_ENV))
+    env = load_values(process_env=False)
     routes = parse_domains_file() if DOMAINS_FILE.exists() else service_routes(env)
     validate_routes(routes)
     return routes
@@ -114,8 +113,7 @@ def validate_routes(routes):
 
 
 def default_routes():
-    env = parse_env(COMMON_ENV_EXAMPLE)
-    env.update(parse_env(COMMON_ENV))
+    env = load_values(process_env=False)
     return service_routes(env)
 
 

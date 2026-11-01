@@ -10,16 +10,17 @@ https://chat.<STACK_DOMAIN>
 
 ## Configuration
 
-Service defaults live in `services/mattermost/.env`.
+Service defaults live in `services/mattermost/.env.default`; local values and secrets are stored in `services/mattermost/.env`.
 
-Generated secrets live in the repository-level `common.env`:
+Mattermost's database password lives in `services/mattermost/.env`;
+the PostgreSQL administrator password is shared infrastructure config in
+`config/infra.env`:
 
 ```env
-POSTGRES_ADMIN_PASSWORD=change-postgres-admin-password
 MATTERMOST_DB_PASSWORD=change-mattermost-db-password
 ```
 
-Outbound email uses the common SMTP relay values in `common.env`:
+Outbound email uses the shared SMTP relay values in `config/shared/mail.env`:
 
 ```env
 SMTP_HOST=smtp.example.com
@@ -57,7 +58,7 @@ Configure `./opendock setup mail` before inviting users or relying on password r
 
 - Mattermost defaults to `release-11`, tracking Mattermost 11.x without jumping to a future major version.
 - PostgreSQL client defaults to `17-alpine`.
-- Versions live in `.env`, not `compose.yml`.
+- Versions live in `.env.default`, not `compose.yml`.
 - Avoid `latest` tags.
 
 ## Storage

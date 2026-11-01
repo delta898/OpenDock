@@ -74,10 +74,13 @@ By default, WordPress is published as:
 https://blog.<STACK_DOMAIN>
 ```
 
-Set the domain and subdomain in `common.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/wordpress/.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# services/wordpress/.env
 WORDPRESS_SUBDOMAIN=blog
 ```
 
@@ -121,10 +124,13 @@ By default, Homepage is published as:
 https://home.<STACK_DOMAIN>
 ```
 
-Set the domain and subdomain in `common.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/homepage/.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# services/homepage/.env
 HOMEPAGE_SUBDOMAIN=home
 ```
 
@@ -156,10 +162,13 @@ By default, n8n is published as:
 https://n8n.<STACK_DOMAIN>
 ```
 
-Set the domain and subdomain in `common.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/n8n/.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# services/n8n/.env
 N8N_SUBDOMAIN=n8n
 ```
 
@@ -175,10 +184,13 @@ By default, Nextcloud is published as:
 https://cloud.<STACK_DOMAIN>
 ```
 
-Set the domain and subdomain in `common.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/nextcloud/.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# services/nextcloud/.env
 NEXTCLOUD_SUBDOMAIN=cloud
 ```
 
@@ -194,10 +206,13 @@ By default, Immich is published as:
 https://photos.<STACK_DOMAIN>
 ```
 
-Set the domain and subdomain in `common.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/immich/.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# services/immich/.env
 IMMICH_SUBDOMAIN=photos
 ```
 
@@ -211,10 +226,13 @@ By default, Jellyfin is published as:
 https://media.<STACK_DOMAIN>
 ```
 
-Set the domain and subdomain in `common.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/jellyfin/.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# services/jellyfin/.env
 JELLYFIN_SUBDOMAIN=media
 ```
 
@@ -248,10 +266,13 @@ By default, Uptime Kuma is published as:
 https://uptime.<STACK_DOMAIN>
 ```
 
-Set the domain and subdomain in `common.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/uptime-kuma/.env`:
 
 ```sh
+# config/core.env
 STACK_DOMAIN=example.com
+
+# services/uptime-kuma/.env
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
 
@@ -277,7 +298,7 @@ Caddy's automatic HTTP-to-HTTPS redirect is intentionally disabled. If Caddy red
 
 Use `https://<service>.<domain>` for public access. Browser HTTP-to-HTTPS redirection is expected to happen at Cloudflare, not at Caddy.
 
-When changing `common.env` or Caddy route files, reload or recreate the gateway container:
+When changing `config/core.env` or Caddy route files, reload or recreate the gateway container:
 
 ```sh
 ./opendock down gateway
@@ -304,4 +325,5 @@ Then forward both port 80 and 443 to the server. Caddy will restore its default 
 
 ## Image Policy
 
-Caddy uses the official `caddy` image. The default version is kept in `.env` and referenced from `compose.yml` so users can change versions without editing Compose structure.
+Caddy uses the official `caddy` image. Its tracked version and port defaults are
+in `config/gateway.env.default`; local overrides belong in `config/gateway.env`.

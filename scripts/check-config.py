@@ -10,11 +10,10 @@ import sys
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+from opendock_settings import load_values
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-COMMON_ENV = ROOT_DIR / "common.env"
-COMMON_ENV_EXAMPLE = ROOT_DIR / "common.env.example"
 DOMAIN_SPEC = importlib.util.spec_from_file_location(
     "opendock_domains", ROOT_DIR / "scripts" / "opendock-domains.py"
 )
@@ -22,7 +21,6 @@ DOMAINS = importlib.util.module_from_spec(DOMAIN_SPEC)
 DOMAIN_SPEC.loader.exec_module(DOMAINS)
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
 QUIET = os.environ.get("CHECK_CONFIG_QUIET") == "1"
-ENV_KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 INTERPOLATION_RE = re.compile(
     r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:(:?[-?=+])([^}]*))?\}"
 )
@@ -38,31 +36,6 @@ SERVICE_REQUIRED = {
 
 def service_env_key(service):
     return f"{service.replace('-', '_').upper()}_SUBDOMAIN"
-
-
-def parse_env_file(path):
-    values = {}
-    if not path.exists():
-        return values
-
-    for raw_line in path.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-
-        if not ENV_KEY_RE.fullmatch(key):
-            continue
-
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-            value = value[1:-1]
-
-        values[key] = value
-
-    return values
 
 
 def service_targets():
@@ -281,9 +254,10 @@ def check_target(target, common_values, example_values):
     env = {}
     env.update(common_values)
 
-    service_env = directory / ".env"
-    if service_env.exists():
-        env.update(parse_env_file(service_env))
+    if target == "hermes":
+        env["HERMES_SANDBOX_DIR"] = str(
+            ROOT_DIR / "services" / "hermes" / "data" / "sandboxes"
+        )
 
     required, optional = compose_variables(compose)
     required.update(GLOBAL_REQUIRED)
@@ -356,7 +330,7 @@ def print_results(results):
             print()
 
     if failed:
-        print("Set external values such as STACK_DOMAIN in common.env.")
+        print("Set external values with `./opendock setup` or `./opendock setup <service>`.")
         print(f"Run `./opendock setup {TARGET}` to review and fill user-facing values.")
         print("Run `./opendock secrets` to fill generated passwords and app secrets.")
         return 1
@@ -364,26 +338,9 @@ def print_results(results):
     return 0
 
 
-def print_missing_common_env():
-    print("Missing required file: common.env")
-    print()
-    print("To continue:")
-    print("  ./opendock setup")
-    print("  ./opendock check-config")
-    print()
-    print("Or configure manually:")
-    print("  cp common.env.example common.env")
-    print("  nano common.env  # set STACK_DOMAIN")
-    print("  ./opendock secrets")
-
-
 def main():
-    if not COMMON_ENV.exists():
-        print_missing_common_env()
-        return 1
-
-    common_values = parse_env_file(COMMON_ENV)
-    example_values = parse_env_file(COMMON_ENV_EXAMPLE)
+    common_values = load_values(process_env=False)
+    example_values = load_values(examples=True)
     targets = resolve_targets(TARGET)
     results = [check_target(target, common_values, example_values) for target in targets]
     failed = print_results(results)
