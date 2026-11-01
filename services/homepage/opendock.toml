@@ -7,3 +7,7 @@ dependencies = ["infra"]
 name = "HOMEPAGE_SUBDOMAIN"
 kind = "defaulted-choice"
 default = "home"
+
+[removal]
+# The mounted dashboard configuration is tracked source and must be preserved.
+data_paths = []

@@ -44,3 +44,17 @@ services/homepage/config/
 ```
 
 The default dashboard links to the included OpenDock services using the shared `STACK_DOMAIN` and service subdomain settings.
+
+## Remove
+
+Preview the complete removal plan with:
+
+```sh
+./opendock remove homepage --dry-run
+```
+
+`./opendock remove homepage` asks for explicit confirmation, then removes the
+Homepage container, image, configured public route, and service-local
+settings. It preserves `services/homepage/config/` because those dashboard YAML
+files are tracked source, not generated runtime data. Shared infrastructure
+and the gateway are preserved.
