@@ -156,6 +156,9 @@ unsupported required versions before changing service state. Removing a
 service's runtime data with `remove` is separate from deregistering its code.
 Deleting or disabling a service definition must never implicitly delete
 containers, volumes, configuration, or user data.
+Keep service command summaries, details, and examples in that service's
+descriptor beside its executable command files. The common dispatcher should
+render the shared help format without a central per-service command table.
 
 ## Development journal and BlogGenius seeds
 

@@ -196,10 +196,10 @@ CLI without subprocess JSON protocols, arbitrary shell command strings, or
 service imports from the CLI dispatcher. Keep handler loading behind one
 catalog boundary so a future protocol change does not affect command workflows.
 
-The descriptor is versioned and contains declarative facts, currently stable
-service ID, display name, shared `infra`/`gateway` dependencies, setup fields,
-secret generator declarations, and declared capabilities. Application-dependent
-onboarding uses an optional capability. A service contributes only the
+The descriptor is versioned and contains declarative facts: stable service ID,
+display name, shared `infra`/`gateway` dependencies, setup fields, secret
+generator declarations, command help metadata, and declared capabilities.
+Application-dependent onboarding uses an optional capability. A service contributes only the
 capabilities it needs. The common setup prompt, secret persistence, and
 configuration result rendering remain consistent across services, while each
 service declares which values it needs and implements application-specific
@@ -213,9 +213,9 @@ platform operations. Where a service needs application-specific work, the
 contract passes a narrow service-scoped operation port; it does not grant
 unrestricted access to every platform helper.
 
-The first descriptor and handler signatures are implemented by the Hermes
-and Uptime Kuma pilots below. Do not create a general third-party plugin
-framework. This is an in-repository service capability contract. Existing
+The first descriptor and handler signatures are implemented by the Hermes,
+Uptime Kuma, Mastodon, and Supabase examples below. Do not create a general
+third-party plugin framework. This is an in-repository service capability contract. Existing
 `commands/` and post-launch scripts are useful precedents, but their interfaces
 should be aligned with this contract rather than expanded independently.
 
@@ -256,7 +256,8 @@ The first contract is intentionally small and lives in these files:
   only when they need one of that service's declared capabilities.
 - `services/<name>/opendock.toml` declares `schema_version`, `service_id`,
   optional `display_name`, shared platform `dependencies`, implemented
-  `capabilities`, and optional `setup.fields`. Capabilities also require
+  `capabilities`, optional `setup.fields`, optional command help metadata, and
+  optional `[removal]` resource ownership. Capabilities also require
   `capability_api_version`.
 - `services/<name>/opendock.py` implements only the procedures named by its
   descriptor. API version 1 supports `runtime_environment(context)`,
@@ -295,9 +296,10 @@ common prompt and persistence workflow remains in `scripts/opendock-config.py`.
 `services/hermes/` declares `runtime_environment` and `prepare`; its Python
 capabilities own the Docker sandbox environment and idempotent model onboarding
 decision. Uptime Kuma demonstrates a service with no custom handler. Service
-commands are still discovered from `services/<name>/commands/`, and
-`opendock-post-launch.py` remains an existing Mastodon/Supabase convention
-pending migration.
+commands are discovered from `services/<name>/commands/`; their help text and
+examples live in the same service's descriptor. The common command runner has
+no per-service help registry. Existing `opendock-post-launch.py` scripts remain
+a Mastodon/Supabase convention pending migration.
 
 Some service-specific behavior remains to migrate:
 
@@ -313,8 +315,6 @@ Some service-specific behavior remains to migrate:
 - Removal now uses a shared planner and service-declared `[removal]` resources.
   Hermes is the first registered service; other services remain unavailable to
   `remove` until their data, database, and preservation scope is audited.
-- Service command help metadata is centralized in `scripts/opendock-service.py`
-  even though executable commands already live beside each service.
 - Sync exclusion rules include service-specific paths in the central CLI.
 
 Some shared registries are legitimate: OpenDock still needs a single common

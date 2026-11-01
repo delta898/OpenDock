@@ -123,6 +123,12 @@ branches to `opendock` or maintain another central name list. Keep IDs stable
 and lowercase with hyphens where appropriate. A capability is optional: simple
 services should not need placeholder handlers.
 
+Each optional executable in `commands/` can have a matching `[[commands]]`
+entry in the descriptor with its `name`, short `summary`, optional `details`,
+and runnable `examples`. The catalog checks that declared command metadata has
+an executable beside it; the shared service CLI renders the metadata and
+forwards arguments without maintaining a per-service help dictionary.
+
 Contributors should define the service's defaults, shared dependencies, public
 route metadata, setup and validation needs, generated secret relationships,
 launch preparation, health checks, and exact removal/preservation scope in the

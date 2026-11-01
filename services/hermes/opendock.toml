@@ -13,6 +13,12 @@ extra_images = ["nousresearch/hermes-sandbox:desktop"]
 label = "hermes-task-id"
 path = "data/sandboxes"
 
+[[commands]]
+name = "onboard"
+summary = "Open Hermes' interactive model and provider setup wizard."
+details = "A fresh `./opendock launch hermes` performs onboarding automatically. Run this command to reopen the wizard later; it ensures shared infrastructure is running first."
+examples = ["./opendock service hermes onboard"]
+
 [[setup.fields]]
 name = "HERMES_SUBDOMAIN"
 kind = "defaulted-choice"

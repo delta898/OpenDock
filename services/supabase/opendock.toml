@@ -5,6 +5,18 @@ capability_api_version = 1
 capabilities = ["prepare", "plan_secrets", "generate_secrets", "validate_config"]
 dependencies = ["infra"]
 
+[[commands]]
+name = "api-keys"
+summary = "Show the Supabase URL and publishable client key."
+details = "Secret keys and legacy service-role values remain hidden."
+examples = ["./opendock service supabase api-keys"]
+
+[[commands]]
+name = "functions-secrets"
+summary = "Review names of local Supabase Edge Function secrets."
+details = "Creates services/supabase/functions.env from its example when missing, sets restrictive file permissions, and prints configured names without values."
+examples = ["./opendock service supabase functions-secrets"]
+
 [[setup.fields]]
 name = "SUPABASE_SUBDOMAIN"
 kind = "defaulted-choice"

@@ -3,6 +3,12 @@ service_id = "wordpress"
 display_name = "WordPress"
 dependencies = ["infra"]
 
+[[commands]]
+name = "multisite"
+summary = "Convert WordPress to subdirectory multisite mode."
+details = "Uses the configured WordPress hostname and asks for confirmation before changing WordPress configuration and database behavior. Reverting after creating sites or content requires a migration. Set YES=1 for automation."
+examples = ["./opendock service wordpress multisite", "YES=1 ./opendock service wordpress multisite"]
+
 [setup]
 dependencies = ["mariadb"]
 

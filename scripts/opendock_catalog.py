@@ -2,8 +2,10 @@
 """Discover Compose-backed services without maintaining a central name list."""
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 from pathlib import PurePosixPath
+import re
 from types import MappingProxyType
 from typing import Mapping
 
@@ -52,6 +54,10 @@ class ServiceDefinition:
     @property
     def removal(self) -> Mapping[str, object]:
         return self.descriptor.get("removal", {})
+
+    @property
+    def commands(self) -> tuple[Mapping[str, object], ...]:
+        return tuple(self.descriptor.get("commands", ()))
 
 
 class ServiceCatalog:
@@ -175,6 +181,43 @@ class ServiceCatalog:
             raise CatalogError(
                 f"Service descriptor {path} declares plan_secrets without generate_secrets."
             )
+
+        commands = descriptor.get("commands", [])
+        if not isinstance(commands, list):
+            raise CatalogError(f"Service descriptor {path} commands must be an array of tables.")
+        seen_commands = set()
+        for command in commands:
+            if not isinstance(command, dict):
+                raise CatalogError(f"Service descriptor {path} contains an invalid command entry.")
+            name = command.get("name")
+            if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+                raise CatalogError(f"Service descriptor {path} has an invalid command name.")
+            if name in seen_commands:
+                raise CatalogError(f"Service descriptor {path} repeats command {name!r}.")
+            seen_commands.add(name)
+            summary = command.get("summary")
+            if not isinstance(summary, str) or not summary.strip():
+                raise CatalogError(
+                    f"Service command {name!r} in {path} needs a non-empty summary."
+                )
+            details = command.get("details")
+            if details is not None and not isinstance(details, str):
+                raise CatalogError(
+                    f"Service command {name!r} in {path} has non-string details."
+                )
+            examples = command.get("examples", [])
+            if not isinstance(examples, list) or any(
+                not isinstance(example, str) or not example.strip() for example in examples
+            ):
+                raise CatalogError(
+                    f"Service command {name!r} in {path} examples must be a string list."
+                )
+            executable = path.parent / "commands" / name
+            if not executable.is_file() or not os.access(executable, os.X_OK):
+                raise CatalogError(
+                    f"Service command {name!r} in {path} has no executable "
+                    f"services/{service_id}/commands/{name} file."
+                )
 
         dependencies = descriptor.get("dependencies", [])
         if (not isinstance(dependencies, list)

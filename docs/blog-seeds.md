@@ -685,8 +685,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   `scripts/opendock-remove.py`, `scripts/opendock-service.py`,
   `scripts/opendock_capabilities.py`, `scripts/opendock_catalog.py`,
   `scripts/opendock-secrets.py`, `scripts/check-config.py`,
-  `services/hermes/opendock.toml`, `services/mastodon/opendock.py`,
-  `services/supabase/opendock.py`,
+  `services/hermes/opendock.toml`, `services/wordpress/opendock.toml`,
+  `services/supabase/opendock.toml`, `services/mastodon/opendock.py`,
+  `services/supabase/opendock.py`, `scripts/opendock-service.py`,
   `services/mastodon/opendock-post-launch.py`,
   `services/supabase/opendock-post-launch.py`
 - 주제: `서비스가 늘어도 CLI dispatcher가 비대해지지 않게 하려면`
@@ -749,6 +750,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     path를 선언하도록 바꾸는 중이다. 공통 제거기는 이 선언을 확인해 Compose 자원,
     라우트, 서비스 설정과 함께 계획한다. 현재 제거 등록은 Hermes뿐이며 shared DB
     오브젝트를 가진 서비스까지 지원하는 것은 아니다.
+  - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
+    `[[commands]]`로 옮기는 중이다. Hermes, WordPress, Supabase가 자신의 명령 이름,
+    설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.
   - 사용자는 첫 catalog/capability 적용 후 `./opendock --help`, `./opendock list`,
     `./opendock launch hermes` 경로와 이어서 `./opendock setup hermes` 동작을
     확인했다. 두 번째 실행에서는 기존 onboarding을 건너뛰었다. 이후 모든 서비스의
@@ -777,6 +781,7 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   skip을 실제 환경에서 확인했다. setup migration marker 수정도 사용자가 원격 개발
   환경에서 `sync` 후 Mastodon setup을 다시 실행해 반복 메시지가 해결된 것을
   확인했다. secret generation·service validation capability, Supabase prepare,
-  선언형 Hermes removal은 로컬 변경으로 아직 실환경 검증되지 않았다. 자동화 테스트,
+  선언형 Hermes removal, service command help metadata 이관은 로컬 변경으로 아직
+  실환경 검증되지 않았다. 자동화 테스트,
   깨끗한 데이터의 첫 onboarding, 모든 서비스 removal 후의 깨끗한 환경 전체 실행,
   Linux/macOS 양쪽 동작도 미검증이다.

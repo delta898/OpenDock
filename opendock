@@ -725,18 +725,14 @@ def print_guide():
           ./opendock remove hermes --dry-run           Preview removal without changes
           ./opendock service <service>              List service-specific commands
           ./opendock service <service> <command>    Run one service-specific command
-          Examples: service wordpress multisite
-                    service supabase  api-keys
-                    service supabase  functions-secrets
-                    service hermes    onboard  (re-run Hermes' interactive setup)
           ./opendock sync <name> --dry-run          Preview deployment to a remote
           ./opendock sync <name>                    Deploy code to a remote
 
         Help at each level
           ./opendock route --help
           ./opendock route add --help
-          ./opendock service hermes --help
-          ./opendock service hermes onboard --help
+          ./opendock service <service> --help
+          ./opendock service <service> <command> --help
 
         Targets: a service (wordpress), group (media), infra, gateway,
                  services (all apps), or all (core and apps).
@@ -850,9 +846,8 @@ def parser():
         "service", help="Show or run service-specific commands",
         description="List a service's extra commands, or get help/run one of them.",
         usage="./opendock service <service> [command] [arguments]",
-        epilog=("Examples:\n  ./opendock service hermes --help\n"
-                "  ./opendock service hermes onboard --help\n"
-                "  ./opendock service wordpress multisite --help"),
+        epilog=("Examples:\n  ./opendock service <service> --help\n"
+                "  ./opendock service <service> <command> --help"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     service_cmd.add_argument("service", help="Installed service name, such as hermes or wordpress")
