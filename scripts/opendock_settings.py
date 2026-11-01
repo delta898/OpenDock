@@ -26,10 +26,15 @@ SERVICE_PREFIXES = {
     service: service.replace("-", "_").upper() + "_"
     for service in SERVICE_NAMES
 }
-INFRA_KEYS = set(SERVICE_CATALOG.platform.get("infra").setting_keys)
-GATEWAY_KEYS = set(SERVICE_CATALOG.platform.get("gateway").setting_keys)
+PLATFORM_SETTING_OWNERS = {}
+SHARED_SETTING_GROUPS = {}
+for component in SERVICE_CATALOG.platform.components:
+    for key in component.setting_keys:
+        PLATFORM_SETTING_OWNERS[key] = Path(component.config_file)
+    for setting in component.shared_settings:
+        PLATFORM_SETTING_OWNERS[setting["name"]] = Path(setting["owner_file"])
+        SHARED_SETTING_GROUPS[setting["name"]] = setting["shared_group"]
 MAIL_PREFIX = "SMTP_"
-DATABASE_SHARED_DEPENDENCIES = {"MARIADB_CLIENT_VERSION": "mariadb"}
 
 
 def parse_env(path):
@@ -48,14 +53,10 @@ def parse_env(path):
 def owner_path(key):
     if key == "STACK_DOMAIN":
         return Path("config") / "core.env"
-    if key in INFRA_KEYS:
-        return Path("config") / "infra.env"
-    if key in GATEWAY_KEYS:
-        return Path("config") / "gateway.env"
+    if key in PLATFORM_SETTING_OWNERS:
+        return PLATFORM_SETTING_OWNERS[key]
     if key.startswith(MAIL_PREFIX):
         return Path("config") / "shared" / "mail.env"
-    if key in DATABASE_SHARED_DEPENDENCIES:
-        return Path("config") / "shared" / "database.env"
     for service, prefix in SERVICE_PREFIXES.items():
         if key.startswith(prefix):
             return Path("services") / service / ".env"
@@ -296,7 +297,7 @@ def migrate_legacy_service_configs():
             if relative.parts[:2] == ("services", service):
                 pass
             elif (
-                DATABASE_SHARED_DEPENDENCIES.get(key)
+                SHARED_SETTING_GROUPS.get(key)
                 in SERVICE_CATALOG.get(service).setup_dependencies
             ):
                 pass

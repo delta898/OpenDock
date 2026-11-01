@@ -1,5 +1,6 @@
 schema_version = 1
 component_id = "infra"
+config_file = "config/infra.env"
 setting_keys = [
   "MARIADB_ROOT_PASSWORD",
   "POSTGRES_ADMIN_USER",
@@ -9,6 +10,11 @@ setting_keys = [
   "REDIS_VERSION",
 ]
 shared_groups = ["mariadb", "postgres"]
+
+[[shared_settings]]
+name = "MARIADB_CLIENT_VERSION"
+owner_file = "config/shared/database.env"
+shared_group = "mariadb"
 
 [[setup.fields]]
 name = "MARIADB_ROOT_PASSWORD"

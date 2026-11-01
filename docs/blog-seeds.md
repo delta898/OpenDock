@@ -758,9 +758,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     setup field와 secret generator를 선언했다. Service catalog는 platform descriptor의
     shared group을 기준으로 service dependency를 검증하고, setup/secrets는 서비스가
     선언한 group에서 infra field를 선택한다. 설정 owner 경로도 infra descriptor의
-    setting key 목록에서 파생된다. 이어 gateway setting key도
-    `gateway/opendock.toml`로 옮겼다. SMTP와 database shared concern은 여러 서비스가
-    소비하고 별도 migration 동작이 있어 common settings interface에 남겼다.
+    setting key 목록에서 파생된다. `MARIADB_CLIENT_VERSION`은 shared setting으로
+    database env 파일 소유자와 `mariadb` dependency 조건을 선언했다. 따라서 legacy
+    서비스 설정 migration도 같은 선언을 참고한다. 이어 gateway setting key도
+    `gateway/opendock.toml`로 옮겼다. SMTP setup field 정의는 여러 서비스가 소비하는
+    shared concern이므로 common config interface에 남겼다.
   - 설정 migration의 WordPress·Nextcloud 조건은 서비스 이름을 직접 비교하는 대신
     각 서비스 descriptor의 shared MariaDB dependency를 기준으로 일반화했다.
     Mastodon 예약 username 판정은 setup helper에서 제거해 Mastodon validator가

@@ -110,9 +110,16 @@ setup fields, secret generator declarations, and dependency groups such as
 service declares only the shared groups it needs in
 `services/<service>/opendock.toml`; the common setup and secret coordinators
 resolve those declarations. Platform config ownership is also derived from the
-component descriptors. Shared mail and database concerns remain registered in
-the common settings interface because they span multiple services and have
-their own configuration and migration behavior.
+component descriptors. SMTP setup fields remain in the common settings
+interface because mail is an optional cross-service concern rather than a
+service-owned setup dependency.
+
+An infra descriptor may declare a setting consumed by multiple services under
+`[[shared_settings]]`, including its shared group and owner file. For example,
+`MARIADB_CLIENT_VERSION` belongs to the shared database config file and is
+accepted from a legacy service config only when that service declares the
+matching `mariadb` setup dependency. This keeps the migration rule beside the
+shared dependency it describes.
 
 ## Contributing a service
 

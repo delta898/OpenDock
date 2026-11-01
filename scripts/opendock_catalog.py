@@ -74,6 +74,10 @@ class PlatformComponentDefinition:
         return tuple(self.descriptor.get("setting_keys", ()))
 
     @property
+    def config_file(self) -> str:
+        return str(self.descriptor["config_file"])
+
+    @property
     def shared_groups(self) -> tuple[str, ...]:
         return tuple(self.descriptor.get("shared_groups", ()))
 
@@ -81,6 +85,10 @@ class PlatformComponentDefinition:
     def setup_fields(self) -> tuple[Mapping[str, object], ...]:
         setup = self.descriptor.get("setup", {})
         return tuple(setup.get("fields", ()))
+
+    @property
+    def shared_settings(self) -> tuple[Mapping[str, object], ...]:
+        return tuple(self.descriptor.get("shared_settings", ()))
 
 
 class PlatformCatalog:
@@ -101,7 +109,14 @@ class PlatformCatalog:
         ]
         if len(groups) != len(set(groups)):
             raise CatalogError("Platform descriptors declare duplicate shared groups.")
-        keys = [key for component in self.components for key in component.setting_keys]
+        keys = [
+            key
+            for component in self.components
+            for key in (
+                *component.setting_keys,
+                *(item["name"] for item in component.shared_settings),
+            )
+        ]
         if len(keys) != len(set(keys)):
             raise CatalogError("Platform descriptors declare duplicate setting ownership.")
 
@@ -134,6 +149,24 @@ class PlatformCatalog:
                 f"Platform descriptor {path} must declare component_id = {name!r}."
             )
 
+        def validate_config_path(value, attribute):
+            if not isinstance(value, str):
+                raise CatalogError(
+                    f"Platform descriptor {path} needs a string {attribute}."
+                )
+            candidate = PurePosixPath(value)
+            if candidate.is_absolute() or ".." in candidate.parts:
+                raise CatalogError(
+                    f"Platform descriptor {path} has an unsafe {attribute}."
+                )
+            if not value.startswith("config/"):
+                raise CatalogError(
+                    f"Platform descriptor {path} {attribute} must be under config/."
+                )
+            return value
+
+        validate_config_path(descriptor.get("config_file"), "config_file")
+
         setting_keys = descriptor.get("setting_keys", [])
         if not isinstance(setting_keys, list) or any(
             not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
@@ -151,6 +184,31 @@ class PlatformCatalog:
             raise CatalogError(f"Platform descriptor {path} has invalid shared_groups.")
         if len(shared_groups) != len(set(shared_groups)):
             raise CatalogError(f"Platform descriptor {path} repeats a shared group.")
+
+        shared_settings = descriptor.get("shared_settings", [])
+        if not isinstance(shared_settings, list):
+            raise CatalogError(f"Platform descriptor {path} shared_settings must be a list.")
+        seen_shared_settings = set()
+        for setting in shared_settings:
+            if not isinstance(setting, dict):
+                raise CatalogError(f"Platform descriptor {path} has an invalid shared setting.")
+            key = setting.get("name")
+            group = setting.get("shared_group")
+            if (
+                not isinstance(key, str)
+                or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
+                or key in setting_keys
+                or key in seen_shared_settings
+            ):
+                raise CatalogError(
+                    f"Platform descriptor {path} has an invalid or duplicate shared setting key."
+                )
+            if not isinstance(group, str) or group not in shared_groups:
+                raise CatalogError(
+                    f"Shared setting {key!r} in {path} needs a declared shared_group."
+                )
+            seen_shared_settings.add(key)
+            validate_config_path(setting.get("owner_file"), f"owner_file for {key}")
 
         setup = descriptor.get("setup", {})
         if not isinstance(setup, dict):
