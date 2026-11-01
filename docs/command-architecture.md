@@ -199,12 +199,12 @@ catalog boundary so a future protocol change does not affect command workflows.
 The descriptor is versioned and contains declarative facts, currently stable
 service ID, display name, shared `infra`/`gateway` dependencies, and declared
 capabilities. Application-dependent onboarding uses an optional capability. A
-service contributes only the capabilities it needs. Hermes and Uptime Kuma
-also declare their setup fields here, which the common setup prompt engine
-consumes. Other services' setup fields, route metadata, resource ownership,
-validation, secret generation, health checks, and custom cleanup remain future
-migrations. The catalog rejects capability names until their common dispatch
-contract exists.
+service contributes only the capabilities it needs. Every current service
+declares its setup fields and shared configuration dependencies here, which the
+common setup prompt engine consumes. Route metadata, resource ownership,
+service-specific validation, secret generation, health checks, and custom
+cleanup remain future migrations. The catalog rejects capability names until
+their common dispatch contract exists.
 
 Common capability results should be typed values, not printed text that the
 workflow has to parse. Examples include configuration issues, generated secret
@@ -274,26 +274,27 @@ they are not a security sandbox.
 
 Hermes uses `runtime_environment` for its nested Docker sandbox and `prepare`
 for first-run model onboarding. Its setup fields include the dashboard
-credentials and change notice. Uptime Kuma demonstrates a valid descriptor
-with one setup field and no custom capabilities. Services not yet migrated may
-omit the descriptor and retain the transitional `infra` dependency. Adding a
-capability name to the catalog is part of implementing its type, dispatcher,
-and error handling; a declared but unsupported name must fail during discovery
-instead of being silently ignored.
+credentials and change notice. Uptime Kuma demonstrates a descriptor with one
+setup field and no custom capabilities. All current Compose services now have a
+descriptor and declare their `infra` dependency. Adding a capability name to
+the catalog is part of implementing its type, dispatcher, and error handling;
+a declared but unsupported name must fail during discovery instead of being
+silently ignored.
 
 ## Current code and migration targets
 
 The repository discovers Compose services from `services/*/compose.yml` through
-`scripts/opendock_catalog.py`. Target, setup, configuration, secret, domain,
-and publishing helpers share that discovery function. `services/hermes/` now
-declares `runtime_environment` and `prepare` in `opendock.toml`; its Python
+`scripts/opendock_catalog.py`; every current service now has a validated
+descriptor. Target, setup, configuration, secret, domain, and publishing
+helpers share that discovery function. Setup fields and shared MariaDB/
+PostgreSQL setup dependencies now live in service descriptors, while the
+common prompt and persistence workflow remains in `scripts/opendock-config.py`.
+`services/hermes/` declares `runtime_environment` and `prepare`; its Python
 capabilities own the Docker sandbox environment and idempotent model onboarding
-decision. `services/uptime-kuma/opendock.toml` demonstrates a simple service
-with no custom handler. The common launch path performs configuration checks,
-starts declared shared dependencies, invokes preparation, then starts Compose
-and applies the common route. Service commands are still discovered from
-`services/<name>/commands/`. `opendock-post-launch.py` remains an existing
-Mastodon/Supabase convention pending migration.
+decision. Uptime Kuma demonstrates a service with no custom handler. Service
+commands are still discovered from `services/<name>/commands/`, and
+`opendock-post-launch.py` remains an existing Mastodon/Supabase convention
+pending migration.
 
 There are also central service-specific responsibilities to remove over time:
 
@@ -301,13 +302,13 @@ There are also central service-specific responsibilities to remove over time:
   environment setup have moved to Hermes' capability module. The current
   handler API supports only `runtime_environment` and `prepare`; other service
   specific responsibilities below remain to migrate.
-- Setup fields for services other than Hermes and Uptime Kuma, shared
-  MariaDB/PostgreSQL dependency sets, and some credential-specific notices
-  remain in `scripts/opendock-config.py` pending migration.
-- Service names and key prefixes are registered in
-  `scripts/opendock_settings.py`; platform-owned core/infra/shared settings can
-  remain central, but service-owned keys should be discovered from service
-  declarations.
+- Service-generated secret selection remains in `scripts/opendock-secrets.py`;
+  application-specific secret generation and validation are the next
+  configuration migration after the setup field declarations.
+- Service discovery and setup declarations now come from the catalog. The
+  common settings layer still maps setting prefixes to owner files; platform-
+  owned core/infra/shared settings remain central, while future validation and
+  secret metadata should be discovered from service declarations.
 - Mastodon and Supabase validation rules and the Supabase JWT key bundle
   generator are special-cased in `scripts/check-config.py` and
   `scripts/opendock-secrets.py`.

@@ -131,15 +131,15 @@ platform routing, and output formatting in the common workflows. Follow
 [Command and Service Ownership](command-architecture.md) for the boundary and
 compatibility rules.
 
-The catalog centralizes Compose-backed service discovery. Hermes and Uptime
-Kuma are the first descriptor pilots: Hermes implements the version 1
-`runtime_environment` and `prepare` capabilities, while Uptime Kuma has no
-custom capability. Both declare their setup prompts in `setup.fields`; the
-common setup engine reads those declarations. Services without a descriptor
-retain the transitional default dependency on `infra`. Only capabilities
-implemented by the current contract may be declared; unsupported declarations
-fail during catalog loading. The descriptor requirement will become enforceable
-after the remaining services have migrated.
+The catalog centralizes Compose-backed service discovery, and each current
+service must have a valid `opendock.toml`. Descriptors declare setup fields,
+shared configuration dependencies, and runtime dependencies. Hermes implements
+the version 1 `runtime_environment` and `prepare` capabilities; simpler
+services need no capability module. The common setup engine reads the same
+field schema for all services. Only capabilities implemented by the current
+contract may be declared; unsupported declarations fail during catalog
+loading. When adding a service, include a descriptor and its setup schema even
+if the descriptor has no custom capability.
 
 Runtime cleanup and code registration are separate lifecycles. `remove
 <service>` removes declared runtime resources while keeping the service

@@ -1,0 +1,9 @@
+schema_version = 1
+service_id = "jellyfin"
+display_name = "Jellyfin"
+dependencies = ["infra"]
+
+[[setup.fields]]
+name = "JELLYFIN_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "media"

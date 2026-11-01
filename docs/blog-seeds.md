@@ -345,6 +345,13 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     전용 경로라는 전제를 가지므로, 보호 목록 밖의 수동 원격 파일은 삭제될 수 있다.
   - `.env.example` 등 committed example은 배포 대상이며 실제 설정은 host state로
     남긴다. 새 runtime 경로를 추가하면 Git ignore와 sync 보호 목록도 함께 갱신해야 한다.
+  - 설정 기본값 migration marker도 Git-ignore된 host state다. 사용자의 반복 setup
+    출력에서 이전 migration 메시지가 다시 나타난 원인을 추적해 보니, 원격 prune
+    보호 목록에서 marker가 빠져 있었다. `.service-default-migration-v1`,
+    `.infra-default-migration-v1`, `.gateway-default-migration-v1`를 sync 보호 목록에
+    추가해 이후 sync에서 보존하도록 했다. 사용자가 sync dry-run 및 실제 sync 후
+    `./opendock setup mastodon`을 실행했고, 다른 서비스의 migration 메시지가
+    반복되지 않는 것을 확인했다.
   - example 파일은 코드와 함께 보내 새 설정 항목을 발견하게 하지만 실제
     서버 Secret과 persistent data는 destination에 남는다. “설정 템플릿은
     배포 자산, 실제 설정은 host state”라는 경계다.
@@ -722,19 +729,20 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - Hermes는 `services/hermes/opendock.toml`과 `opendock.py`를 통해
     `runtime_environment` 및 `prepare` capability를 선언한다. 중첩 Docker sandbox의
     환경값과 first-run model onboarding 판정을 서비스 소유 코드로 이동했다.
-    Hermes dashboard 설정 필드와 변경 안내, Uptime Kuma의 hostname 설정도
-    descriptor로 옮겼고 공통 setup prompt가 읽는다. Uptime Kuma descriptor는
-    custom handler가 없는 단순 서비스의 예다.
+    이어서 모든 현재 Compose 서비스에 descriptor를 추가하고 setup field와
+    MariaDB/PostgreSQL 공유설정 요구를 그 안에 선언했다. 공통 setup prompt가
+    선언을 읽으며, Uptime Kuma는 custom handler가 없어도 descriptor만으로 등록되는
+    단순 서비스 예가 됐다.
   - capability API v1은 좁은 service-scoped context와 typed `PreparationResult`를
     제공한다. 아직 지원하지 않는 capability 이름은 catalog가 거부하도록 제한했다.
     이 구조는 신뢰된 checkout의 Python 코드이며 보안 sandbox가 아니라는 경계도
     문서에 기록했다.
-  - 사용자는 catalog/capability 변경 후 `./opendock --help`, `./opendock list`,
-    `./opendock launch hermes` 경로가 잘 동작했다고 확인했다. 이번 후속 변경으로
-    Hermes/Uptime Kuma setup 필드를 descriptor에서 읽도록 했고, Hermes sandbox
-    환경값도 check-config가 capability에서 받도록 했지만 이 후속 변경은 아직
-    별도 확인하지 않았다. 깨끗한 데이터에서의 첫 onboarding과 Linux/macOS 양쪽
-    검증도 별도로 확인해야 한다.
+  - 사용자는 첫 catalog/capability 적용 후 `./opendock --help`, `./opendock list`,
+    `./opendock launch hermes` 경로와 이어서 `./opendock setup hermes` 동작을
+    확인했다. 두 번째 실행에서는 기존 onboarding을 건너뛰었다. 이후 모든 서비스의
+    setup 필드와 공유 설정 dependency를 descriptor로 옮기고, 같은 설정값을 다시
+    private `.env`에 쓰지 않도록 수정했으나 이 최신 변경은 아직 확인하지 않았다.
+    깨끗한 데이터에서의 첫 onboarding과 Linux/macOS 양쪽 검증도 남아 있다.
   - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
     `HERMES_SUBDOMAIN`이 변경된 것으로 표시됐다. 기본값 migration 직후 setup이
     이미 실효값인 tracked default를 private `.env`에 다시 쓰는 경로로 판단해,
@@ -750,7 +758,7 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 참고: [Terraform plugin architecture](https://developer.hashicorp.com/terraform/plugin/how-terraform-works),
   [Ansible Collections](https://docs.ansible.com/collections.html),
   [Python plugin discovery](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/).
-- 검증 상태: 사용자가 catalog/capability 경로의 help/list/Hermes launch를 실제
-  환경에서 확인했다. Hermes/Uptime Kuma setup descriptor와 check-config의
-  capability 연동은 후속 로컬 변경이며 아직 확인되지 않았다. 자동화 테스트,
+- 검증 상태: 사용자가 help/list, Hermes launch, Hermes setup 및 기존 onboarding
+  skip을 실제 환경에서 확인했다. 모든 서비스 setup descriptor와 설정값 중복 저장
+  방지 등 그 후속 변경은 로컬 수정이며 아직 확인되지 않았다. 자동화 테스트,
   깨끗한 데이터에서의 첫 onboarding, Linux/macOS 양쪽 동작도 미검증이다.

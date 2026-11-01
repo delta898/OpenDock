@@ -1,0 +1,77 @@
+schema_version = 1
+service_id = "supabase"
+display_name = "Supabase"
+dependencies = ["infra"]
+
+[[setup.fields]]
+name = "SUPABASE_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "supabase"
+
+[[setup.fields]]
+name = "SUPABASE_DB_PASSWORD"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_JWT_SECRET"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_ANON_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_SERVICE_ROLE_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_PUBLISHABLE_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_SECRET_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_ANON_KEY_ASYMMETRIC"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_JWT_KEYS"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_JWT_JWKS"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_SECRET_KEY_BASE"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_PG_META_CRYPTO_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "SUPABASE_DASHBOARD_USER"
+kind = "defaulted-choice"
+default = "opendock"
+
+[[setup.fields]]
+name = "SUPABASE_DASHBOARD_PASSWORD"
+kind = "initial-credential"
+note = "Used for HTTP Basic Auth login to Supabase Studio dashboard."
+
+[[setup.fields]]
+name = "SUPABASE_STUDIO_DEFAULT_ORGANIZATION"
+kind = "defaulted-choice"
+default = "OpenDock"
+
+[[setup.fields]]
+name = "SUPABASE_STUDIO_DEFAULT_PROJECT"
+kind = "defaulted-choice"
+default = "OpenDock"

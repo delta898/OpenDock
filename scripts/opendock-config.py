@@ -52,91 +52,6 @@ CONFIG_FIELDS = {
         Field("SMTP_PASSWORD", "secret-user"),
         Field("SMTP_FROM_ADDRESS", "required-user"),
     ],
-    "homepage": [
-        Field("HOMEPAGE_SUBDOMAIN", "defaulted-choice", default="home"),
-    ],
-    "wordpress": [
-        Field("WORDPRESS_SUBDOMAIN", "defaulted-choice", default="blog"),
-        Field("WORDPRESS_DB_PASSWORD", "generated-secret"),
-    ],
-    "nextcloud": [
-        Field("NEXTCLOUD_SUBDOMAIN", "defaulted-choice", default="cloud"),
-        Field("NEXTCLOUD_DB_PASSWORD", "generated-secret"),
-        Field(
-            "NEXTCLOUD_ADMIN_PASSWORD",
-            "initial-credential",
-            note=(
-                "Used only during first installation. Changing this setting later "
-                "does not reset an installed Nextcloud account."
-            ),
-        ),
-    ],
-    "immich": [
-        Field("IMMICH_SUBDOMAIN", "defaulted-choice", default="photos"),
-        Field("IMMICH_DB_PASSWORD", "generated-secret"),
-    ],
-    "jellyfin": [
-        Field("JELLYFIN_SUBDOMAIN", "defaulted-choice", default="media"),
-    ],
-    "n8n": [
-        Field("N8N_SUBDOMAIN", "defaulted-choice", default="n8n"),
-    ],
-    "mastodon": [
-        Field("MASTODON_SUBDOMAIN", "defaulted-choice", default="social"),
-        Field("MASTODON_ADMIN_USERNAME", "defaulted-choice", default="opendock"),
-        Field("MASTODON_ADMIN_EMAIL", "required-user"),
-        Field(
-            "MASTODON_ADMIN_PASSWORD",
-            "initial-credential",
-            note=(
-                "Used only when OpenDock creates the first Mastodon owner account."
-            ),
-        ),
-        Field("MASTODON_DB_PASSWORD", "generated-secret"),
-        Field("MASTODON_SECRET_KEY_BASE", "generated-secret"),
-        Field("MASTODON_OTP_SECRET", "generated-secret"),
-        Field("MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY", "generated-secret"),
-        Field("MASTODON_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT", "generated-secret"),
-        Field("MASTODON_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY", "generated-secret"),
-        Field("MASTODON_VAPID_PRIVATE_KEY", "generated-secret"),
-        Field("MASTODON_VAPID_PUBLIC_KEY", "generated-secret"),
-    ],
-    "mattermost": [
-        Field("MATTERMOST_SUBDOMAIN", "defaulted-choice", default="chat"),
-        Field("MATTERMOST_DB_PASSWORD", "generated-secret"),
-    ],
-    "supabase": [
-        Field("SUPABASE_SUBDOMAIN", "defaulted-choice", default="supabase"),
-        Field("SUPABASE_DB_PASSWORD", "generated-secret"),
-        Field("SUPABASE_JWT_SECRET", "generated-secret"),
-        Field("SUPABASE_ANON_KEY", "generated-secret"),
-        Field("SUPABASE_SERVICE_ROLE_KEY", "generated-secret"),
-        Field("SUPABASE_PUBLISHABLE_KEY", "generated-secret"),
-        Field("SUPABASE_SECRET_KEY", "generated-secret"),
-        Field("SUPABASE_ANON_KEY_ASYMMETRIC", "generated-secret"),
-        Field("SUPABASE_SERVICE_ROLE_KEY_ASYMMETRIC", "generated-secret"),
-        Field("SUPABASE_JWT_KEYS", "generated-secret"),
-        Field("SUPABASE_JWT_JWKS", "generated-secret"),
-        Field("SUPABASE_SECRET_KEY_BASE", "generated-secret"),
-        Field("SUPABASE_PG_META_CRYPTO_KEY", "generated-secret"),
-        Field("SUPABASE_DASHBOARD_USER", "defaulted-choice", default="opendock"),
-        Field(
-            "SUPABASE_DASHBOARD_PASSWORD",
-            "initial-credential",
-            note="Used for HTTP Basic Auth login to Supabase Studio dashboard.",
-        ),
-        Field("SUPABASE_STUDIO_DEFAULT_ORGANIZATION", "defaulted-choice", default="OpenDock"),
-        Field("SUPABASE_STUDIO_DEFAULT_PROJECT", "defaulted-choice", default="OpenDock"),
-    ],
-}
-
-MARIADB_DEPENDENCIES = {
-    "wordpress",
-    "nextcloud",
-}
-POSTGRES_DEPENDENCIES = {
-    "mastodon",
-    "mattermost",
 }
 
 
@@ -145,6 +60,7 @@ def service_targets():
 
 
 def resolve_sections(target):
+    catalog = ServiceCatalog(ROOT_DIR)
     if target == "all":
         services = service_targets()
     elif target == "services":
@@ -163,10 +79,16 @@ def resolve_sections(target):
         services = group
 
     sections = [] if target == "mail" else ["global"]
-    if target in ("infra", "all") or any(s in MARIADB_DEPENDENCIES for s in services):
-        sections.append("mariadb")
-    if target in ("infra", "all") or any(s in POSTGRES_DEPENDENCIES for s in services):
-        sections.append("postgres")
+    shared_setup = {
+        dependency
+        for service in services
+        for dependency in catalog.get(service).setup_dependencies
+    }
+    if target in ("infra", "all"):
+        shared_setup.update(("mariadb", "postgres"))
+    for dependency in ("mariadb", "postgres"):
+        if dependency in shared_setup:
+            sections.append(dependency)
     if target == "mail":
         sections.append("mail")
 
@@ -179,15 +101,11 @@ def resolve_sections(target):
 def selected_fields(sections):
     fields = []
     seen = set()
+    services = set(service_targets())
+    catalog = ServiceCatalog(ROOT_DIR)
     for section in sections:
-        if section in service_targets():
-            declared = [
-                Field(**field)
-                for field in ServiceCatalog(ROOT_DIR).get(section).setup_fields
-            ]
-            # Keep unmigrated fields available while services transition to
-            # descriptor-owned setup metadata.
-            declared.extend(CONFIG_FIELDS.get(section, []))
+        if section in services:
+            declared = [Field(**field) for field in catalog.get(section).setup_fields]
         else:
             declared = CONFIG_FIELDS.get(section, [])
         for field in declared:
@@ -313,14 +231,6 @@ def print_credential_notices(changed, fields):
         print()
         for notice in notices:
             print(notice)
-    if "NEXTCLOUD_ADMIN_PASSWORD" in changed:
-        print()
-        print("Nextcloud initial admin password is stored in services/nextcloud/.env.")
-        print("Changing it later will not reset an installed Nextcloud password.")
-    if "MASTODON_ADMIN_PASSWORD" in changed:
-        print()
-        print("Mastodon owner password is stored in services/mastodon/.env.")
-        print("It is used only when OpenDock creates the first Mastodon owner account.")
 def main():
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     sections = resolve_sections(target)

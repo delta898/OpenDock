@@ -567,7 +567,9 @@ and local secrets such as `.git/`, `services/*/data/`, `services/*/backups/`,
 `static-sites/` contents, private `config/*.env` files (and the legacy
 `common.env` migration input), `cloudflare.env`, `.sync.env.toml`,
 `*.env` files, `domains.conf`, the generated Caddy routes file, and
-`services/supabase/functions.env` are protected on the destination. The tracked
+`services/supabase/functions.env` are protected on the destination. Local
+configuration migration markers under `config/` are also preserved so a later
+sync does not repeat one-time migrations. The tracked
 `static-sites/README.md` and other committed examples remain deployable.
 
 Other destination-only files are treated as repository files and removed, so

@@ -1,0 +1,16 @@
+schema_version = 1
+service_id = "mattermost"
+display_name = "Mattermost"
+dependencies = ["infra"]
+
+[setup]
+dependencies = ["postgres"]
+
+[[setup.fields]]
+name = "MATTERMOST_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "chat"
+
+[[setup.fields]]
+name = "MATTERMOST_DB_PASSWORD"
+kind = "generated-secret"

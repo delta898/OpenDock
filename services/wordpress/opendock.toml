@@ -1,0 +1,16 @@
+schema_version = 1
+service_id = "wordpress"
+display_name = "WordPress"
+dependencies = ["infra"]
+
+[setup]
+dependencies = ["mariadb"]
+
+[[setup.fields]]
+name = "WORDPRESS_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "blog"
+
+[[setup.fields]]
+name = "WORDPRESS_DB_PASSWORD"
+kind = "generated-secret"

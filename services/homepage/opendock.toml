@@ -1,0 +1,9 @@
+schema_version = 1
+service_id = "homepage"
+display_name = "Homepage"
+dependencies = ["infra"]
+
+[[setup.fields]]
+name = "HOMEPAGE_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "home"

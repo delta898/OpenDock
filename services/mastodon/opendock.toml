@@ -1,0 +1,59 @@
+schema_version = 1
+service_id = "mastodon"
+display_name = "Mastodon"
+dependencies = ["infra"]
+
+[setup]
+dependencies = ["postgres"]
+
+[[setup.fields]]
+name = "MASTODON_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "social"
+
+[[setup.fields]]
+name = "MASTODON_ADMIN_USERNAME"
+kind = "defaulted-choice"
+default = "opendock"
+
+[[setup.fields]]
+name = "MASTODON_ADMIN_EMAIL"
+kind = "required-user"
+
+[[setup.fields]]
+name = "MASTODON_ADMIN_PASSWORD"
+kind = "initial-credential"
+note = "Used only when OpenDock creates the first Mastodon owner account."
+change_notice = "Mastodon owner password is stored in services/mastodon/.env. It is used only when OpenDock creates the first Mastodon owner account."
+
+[[setup.fields]]
+name = "MASTODON_DB_PASSWORD"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "MASTODON_SECRET_KEY_BASE"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "MASTODON_OTP_SECRET"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "MASTODON_ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "MASTODON_ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "MASTODON_ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "MASTODON_VAPID_PRIVATE_KEY"
+kind = "generated-secret"
+
+[[setup.fields]]
+name = "MASTODON_VAPID_PUBLIC_KEY"
+kind = "generated-secret"

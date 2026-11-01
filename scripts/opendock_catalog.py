@@ -32,9 +32,7 @@ class ServiceDefinition:
 
     @property
     def dependencies(self) -> tuple[str, ...]:
-        if "dependencies" not in self.descriptor:
-            return ("infra",)
-        return tuple(self.descriptor["dependencies"])
+        return tuple(self.descriptor.get("dependencies", ()))
 
     @property
     def display_name(self) -> str:
@@ -44,6 +42,11 @@ class ServiceDefinition:
     def setup_fields(self) -> tuple[Mapping[str, object], ...]:
         setup = self.descriptor.get("setup", {})
         return tuple(setup.get("fields", ()))
+
+    @property
+    def setup_dependencies(self) -> tuple[str, ...]:
+        setup = self.descriptor.get("setup", {})
+        return tuple(setup.get("dependencies", ()))
 
 
 class ServiceCatalog:
@@ -56,6 +59,7 @@ class ServiceCatalog:
         "required-user", "defaulted-choice", "initial-credential",
         "secret-user", "generated-secret",
     })
+    SETUP_DEPENDENCIES = frozenset({"mariadb", "postgres"})
     # Add a capability here only when its handler contract and common dispatcher
     # are implemented. Unknown declarations must fail instead of being ignored.
     CAPABILITIES = frozenset({"runtime_environment", "prepare"})
@@ -98,6 +102,11 @@ class ServiceCatalog:
         for compose_file in sorted(self.services_dir.glob("*/compose.yml")):
             directory = compose_file.parent
             descriptor_file = directory / self.DESCRIPTOR_NAME
+            if not descriptor_file.is_file():
+                raise CatalogError(
+                    f"Service {directory.name!r} is missing its descriptor: "
+                    f"{descriptor_file.relative_to(self.root)}."
+                )
             descriptor = self._load_descriptor(descriptor_file, directory.name)
             found.append(ServiceDefinition(
                 name=directory.name,
@@ -177,6 +186,22 @@ class ServiceCatalog:
         setup_fields = setup.get("fields", [])
         if not isinstance(setup_fields, list):
             raise CatalogError(f"Service descriptor {path} setup.fields must be an array of tables.")
+        setup_dependencies = setup.get("dependencies", [])
+        if (not isinstance(setup_dependencies, list)
+                or any(not isinstance(item, str) for item in setup_dependencies)):
+            raise CatalogError(
+                f"Service descriptor {path} setup.dependencies must be a string list."
+            )
+        unknown_setup_dependencies = sorted(
+            set(setup_dependencies) - self.SETUP_DEPENDENCIES
+        )
+        if unknown_setup_dependencies:
+            raise CatalogError(
+                f"Service descriptor {path} declares unsupported setup dependencies: "
+                f"{', '.join(unknown_setup_dependencies)}"
+            )
+        if len(setup_dependencies) != len(set(setup_dependencies)):
+            raise CatalogError(f"Service descriptor {path} contains duplicate setup dependencies.")
         prefix = service_id.replace("-", "_").upper() + "_"
         seen_fields = set()
         for field in setup_fields:

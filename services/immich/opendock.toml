@@ -1,0 +1,13 @@
+schema_version = 1
+service_id = "immich"
+display_name = "Immich"
+dependencies = ["infra"]
+
+[[setup.fields]]
+name = "IMMICH_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "photos"
+
+[[setup.fields]]
+name = "IMMICH_DB_PASSWORD"
+kind = "generated-secret"
