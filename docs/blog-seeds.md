@@ -915,3 +915,65 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   아직 별도 검증되지 않았다. 현재 branch에서 catalog discovery, config/Compose rendering,
   route publish, descriptor 기반 removal과 OpenDock command-level setup 동작도 아직 검증하지
   않았다.
+
+## OD-019. 편한 Docker volume과 외장 디스크 선택권을 함께 제공하기
+
+- 상태: `seed`
+- 관련 작업: `codex/feature/service-storage-paths`; `AGENTS.md`,
+  `scripts/opendock_storage.py`, `scripts/opendock_catalog.py`,
+  `scripts/opendock-remove.py`, Jellyfin/Immich descriptor와 Compose 설정
+- 주제: `서비스 기본값은 간단하게, 큰 사용자 데이터만 외장 디스크로 보내는 설계`
+- 독자 질문: self-hosted Docker 플랫폼에서 named volume의 편리함을 유지하면서
+  사진·영상처럼 큰 데이터만 외장 디스크에 두려면 경로 설정과 제거 소유권을 어떻게
+  설계해야 할까?
+- 참고할 사항:
+  - 사용자는 Docker named volume 덕분에 서비스가 기본 설정으로 편하게 동작하는 점을
+    좋아했지만, 외장 디스크를 붙였을 때 미디어 서비스 저장 위치를 선택할 수 없다는
+    필요를 제기했다. 전역 storage root 하나보다 데이터가 큰 서비스만 각자 경로를 갖는
+    방식을 선호했다.
+  - 설계는 기존 checkout-local 경로를 계속 기본값으로 두고 서비스별 setup field로
+    변경 경로를 받는다. 따라서 미디어가 아닌 서비스에 새로운 storage 질문을 요구하지
+    않고, 기존 설정 파일의 경로를 바꾸지 않아 기존 사용자 데이터의 위치도 자동으로
+    변경하지 않는다.
+  - Jellyfin은 `JELLYFIN_MEDIA_PATH`로 `/media` 소스를 지정한다. Immich는
+    `IMMICH_LIBRARY_PATH`로 사진·영상 라이브러리만 지정하고 PostgreSQL 경로는 로컬에
+    남긴다. WordPress는 현재 `services/wordpress/data/webroot` 전체를
+    `/var/www/html`에 연결하고 제거 계약도 이 경로를 데이터로 소유한다. 따라서 별도
+    uploads-only 구조를 새로 만들지 않고 `WORDPRESS_WEBROOT_PATH`로 전체 webroot를
+    선택하게 한다. 이미지 문서상 이 webroot에는 WordPress core와 plugins/themes, uploads가
+    함께 들어간다.
+  - Hermes는 이번 공통 path 설정에서 제외한다. upstream Docker 안내는 `/opt/data`에
+    설정, API key, 세션, 스킬, 메모리 등 모든 app state를 저장한다. OpenDock에서는 이
+    state가 named volume이며, 별도 sandbox directory는 Hermes 컨테이너와 Docker host에서
+    같은 absolute path여야 하고 orphan sandbox container cleanup도 이 경로를 이용한다.
+    따라서 단순 media path와 같은 UX로 바꾸지 않고 별도 storage/security 설계를 남긴다.
+  - 서비스 descriptor가 mount target과 접근 유형을 선언하고, Compose는
+    `create_host_path: false`를 사용한다. 빠진 checkout-local 기본 경로는 OpenDock이
+    launch/up에서 만들지만, 사용자가 지정한 사용자 경로는 자동 생성하지 않고 존재와
+    접근성을 확인한다.
+  - tracked `.env.default`에 안전한 경로가 있으면 설정 검증은 그 기본값만으로 통과할 수
+    있다. 그래서 launch가 첫 선택을 묻지 않고 곧바로 기본 경로를 쓸 수 있다는 UX 결함을
+    확인했다. storage 경로 선택은 첫 launch에서 한 번 물어보고, 기본값을 선택해도
+    서비스 비공개 `.env`에 선택 사실을 기록해 반복 launch에서는 재질문하지 않도록 한다.
+    `remove`가 서비스 설정을 지운 뒤 다시 launch하면 경로 선택도 다시 받는다.
+  - 공통 설정 검증은 지정한 경로의 존재, 디렉터리 여부, 접근 권한을 확인한다. 경로를
+    사용자가 정한 대로 쓰며 외장 디스크 여부를 판정하지 않는다. Compose의
+    `create_host_path: false`는 경로 자체가 없을 때 자동 생성하지 않지만, 디스크가 빠져도
+    그 mount-point 디렉터리가 시스템 디스크에 남아 있으면 이를 구별하지 못한다.
+  - `remove`는 설정된 외부 경로를 전체 제거 계획에 정확히 보여주고 확인 후 삭제하도록
+    설계했다. mount root, 사용자 home, symlink 경로와 다른 서비스의 storage path와
+    겹치는 경로는 거부한다. 이 경계는 실제 외장 디스크에서 반드시 검증해야 한다.
+  - 경로 설정 변경은 데이터를 복사하지 않는다. 기존 서비스를 이전할 때는 데이터와
+    앱 상태를 백업하고 서비스별 migration 절차를 따라야 한다. 특히 Immich는 파일
+    라이브러리와 DB 상태를 함께 고려해야 한다.
+- 보존할 교훈:
+  - zero-config 기본값과 선택 가능한 고급 경로는 공존할 수 있다. 전역 옵션으로 모든
+    서비스의 모델을 바꾸기보다, 큰 사용자 데이터가 있는 서비스만 선언형으로 확장한다.
+  - Compose bind mount의 경로가 설정되는 순간 실행뿐 아니라 mount 누락, 이동, 백업,
+    완전 제거의 의미도 함께 설계해야 한다.
+  - user data 경로를 단순히 삭제 대상으로 간주하지 말고, 기본 경로·외부 경로 모두
+    명령의 preview에 드러내며 그 소유 범위를 명시한다.
+- 검증 상태: 코드와 문서의 정적 diff 검토 및 `git diff --check`만 수행했다. 자동화
+  테스트는 실행하지 않았고, Docker Compose rendering, 기본 경로 자동 준비, 지정 경로 연결,
+  Linux와 macOS Docker 환경의 mount 처리, 경로 누락 시 동작, 외장 경로를 포함한 `remove`는
+  아직 확인되지 않았다. 사용자의 실제 디스크에서의 검증도 대기 중이다.

@@ -52,6 +52,23 @@ individual config files. Pass Compose interpolation files explicitly and in
 the documented order;
 Compose `env_file:` is not a substitute for `--env-file`.
 
+For services with large user data, declare host storage mounts in the service
+descriptor and make each location a service-owned setup field. Keep a safe
+checkout-local default so launch remains zero-config. Use Compose bind mounts
+with `create_host_path: false` so Compose does not create a missing source path
+automatically. Validate that the configured directory exists and is accessible
+before launch. OpenDock may create a missing checkout-local default under the
+service's declared removal path; never auto-create a user-selected override.
+On first launch, ask the user to accept the default or choose a custom location,
+persist that choice privately, and do not repeat the prompt on later launches.
+`setup <service>` must offer the same field for review or change.
+Do not infer that a path is on an external disk: if an unmounted disk's
+mount-point directory still exists on the system disk, OpenDock uses the path
+the user configured. Document this behavior and declare removal ownership so
+`remove` displays the exact location before deleting it. Keep databases and
+other latency-sensitive state on their existing local storage unless the
+service explicitly supports moving them.
+
 Declare service-owned setup fields, required values, initial credentials, and
 secret generator identifiers in `services/<service>/opendock.toml`. Keep
 application-specific secret bundles and validation rules in that service's

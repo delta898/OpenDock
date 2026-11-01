@@ -7,7 +7,11 @@ services:
     volumes:
       - jellyfin_config:/config
       - jellyfin_cache:/cache
-      - ./media:/media
+      - type: bind
+        source: "${JELLYFIN_MEDIA_PATH:-./media}"
+        target: /media
+        bind:
+          create_host_path: false
     environment:
       TZ: ${JELLYFIN_TIMEZONE}
       JELLYFIN_PublishedServerUrl: https://${JELLYFIN_SUBDOMAIN:-media}.${STACK_DOMAIN:-localhost}

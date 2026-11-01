@@ -109,6 +109,42 @@ caddy_handler = "example_app_proxy"
 data_paths = []
 ```
 
+For large user-owned files, add a defaulted service path field, declare the
+container mount, and keep the default inside a declared removal data path. In
+the minimal descriptor above, change `data_paths = []` to `data_paths = ["media"]`:
+
+```toml
+[[setup.fields]]
+name = "EXAMPLE_APP_MEDIA_PATH"
+kind = "defaulted-choice"
+default = "./media"
+note = "Use an existing absolute host directory to override the default."
+
+[[storage.mounts]]
+name = "media"
+setting_key = "EXAMPLE_APP_MEDIA_PATH"
+container_path = "/media"
+access = "read-only"
+```
+
+Add `EXAMPLE_APP_MEDIA_PATH=./media` to `.env.default`, and use a long Compose
+bind mount with `bind.create_host_path: false`. `access` is `read-only` or
+`read-write`; choose what the application needs. Keep database paths separate.
+The user can keep the default or set an absolute host path through
+`./opendock setup <service>`. OpenDock creates a missing checkout-local default
+directory during launch/up, but a custom path must already exist. It checks
+path existence and access, not the filesystem or disk type. `remove` shows and
+removes the configured data directory after confirmation. Use the same
+service-specific path contract for WordPress' complete webroot; do not assume
+it can safely expose only uploads without changing its current mount layout.
+
+Opt in only for user-owned data that benefits from a selectable host location;
+do not add settings for every named volume or bind mount. For example,
+WordPress can expose its complete `/var/www/html` webroot, while Hermes' app
+state includes credentials and its sandbox path is coupled to a nested Docker
+mount and sandbox-container cleanup. That needs a separate design review before
+making the sandbox path user-configurable.
+
 The top-level `dependencies` list names platform components such as `infra` or
 `gateway`. `[setup].dependencies` means something different: it names an
 existing shared setup group such as `mariadb` or `postgres`. For example:

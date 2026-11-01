@@ -32,6 +32,7 @@ from opendock_capabilities import (
     validate_service_capabilities,
 )
 from opendock_catalog import ServiceCatalog
+from opendock_storage import prepare_default_mounts, validate_mounts
 
 SERVICES = ROOT / "services"
 GROUPS = SERVICES / "groups.conf"
@@ -282,6 +283,8 @@ def lifecycle(command, target, *, already_started=()):
         if command == "up" and item in already_started:
             continue
         if command == "up" and item in services():
+            prepare_service_storage(item)
+        if command == "up" and item in services():
             validate_service_capabilities(ServiceCatalog(ROOT).get(item))
         if command in CHECKED:
             if command == "up":
@@ -356,6 +359,33 @@ def ensure_service_configuration(service):
         check_config(service, quiet=True)
 
 
+def prepare_service_storage(service):
+    settings = settings_module()
+    values = settings.load_values(service=service, process_env=True)
+    definition = ServiceCatalog(ROOT).get(service)
+    issues = validate_mounts(definition, values)
+    if issues:
+        raise CLIError("Storage configuration is not ready:\n  " + "\n  ".join(issues))
+    for path in prepare_default_mounts(definition, values):
+        print(f"==> {service}: create default storage directory {path}", flush=True)
+
+
+def ensure_service_storage_configuration(service):
+    settings = settings_module()
+    settings.initialize()
+    definition = ServiceCatalog(ROOT).get(service)
+    if not definition.storage_mounts:
+        return
+    local_values = settings.load_local_values(service)
+    unset = [
+        mount["setting_key"] for mount in definition.storage_mounts
+        if not local_values.get(mount["setting_key"], "").strip()
+    ]
+    if unset:
+        print(f"==> {service}: choose storage location", flush=True)
+        script("opendock-config.py", "--storage-only", service)
+
+
 def start_service_dependencies(selected):
     started = set()
     for service in selected:
@@ -404,6 +434,10 @@ def launch_service_set(selected):
     ]
     for service in preparable:
         ensure_service_configuration(service)
+    for service in selected:
+        ensure_service_storage_configuration(service)
+    for service in selected:
+        prepare_service_storage(service)
     started = start_service_dependencies(selected)
     run_service_preparations(preparable)
     return started

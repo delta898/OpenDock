@@ -7,6 +7,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
@@ -354,6 +355,66 @@ def print_statuses(title, statuses):
         print(f"  {hostname:<28} {status}")
 
 
+def has_local_browser_session():
+    """Avoid trying to open a GUI browser on a headless SSH server."""
+    if sys.platform == "darwin":
+        return not (os.environ.get("SSH_TTY") and not (
+            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+        ))
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def print_open_links(routes):
+    """Print clickable terminal links and optionally open one in a browser."""
+    links = [(route["hostname"], f"https://{route['hostname']}") for route in routes]
+    if not links:
+        return
+
+    print("\nOpen:")
+    for hostname, url in links:
+        if sys.stdout.isatty():
+            terminal_url = f"\033]8;;{url}\033\\{url}\033]8;;\033\\"
+        else:
+            terminal_url = url
+        print(f"  {terminal_url}")
+
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return
+    if not has_local_browser_session():
+        print(
+            "Browser prompt skipped. In macOS Terminal, hold Command and double-click "
+            "the URL; other terminals may use Cmd/Ctrl-click."
+        )
+        return
+
+    if len(links) == 1:
+        answer = input("Open in browser? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            return
+        selected = links[0]
+    else:
+        answer = input(
+            f"Open a route in browser? Enter a number (1-{len(links)}), or Enter to skip: "
+        ).strip()
+        if not answer:
+            return
+        if not answer.isdecimal() or not 1 <= int(answer) <= len(links):
+            print("No browser opened; choose one of the listed route numbers next time.")
+            return
+        selected = links[int(answer) - 1]
+
+    try:
+        opened = webbrowser.open_new_tab(selected[1])
+    except (webbrowser.Error, OSError) as error:
+        print(f"Could not open a browser here: {error}")
+        print("Use the URL printed above in a browser on your device.")
+        return
+    if opened:
+        print(f"Opened {selected[0]} in the browser.")
+    else:
+        print("Could not open a browser here. Use the URL printed above on your device.")
+
+
 def main():
     if TARGET == "remove":
         if len(sys.argv) != 3:
@@ -372,6 +433,7 @@ def main():
         print()
         print("cloudflare.env not found. Skipping Cloudflare API sync.")
         print("Copy cloudflare.env.example to cloudflare.env to enable automatic publishing.")
+        print_open_links(routes)
         return
 
     cf_env = {}
@@ -435,10 +497,7 @@ def main():
         print("Then rerun: ./opendock launch <hostname>")
         raise SystemExit(1)
 
-    print()
-    print("Open:")
-    for route in routes:
-        print(f"  https://{route['hostname']}")
+    print_open_links(routes)
 
 
 if __name__ == "__main__":

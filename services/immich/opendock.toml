@@ -9,6 +9,12 @@ kind = "defaulted-choice"
 default = "photos"
 
 [[setup.fields]]
+name = "IMMICH_LIBRARY_PATH"
+kind = "defaulted-choice"
+default = "./data/library"
+note = "Press Enter to keep ./data/library. For another location, enter an existing absolute host directory. PostgreSQL stays on local storage; OpenDock does not detect which disk this path is on."
+
+[[setup.fields]]
 name = "IMMICH_DB_PASSWORD"
 kind = "generated-secret"
 generator = "alphanumeric"
@@ -20,3 +26,9 @@ data_paths = ["data/library", "data/postgres"]
 [routing]
 subdomain_key = "IMMICH_SUBDOMAIN"
 caddy_handler = "immich_proxy"
+
+[[storage.mounts]]
+name = "library"
+setting_key = "IMMICH_LIBRARY_PATH"
+container_path = "/data"
+access = "read-write"

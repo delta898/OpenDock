@@ -18,6 +18,12 @@ kind = "defaulted-choice"
 default = "blog"
 
 [[setup.fields]]
+name = "WORDPRESS_WEBROOT_PATH"
+kind = "defaulted-choice"
+default = "./data/webroot"
+note = "Press Enter to keep ./data/webroot. For another location, enter an existing absolute host directory for the complete WordPress webroot. OpenDock does not detect which disk it is on."
+
+[[setup.fields]]
 name = "WORDPRESS_DB_PASSWORD"
 kind = "generated-secret"
 
@@ -32,3 +38,9 @@ role_key = "WORDPRESS_DB_USER"
 [routing]
 subdomain_key = "WORDPRESS_SUBDOMAIN"
 caddy_handler = "wordpress_proxy"
+
+[[storage.mounts]]
+name = "webroot"
+setting_key = "WORDPRESS_WEBROOT_PATH"
+container_path = "/var/www/html"
+access = "read-write"

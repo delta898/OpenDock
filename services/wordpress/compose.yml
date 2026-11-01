@@ -32,7 +32,11 @@ services:
     networks:
       - shared-net
     volumes:
-      - ./data/webroot:/var/www/html
+      - type: bind
+        source: "${WORDPRESS_WEBROOT_PATH:-./data/webroot}"
+        target: /var/www/html
+        bind:
+          create_host_path: false
       - ./php/uploads.ini:/usr/local/etc/php/conf.d/opendock-uploads.ini:ro
     environment:
       WORDPRESS_DB_HOST: ${WORDPRESS_DB_HOST}

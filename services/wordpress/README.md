@@ -85,15 +85,30 @@ YES=1 ./opendock service wordpress multisite
 - Versions live in `.env.default`, not `compose.yml`.
 - Avoid `latest` tags.
 
-## Webroot
+## Webroot storage
 
-WordPress files are stored on the host at:
+By default, the complete WordPress webroot is stored on the host at:
 
 ```text
 services/wordpress/data/webroot/
 ```
 
 This path is intentionally ignored by Git. It is useful for search engine ownership files, manual inspection, and file-level backup or rsync workflows.
+
+On first launch, OpenDock asks whether to keep this path or use another
+location and remembers the choice. To review or change it later, run
+`./opendock setup wordpress` and set `WORDPRESS_WEBROOT_PATH` to an existing
+absolute path. OpenDock checks that the directory exists and is accessible but
+does not check which disk it is on. It mounts the entire webroot, including WordPress
+core files, plugins, themes, and uploads; it does not provide a separate
+uploads-only path. Missing checkout-local defaults are created by `launch`,
+while a custom path must already exist.
+
+Changing this setting does not move an existing site. For an existing install,
+back up the webroot and database, stop WordPress, copy the complete webroot to
+the new directory, then change the setting and launch. Complete removal deletes
+the configured webroot directory after showing its exact path and asking for
+confirmation.
 
 ## Upload Limits
 
@@ -123,7 +138,7 @@ Generated password values are stored in their owner files: the MariaDB administr
 Preview the removal plan with `./opendock remove wordpress --dry-run`.
 Complete removal asks for explicit confirmation and deletes the WordPress
 containers, image, configured public route, service-local settings, and
-`services/wordpress/data/webroot/`. It also removes only the configured
+the configured webroot directory. It also removes only the configured
 WordPress database and role from shared MariaDB; the MariaDB container, volume,
 and other databases remain. The webroot and database contain site files,
 uploads, accounts, and content, so this permanently deletes the WordPress site.

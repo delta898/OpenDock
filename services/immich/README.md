@@ -30,6 +30,20 @@ Immich stores uploaded photos and videos in:
 services/immich/data/library
 ```
 
+On first launch, OpenDock asks whether to keep this path or use another
+location and remembers the choice. To review or change it later, run
+`./opendock setup immich` and set `IMMICH_LIBRARY_PATH` to an existing absolute
+path. For example, use `/mnt/photos/immich` on Linux or
+`/Volumes/Photos/immich` on macOS. OpenDock creates the default local directory
+if needed. A custom path must already exist and be accessible or launch stops.
+Press Enter to keep the default path.
+OpenDock does not check whether the directory is on an external disk. Choose a
+dedicated directory rather than the filesystem root; complete removal deletes
+the configured directory after confirmation.
+Changing this setting does not copy an existing library. Back up the library
+and database, then follow Immich's migration guidance before switching an
+existing installation to another directory.
+
 Immich stores its PostgreSQL database in:
 
 ```text
@@ -47,7 +61,8 @@ When using Cloudflare Tunnel, large photo or video uploads may be affected by Cl
 Preview the removal plan with `./opendock remove immich --dry-run`. Complete
 removal asks for explicit confirmation and deletes the Immich containers,
 `immich_model_cache`, image, configured public route, service-local settings,
-and both `services/immich/data/library/` and
-`services/immich/data/postgres/`. The library contains uploaded photos and
-videos; the database contains Immich's application state. Back up anything you
-need before confirming. Shared infrastructure and the gateway are preserved.
+the configured library directory (including an external disk directory, if
+configured), and `services/immich/data/postgres/`. The library contains
+uploaded photos and videos; the database contains Immich's application state.
+Back up anything you need before confirming. Shared infrastructure and the
+gateway are preserved.
