@@ -669,3 +669,88 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     key가 없음을 확인했고, bytecode compile, Renovate JSON parse, `git diff --check`도
     통과했다. Linux host의 private config migration, 각 서비스 Compose rendering 및
     Renovate PR 인식은 실제 서버/Cloud app에서 확인하기 전까지 미검증이다.
+
+## OD-017. 공통 CLI와 서비스별 동작의 책임 경계
+
+- 상태: `seed`
+- 관련 자료: `docs/command-architecture.md`, `AGENTS.md`, `opendock`,
+  `scripts/opendock-config.py`, `scripts/opendock_settings.py`,
+  `scripts/opendock-remove.py`, `scripts/opendock-service.py`,
+  `services/mastodon/opendock-post-launch.py`,
+  `services/supabase/opendock-post-launch.py`
+- 주제: `서비스가 늘어도 CLI dispatcher가 비대해지지 않게 하려면`
+- 독자 질문: 공통 명령의 일관성을 유지하면서 setup, launch, remove의 서비스별
+  차이를 어디에 두어야 하는가?
+- 참고할 사항:
+  - OpenDock은 Compose 파일을 기준으로 service target을 탐색하고,
+    `services/<name>/commands/`의 실행 가능한 파일로 service 명령을 탐색한다.
+    Mastodon과 Supabase에는 기존 post-launch hook도 있다. 즉, 서비스 디렉터리에서
+    기능을 발견하는 선례는 이미 있다.
+  - 반면 Hermes 온보딩과 모델 상태 판정은 중앙 `opendock`의 launch 경로에 있고,
+    setup field, DB dependency set, 일부 credential 안내는
+    `scripts/opendock-config.py`에 있다. Mastodon/Supabase validation과 Supabase
+    JWT key bundle 생성은 `scripts/check-config.py`와 `scripts/opendock-secrets.py`에,
+    서비스 command help는 `scripts/opendock-service.py`에 있으며, 설정 loader도
+    서비스 이름/prefix를 별도 등록한다. 제거에는 Hermes 전용 중앙 처리가 있다.
+    흩어진 방식 때문에 어느 지식이 공통이고 어느 지식이 서비스 소유인지
+    한눈에 알기 어려웠다.
+  - 첫 remove 작업을 서비스 등록표와 manifest로 넓히려던 중, remove만 분리하면
+    setup과 launch에 같은 중앙 분기를 계속 추가하게 된다는 문제를 발견했다.
+    그래서 command family 전부를 중앙 orchestration과 service capability로 나누는
+    설계 문서를 먼저 작성했다.
+  - 경계 기준은 플랫폼 invariant와 공통 순서는 core가 소유하고, 애플리케이션
+    상태·데이터 모델에 의존하는 판단은 서비스가 소유하며, 재사용 가능한 mechanism은
+    core가 제공하고 서비스별 입력은 서비스가 선언하는 것이다. 공유 자원과 다른
+    서비스 상태는 플랫폼 소유로 남는다.
+  - 설계안은 선언형 service descriptor와 optional typed Python capability로 구성한다.
+    setup schema, dependency, route metadata, resource ownership은 descriptor에 두고,
+    Supabase secret bundle이나 Hermes onboarding처럼 application logic이 필요한 것은
+    capability로 둔다. Core가 persistence, confirmation, output, platform operation을
+    통제하고 capability에는 필요한 scope의 API만 주어 private CLI 함수나 다른
+    서비스 구현에 의존하지 않게 한다.
+  - 기존 plugin 구조를 참고해 service 단위와 ID 규칙, descriptor/API version 분리,
+    capability discovery, runtime remove와 source deregistration 분리를 추가했다.
+    Terraform의 Core/provider 경계와 versioned protocol, plan/apply 구분, Ansible
+    Collections의 namespaced content 구성을 참고하되, 서비스가 한 저장소에서 함께
+    배포되는 현재 조건에는 별도 gRPC 프로세스와 패키지 registry를 도입하지 않는다.
+    Python entry points도 설치 배포물 검색용이므로 지금의 폴더 기반 catalog와는
+    목적이 다르다.
+  - 현재 branch에서는 `scripts/opendock_catalog.py`가 `services/*/compose.yml`를
+    발견하고 인접한 `opendock.toml`의 schema/API version, capability, dependency를
+    검증한다. target/setup/config/secrets/domain/publish의 service discovery도 이
+    catalog를 공유하도록 옮겼다.
+  - Hermes는 `services/hermes/opendock.toml`과 `opendock.py`를 통해
+    `runtime_environment` 및 `prepare` capability를 선언한다. 중첩 Docker sandbox의
+    환경값과 first-run model onboarding 판정을 서비스 소유 코드로 이동했다.
+    Hermes dashboard 설정 필드와 변경 안내, Uptime Kuma의 hostname 설정도
+    descriptor로 옮겼고 공통 setup prompt가 읽는다. Uptime Kuma descriptor는
+    custom handler가 없는 단순 서비스의 예다.
+  - capability API v1은 좁은 service-scoped context와 typed `PreparationResult`를
+    제공한다. 아직 지원하지 않는 capability 이름은 catalog가 거부하도록 제한했다.
+    이 구조는 신뢰된 checkout의 Python 코드이며 보안 sandbox가 아니라는 경계도
+    문서에 기록했다.
+  - 사용자는 catalog/capability 변경 후 `./opendock --help`, `./opendock list`,
+    `./opendock launch hermes` 경로가 잘 동작했다고 확인했다. 이번 후속 변경으로
+    Hermes/Uptime Kuma setup 필드를 descriptor에서 읽도록 했고, Hermes sandbox
+    환경값도 check-config가 capability에서 받도록 했지만 이 후속 변경은 아직
+    별도 확인하지 않았다. 깨끗한 데이터에서의 첫 onboarding과 Linux/macOS 양쪽
+    검증도 별도로 확인해야 한다.
+  - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
+    `HERMES_SUBDOMAIN`이 변경된 것으로 표시됐다. 기본값 migration 직후 setup이
+    이미 실효값인 tracked default를 private `.env`에 다시 쓰는 경로로 판단해,
+    현재 실효값을 그대로 유지한 입력은 저장하지 않도록 수정했다. 수정 후 동작은
+    아직 확인되지 않았다.
+- 보존할 교훈:
+  - 공통 UX와 공통 구현은 같은 뜻이 아니다. 사용자 명령을 통일하면서 서비스별
+    운영 지식과 자원 소유권은 해당 서비스 가까이에 둘 수 있다.
+  - 한 명령의 예외 처리를 분리하기 전에 전체 command family를 대상으로 경계를
+    잡아야 중앙 dispatcher의 조건문을 다른 명령으로 옮기는 일을 피할 수 있다.
+  - capability를 선언형 metadata와 optional procedure로 구분하면 단순 서비스에
+    빈 hook을 강요하지 않으면서 복잡한 서비스의 동작을 명시할 수 있다.
+- 참고: [Terraform plugin architecture](https://developer.hashicorp.com/terraform/plugin/how-terraform-works),
+  [Ansible Collections](https://docs.ansible.com/collections.html),
+  [Python plugin discovery](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/).
+- 검증 상태: 사용자가 catalog/capability 경로의 help/list/Hermes launch를 실제
+  환경에서 확인했다. Hermes/Uptime Kuma setup descriptor와 check-config의
+  capability 연동은 후속 로컬 변경이며 아직 확인되지 않았다. 자동화 테스트,
+  깨끗한 데이터에서의 첫 onboarding, Linux/macOS 양쪽 동작도 미검증이다.

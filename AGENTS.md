@@ -44,12 +44,12 @@ Keep defaults and machine-local effective values separate. Tracked defaults use
 - Keep route maps and external provider credentials in their dedicated files;
   do not fold them into the application environment layers.
 
-Register every new setting's owner in `scripts/opendock_settings.py` and add it
-to the matching `.env.default` template. Setup, secret
-generation, validation, route resolution, Compose invocations, and service
-post-launch scripts must read the shared settings loader rather than parsing an
-individual config file on their own. Pass Compose interpolation files
-explicitly and in the documented order;
+Register every new setting's owner in the supported settings interface and add
+it to the matching `.env.default` template. Setup, secret generation,
+validation, route resolution, Compose invocations, and service capabilities
+must access configuration through that scoped interface rather than parsing
+individual config files. Pass Compose interpolation files explicitly and in
+the documented order;
 Compose `env_file:` is not a substitute for `--env-file`.
 
 Do not add new values to legacy root `common.env`. Its one-time migration must
@@ -108,6 +108,39 @@ changes.
   and must not silently degrade to container-only removal.
 - Refuse removal without confirmation in non-interactive use. Do not add a
   confirmation bypass that defeats the explicit-confirmation requirement.
+
+## Command and service ownership
+
+Keep common command workflows in the OpenDock CLI and service-specific
+application knowledge under `services/<name>/`. The CLI owns target resolution,
+shared configuration services, prerequisite ordering, common confirmation,
+Compose invocation, gateway/Cloudflare routing, and consistent progress/errors.
+Services own their setup fields, first-run preparation, custom readiness,
+application migrations, and exact cleanup scope. A new service must not require
+a service-name conditional in the central CLI for these behaviors.
+
+Use declarative capability metadata for facts and safe common operations; use
+optional service hooks for procedures that need application knowledge. Keep
+hooks idempotent, scoped to the selected service, and integrated through the
+common workflow. A hook must not bypass common validation, confirmation, shared
+prerequisite ordering, or public route handling. Absent optional capabilities
+should require no empty script. Keep service commands discoverable under
+`services/<name>/commands/` and align new lifecycle hooks with
+`docs/command-architecture.md` rather than creating a parallel interface.
+
+Design and roll out the capability contract across command families instead of
+implementing one special case in isolation. Pilot it on a service with real
+preparation behavior and a simple service, then migrate setup, launch, and
+removal incrementally. Keep the user-facing top-level command grammar common.
+
+Treat each service as an in-repository extension unit with a stable service ID,
+a versioned descriptor, and only the optional capability handlers it needs.
+Discovery must not require a second central service registration list. Keep
+descriptor schema version separate from capability API version; reject
+unsupported required versions before changing service state. Removing a
+service's runtime data with `remove` is separate from deregistering its code.
+Deleting or disabling a service definition must never implicitly delete
+containers, volumes, configuration, or user data.
 
 ## Development journal and BlogGenius seeds
 

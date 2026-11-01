@@ -4,9 +4,13 @@
 import json
 import os
 import shutil
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from opendock_catalog import service_names
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,10 +20,7 @@ BACKUPS = ROOT / "backups" / "config"
 BACKUPS_CREATED = []
 SERVICE_DEFAULT_MIGRATION_MARKER = CONFIG / ".service-default-migration-v1"
 
-SERVICE_NAMES = (
-    "wordpress", "nextcloud", "immich", "jellyfin", "mastodon",
-    "mattermost", "n8n", "uptime-kuma", "homepage", "supabase", "hermes",
-)
+SERVICE_NAMES = service_names(ROOT)
 SERVICE_PREFIXES = {
     service: service.replace("-", "_").upper() + "_"
     for service in SERVICE_NAMES

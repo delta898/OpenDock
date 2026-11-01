@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from opendock_groups import group_services, validate_services
+from opendock_catalog import ServiceCatalog, service_names
 import opendock_settings as SETTINGS
 
 
@@ -20,6 +21,7 @@ class Field:
     kind: str
     default: Optional[str] = None
     note: Optional[str] = None
+    change_notice: Optional[str] = None
 
 
 def load_secrets_module():
@@ -79,9 +81,6 @@ CONFIG_FIELDS = {
     "n8n": [
         Field("N8N_SUBDOMAIN", "defaulted-choice", default="n8n"),
     ],
-    "uptime-kuma": [
-        Field("UPTIME_KUMA_SUBDOMAIN", "defaulted-choice", default="uptime"),
-    ],
     "mastodon": [
         Field("MASTODON_SUBDOMAIN", "defaulted-choice", default="social"),
         Field("MASTODON_ADMIN_USERNAME", "defaulted-choice", default="opendock"),
@@ -129,19 +128,6 @@ CONFIG_FIELDS = {
         Field("SUPABASE_STUDIO_DEFAULT_ORGANIZATION", "defaulted-choice", default="OpenDock"),
         Field("SUPABASE_STUDIO_DEFAULT_PROJECT", "defaulted-choice", default="OpenDock"),
     ],
-    "hermes": [
-        Field("HERMES_SUBDOMAIN", "defaulted-choice", default="hermes"),
-        Field("HERMES_DASHBOARD_USERNAME", "defaulted-choice", default="opendock"),
-        Field(
-            "HERMES_DASHBOARD_PASSWORD",
-            "secret-user",
-            note=(
-                "Used at runtime for Hermes dashboard login. Enter a password; "
-                "OpenDock stores it privately and does not display it."
-            ),
-        ),
-        Field("HERMES_DASHBOARD_SECRET", "generated-secret"),
-    ],
 }
 
 MARIADB_DEPENDENCIES = {
@@ -155,10 +141,7 @@ POSTGRES_DEPENDENCIES = {
 
 
 def service_targets():
-    services_dir = ROOT_DIR / "services"
-    if not services_dir.is_dir():
-        return []
-    return sorted(compose.parent.name for compose in services_dir.glob("*/compose.yml"))
+    return list(service_names(ROOT_DIR))
 
 
 def resolve_sections(target):
@@ -188,8 +171,7 @@ def resolve_sections(target):
         sections.append("mail")
 
     for service in services:
-        if service in CONFIG_FIELDS:
-            sections.append(service)
+        sections.append(service)
 
     return sections
 
@@ -198,7 +180,17 @@ def selected_fields(sections):
     fields = []
     seen = set()
     for section in sections:
-        for field in CONFIG_FIELDS.get(section, []):
+        if section in service_targets():
+            declared = [
+                Field(**field)
+                for field in ServiceCatalog(ROOT_DIR).get(section).setup_fields
+            ]
+            # Keep unmigrated fields available while services transition to
+            # descriptor-owned setup metadata.
+            declared.extend(CONFIG_FIELDS.get(section, []))
+        else:
+            declared = CONFIG_FIELDS.get(section, [])
+        for field in declared:
             if field.name in seen:
                 continue
             fields.append(field)
@@ -314,11 +306,13 @@ def print_summary(changed, generated_keys, backup):
         print("Generated values were not printed; see the corresponding owner-specific .env file.")
 
 
-def print_credential_notices(changed):
-    if "HERMES_DASHBOARD_PASSWORD" in changed:
+def print_credential_notices(changed, fields):
+    notices = [field.change_notice for field in fields
+               if field.name in changed and field.change_notice]
+    if notices:
         print()
-        print("Hermes dashboard password is stored in private services/hermes/.env.")
-        print("Run './opendock launch hermes' to apply a changed password.")
+        for notice in notices:
+            print(notice)
     if "NEXTCLOUD_ADMIN_PASSWORD" in changed:
         print()
         print("Nextcloud initial admin password is stored in services/nextcloud/.env.")
@@ -367,13 +361,18 @@ def main():
             generated[field.name] = SECRETS.generated_initial_credential()
 
     updates = {}
-    updates.update({k: v for k, v in chosen.items() if v != "__GENERATE__"})
+    updates.update({
+        key: value
+        for key, value in chosen.items()
+        if value != "__GENERATE__"
+        and not (value == values.get(key) and is_real_value(key, values))
+    })
     updates.update(generated)
 
     changed, _kept, backup = update_settings(updates)
 
     print_summary(changed, set(generated), backup)
-    print_credential_notices(changed)
+    print_credential_notices(changed, fields)
     print()
     print("Done.")
     return 0

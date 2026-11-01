@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from opendock_catalog import ServiceCatalog
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 SERVICES_DIR = ROOT_DIR / "services"
@@ -54,7 +56,7 @@ def command_dir(name):
 
 
 def is_service(name):
-    return (service_dir(name) / "compose.yml").is_file()
+    return name in ServiceCatalog(ROOT_DIR).names
 
 
 def command_files(name):

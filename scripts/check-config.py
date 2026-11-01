@@ -10,6 +10,8 @@ import sys
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+from opendock_catalog import ServiceCatalog, service_names
+from opendock_capabilities import runtime_environment
 from opendock_settings import load_values
 
 
@@ -39,10 +41,7 @@ def service_env_key(service):
 
 
 def service_targets():
-    services_dir = ROOT_DIR / "services"
-    if not services_dir.is_dir():
-        return []
-    return sorted(compose.parent.name for compose in services_dir.glob("*/compose.yml"))
+    return list(service_names(ROOT_DIR))
 
 
 def target_dir(target):
@@ -254,10 +253,15 @@ def check_target(target, common_values, example_values):
     env = {}
     env.update(common_values)
 
-    if target == "hermes":
-        env["HERMES_SANDBOX_DIR"] = str(
-            ROOT_DIR / "services" / "hermes" / "data" / "sandboxes"
-        )
+    if target in service_targets():
+        definition = ServiceCatalog(ROOT_DIR).get(target)
+        try:
+            env.update(runtime_environment(
+                definition,
+                docker_socket=os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock"),
+            ))
+        except ValueError as error:
+            raise SystemExit(str(error)) from error
 
     required, optional = compose_variables(compose)
     required.update(GLOBAL_REQUIRED)

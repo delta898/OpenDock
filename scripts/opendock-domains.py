@@ -8,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 from opendock_settings import load_values
+from opendock_catalog import service_names
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,8 +40,7 @@ def service_routes(env):
     if not domain:
         raise SystemExit("Missing STACK_DOMAIN. Run './opendock setup' to configure the core domain.")
     routes = []
-    for compose in sorted((ROOT / "services").glob("*/compose.yml")):
-        service = compose.parent.name
+    for service in service_names(ROOT):
         if not (ROOT / "gateway" / "caddy" / "conf.d" / f"{service}.caddy").is_file():
             continue
         key = f"{service.replace('-', '_').upper()}_SUBDOMAIN"

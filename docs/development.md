@@ -89,13 +89,62 @@ services/jellyfin/compose.yml
 
 ## CLI Target Discovery
 
-The CLI discovers services at runtime by scanning:
+The common CLI and service-owned behavior boundary is documented in
+[Command and Service Ownership](command-architecture.md). When adding a command
+capability, use that contract to decide whether it belongs in the common
+workflow or under `services/<name>/`; do not add service-specific branches to
+the central dispatcher.
+
+The shared service catalog discovers services at runtime by scanning:
 
 ```text
 services/*/compose.yml
 ```
 
 This is why new services do not need CLI dispatcher changes.
+
+## Contributing a service
+
+OpenDock treats a service as a small extension unit. The target contribution
+layout is:
+
+```text
+services/<stable-service-id>/
+  opendock.toml          descriptor and capability/API versions
+  compose.yml            runtime definition
+  .env.default           tracked defaults and image versions
+  commands/              optional user-invoked service commands
+  opendock.py            optional typed capability handlers
+```
+
+The descriptor is the service's registration record. The catalog discovers it
+alongside the Compose project; contributors should not add service-specific
+branches to `opendock` or maintain another central name list. Keep IDs stable
+and lowercase with hyphens where appropriate. A capability is optional: simple
+services should not need placeholder handlers.
+
+Contributors should define the service's defaults, shared dependencies, public
+route metadata, setup and validation needs, generated secret relationships,
+launch preparation, health checks, and exact removal/preservation scope in the
+service contribution. Put reusable execution, user prompts, confirmation,
+platform routing, and output formatting in the common workflows. Follow
+[Command and Service Ownership](command-architecture.md) for the boundary and
+compatibility rules.
+
+The catalog centralizes Compose-backed service discovery. Hermes and Uptime
+Kuma are the first descriptor pilots: Hermes implements the version 1
+`runtime_environment` and `prepare` capabilities, while Uptime Kuma has no
+custom capability. Both declare their setup prompts in `setup.fields`; the
+common setup engine reads those declarations. Services without a descriptor
+retain the transitional default dependency on `infra`. Only capabilities
+implemented by the current contract may be declared; unsupported declarations
+fail during catalog loading. The descriptor requirement will become enforceable
+after the remaining services have migrated.
+
+Runtime cleanup and code registration are separate lifecycles. `remove
+<service>` removes declared runtime resources while keeping the service
+available in the checkout. Removing a contribution from OpenDock source must
+not silently delete runtime data on a user's host.
 
 Common target groups:
 

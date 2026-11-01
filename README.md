@@ -4,6 +4,10 @@ A Docker Compose based home server stack with sensible defaults, Caddy routing, 
 
 The goal is simple: set a default domain, run one command, and get a small but useful home server online.
 
+OpenDock keeps one consistent CLI while services own their application-specific
+setup and lifecycle details. See the [command ownership and service extension
+guide](docs/command-architecture.md) for maintainers adding capabilities.
+
 OpenDock assumes Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy runs as the internal gateway for routing Cloudflare Tunnel origin traffic to Docker services.
 
 ## Included Services

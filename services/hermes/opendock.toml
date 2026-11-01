@@ -1,0 +1,26 @@
+schema_version = 1
+service_id = "hermes"
+display_name = "Hermes Agent"
+capability_api_version = 1
+capabilities = ["runtime_environment", "prepare"]
+dependencies = ["infra"]
+
+[[setup.fields]]
+name = "HERMES_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "hermes"
+
+[[setup.fields]]
+name = "HERMES_DASHBOARD_USERNAME"
+kind = "defaulted-choice"
+default = "opendock"
+
+[[setup.fields]]
+name = "HERMES_DASHBOARD_PASSWORD"
+kind = "secret-user"
+note = "Used at runtime for Hermes dashboard login. The value is stored privately and is not displayed."
+change_notice = "Hermes dashboard password is stored in private services/hermes/.env. Run './opendock launch hermes' to apply a changed password."
+
+[[setup.fields]]
+name = "HERMES_DASHBOARD_SECRET"
+kind = "generated-secret"

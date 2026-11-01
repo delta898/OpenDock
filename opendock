@@ -12,6 +12,7 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+from types import MappingProxyType
 
 try:
     import tomllib
@@ -21,6 +22,15 @@ except ModuleNotFoundError:  # Python < 3.11 can use the rest of the CLI, but no
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT / "scripts"))
+from opendock_capabilities import (
+    ComposeOperations,
+    ServiceContext,
+    has_capability,
+    prepare as prepare_service,
+    runtime_environment as service_runtime_environment,
+)
+from opendock_catalog import ServiceCatalog
+
 SERVICES = ROOT / "services"
 GROUPS = SERVICES / "groups.conf"
 SYNC_CONFIG = ROOT / ".sync.env.toml"
@@ -183,7 +193,7 @@ def remote_sync_prune(remote, path, port, mode, file_list):
 
 
 def services():
-    return sorted(p.parent.name for p in SERVICES.glob("*/compose.yml"))
+    return list(ServiceCatalog(ROOT).names)
 
 
 def groups():
@@ -211,14 +221,6 @@ def targets(name):
     if name in groups():
         return groups()[name]
     raise CLIError(f"Unknown target or missing compose.yml: {name}")
-
-
-def includes_hermes(name):
-    if name in services():
-        return name == "hermes"
-    if name in ("all", "services") or name in groups():
-        return "hermes" in targets(name)
-    return False
 
 
 def script(name, *args, env=None):
@@ -260,19 +262,20 @@ def compose(target, *args, capture=False, quiet=False):
     for env_file in settings.compose_env_files(target):
         command += ["--env-file", str(env_file)]
     env = os.environ.copy()
-    if target == "hermes":
-        socket_path = Path(env.get("DOCKER_SOCKET", "/var/run/docker.sock"))
-        if socket_path.exists():
-            env["DOCKER_SOCKET_GID"] = str(socket_path.stat().st_gid)
-        sandbox_path = ROOT / "services" / "hermes" / "data" / "sandboxes"
-        sandbox_path.mkdir(parents=True, exist_ok=True)
-        env["HERMES_SANDBOX_DIR"] = str(sandbox_path)
+    if target in services():
+        definition = ServiceCatalog(ROOT).get(target)
+        env.update(service_runtime_environment(
+            definition,
+            docker_socket=env.get("DOCKER_SOCKET", "/var/run/docker.sock"),
+        ))
     return run(*command, "-f", directory / "compose.yml", "-p", target, *args,
                env=env, capture=capture, quiet=quiet)
 
 
-def lifecycle(command, target):
+def lifecycle(command, target, *, already_started=()):
     for item in targets(target):
+        if command == "up" and item in already_started:
+            continue
         if command in CHECKED:
             if command == "up":
                 env = os.environ.copy()
@@ -291,6 +294,106 @@ def post_launch(target):
         if hook.is_file():
             print(f"==> {item}: post-launch", flush=True)
             run(sys.executable, hook)
+
+
+def service_context(service):
+    settings = settings_module()
+    settings.initialize()
+    prefix = service.replace("-", "_").upper() + "_"
+    values = settings.load_values(service=service, process_env=True)
+    owned_values = MappingProxyType({
+        key: value for key, value in values.items() if key.startswith(prefix)
+    })
+    definition = ServiceCatalog(ROOT).get(service)
+    compose_operations = ComposeOperations(
+        _run=lambda *args, **kwargs: compose(service, *args, **kwargs),
+        _volume_exists=lambda name: (
+            f"{service}_{name}" in run(
+                "docker", "volume", "ls", "--format", "{{.Name}}", capture=True
+            ).splitlines()
+        ),
+    )
+    return ServiceContext(
+        service=definition,
+        settings=owned_values,
+        compose=compose_operations,
+        report=lambda message: print(f"==> {service}: {message}", flush=True),
+    )
+
+
+def service_targets_for(target):
+    if target in ("all", "services"):
+        return services()
+    if target in ("infra", "gateway", "mail"):
+        return []
+    if target in services():
+        return [target]
+    if target in groups():
+        return targets(target)
+    return []
+
+
+def ensure_service_configuration(service):
+    settings_module().initialize()
+    needs_setup = not (ROOT / "config" / "core.env").is_file()
+    if not needs_setup:
+        try:
+            check_config(service, quiet=True)
+        except CLIError:
+            needs_setup = True
+    if needs_setup:
+        print(f"==> {service}: configuration required", flush=True)
+        script("opendock-config.py", service)
+        check_config(service, quiet=True)
+
+
+def start_service_dependencies(selected):
+    started = set()
+    for service in selected:
+        definition = ServiceCatalog(ROOT).get(service)
+        for dependency in definition.dependencies:
+            if dependency in started:
+                continue
+            if dependency == "infra":
+                print("==> infra: launch prerequisite", flush=True)
+            lifecycle("up", dependency)
+            started.add(dependency)
+    return started
+
+
+def run_service_preparations(selected):
+    for service in selected:
+        definition = ServiceCatalog(ROOT).get(service)
+        if not has_capability(definition, "prepare"):
+            continue
+        result = prepare_service(service_context(service))
+        if result.message:
+            print(f"==> {service}: {result.message}", flush=True)
+
+
+def prepare_service_set(selected, *, configure_missing=False):
+    preparable = [
+        service for service in selected
+        if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
+    ]
+    if configure_missing:
+        for service in preparable:
+            ensure_service_configuration(service)
+    started = start_service_dependencies(preparable)
+    run_service_preparations(preparable)
+    return started
+
+
+def launch_service_set(selected):
+    preparable = [
+        service for service in selected
+        if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
+    ]
+    for service in preparable:
+        ensure_service_configuration(service)
+    started = start_service_dependencies(selected)
+    run_service_preparations(preparable)
+    return started
 
 
 def reload_gateway():
@@ -313,99 +416,7 @@ def publish(target):
     run(ROOT / "scripts/publish-cloudflare.sh", target)
 
 
-def hermes_model_is_configured():
-    """Read Hermes' configured default model without exposing its value."""
-    try:
-        output = compose(
-            "hermes", "run", "--rm", "--no-deps", "hermes",
-            "config", "get", "model", capture=True,
-        )
-    except CLIError:
-        return None
-    if not output.strip():
-        return False
-    default = re.search(r"(?m)^\s*default:\s*(.*?)\s*$", output)
-    if default:
-        value = default.group(1).strip().strip("\"'")
-        return bool(value) and value.lower() not in {"null", "none", "unset"}
-    try:
-        value = json.loads(output)
-    except json.JSONDecodeError:
-        return None
-
-    def configured(item):
-        if isinstance(item, str):
-            return bool(item.strip()) and item.strip().lower() not in {"null", "none", "unset"}
-        if isinstance(item, dict):
-            if "default" in item:
-                return configured(item["default"])
-            if "model" in item:
-                return configured(item["model"])
-        if isinstance(item, list):
-            return any(configured(child) for child in item)
-        return False
-
-    return configured(value)
-
-
-def hermes_data_volume_exists():
-    """Return whether Hermes' persistent Compose volume exists before probing it."""
-    volumes = run("docker", "volume", "ls", "--format", "{{.Name}}", capture=True)
-    return "hermes_hermes_data" in volumes.splitlines()
-
-
-def ensure_hermes_ready():
-    """Configure Hermes and run its interactive first-run setup only as needed."""
-    settings = settings_module()
-    settings.initialize()
-    needs_config = not (ROOT / "config" / "core.env").is_file()
-    if not needs_config:
-        try:
-            check_config("hermes", quiet=True)
-        except CLIError:
-            needs_config = True
-    if needs_config:
-        print("==> hermes: configuration required", flush=True)
-        script("opendock-config.py", "hermes")
-        check_config("hermes", quiet=True)
-
-    print("==> infra: launch prerequisite", flush=True)
-    lifecycle("up", "infra")
-    # `docker compose run` creates declared named volumes even for a read-only
-    # config query. On a clean install, that probe itself can seed Hermes state
-    # and make the following model check look like onboarding already happened.
-    # Detect a missing volume first and go straight to the wizard.
-    if hermes_data_volume_exists():
-        print("==> hermes: checking onboarding status", flush=True)
-        model_ready = hermes_model_is_configured()
-        if model_ready is None:
-            raise CLIError(
-                "Could not inspect Hermes' model configuration. "
-                "Run './opendock service hermes onboard' to open its setup manually."
-            )
-    else:
-        print("==> hermes: no data volume found; first-run onboarding required", flush=True)
-        model_ready = False
-    if model_ready:
-        print("==> hermes: onboarding already complete; skipping", flush=True)
-        return
-
-    print("==> hermes: onboarding required", flush=True)
-    print("==> hermes: first-run onboarding", flush=True)
-    compose("hermes", "run", "--rm", "hermes", "setup")
-    if hermes_model_is_configured() is not True:
-        raise CLIError(
-            "Hermes onboarding did not configure a default model. "
-            "Run './opendock setup hermes' and complete the Hermes setup prompts."
-        )
-
-
 def launch(target):
-    infra_started = False
-    if includes_hermes(target):
-        ensure_hermes_ready()
-        infra_started = True
-
     # Reuse the route resolver, including validation of host-owned domains.conf.
     domains = domains_module()
     routes = domains.resolve_routes()
@@ -426,12 +437,8 @@ def launch(target):
         return
     if route:
         service = route["target"]
-        if service == "hermes" and not infra_started:
-            ensure_hermes_ready()
-            infra_started = True
-        if not infra_started:
-            lifecycle("up", "infra")
-        lifecycle("up", service)
+        already_started = launch_service_set([service])
+        lifecycle("up", service, already_started=already_started)
         post_launch(service)
         reload_gateway()
         publish(target)
@@ -449,11 +456,9 @@ def launch(target):
         if default:
             print(f"==> route: add default hostname {default['hostname']}", flush=True)
             script("opendock-domains.py", "add", default["hostname"], target)
-    if target not in ("all", "infra"):
-        if not infra_started:
-            print("==> infra: launch prerequisite", flush=True)
-            lifecycle("up", "infra")
-    lifecycle("up", target)
+    selected_services = service_targets_for(target)
+    already_started = launch_service_set(selected_services)
+    lifecycle("up", target, already_started=already_started)
     post_launch(target)
     if target != "infra":
         reload_gateway()
@@ -924,8 +929,12 @@ def main(argv=None):
             compose(target[0], "logs", "-f")
         elif command == "setup":
             script("opendock-config.py", args.target)
-            if includes_hermes(args.target):
-                ensure_hermes_ready()
+            selected = service_targets_for(args.target)
+            preparable = [
+                service for service in selected
+                if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
+            ]
+            prepare_service_set(preparable)
         elif command == "secrets":
             script("opendock-secrets.py", args.target)
         elif command == "check-config":

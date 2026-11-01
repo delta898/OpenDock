@@ -10,6 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+from opendock_catalog import service_names
 from opendock_settings import load_values
 
 
@@ -66,17 +67,8 @@ def service_is_publishable(service):
 
 
 def all_publishable_services():
-    services_dir = ROOT_DIR / "services"
-    if not services_dir.is_dir():
-        return []
-
-    services = []
-    for compose in services_dir.glob("*/compose.yml"):
-        service = compose.parent.name
-        if service_is_publishable(service):
-            services.append(service)
-
-    return sorted(services)
+    return [service for service in service_names(ROOT_DIR)
+            if service_is_publishable(service)]
 
 
 def target_services(target):
@@ -86,8 +78,7 @@ def target_services(target):
     if target in ("infra", "gateway"):
         return []
 
-    compose = ROOT_DIR / "services" / target / "compose.yml"
-    if compose.is_file():
+    if target in service_names(ROOT_DIR):
         return [target] if service_is_publishable(target) else []
 
     group = group_services(target)

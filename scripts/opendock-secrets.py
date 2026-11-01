@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+from opendock_catalog import service_names
 import opendock_settings as SETTINGS
 
 
@@ -104,10 +105,7 @@ def is_placeholder(value):
 
 
 def service_targets():
-    services_dir = ROOT_DIR / "services"
-    if not services_dir.is_dir():
-        return []
-    return sorted(compose.parent.name for compose in services_dir.glob("*/compose.yml"))
+    return list(service_names(ROOT_DIR))
 
 
 def target_keys(target):
