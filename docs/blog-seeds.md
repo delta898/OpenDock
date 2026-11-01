@@ -755,6 +755,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     Homepage는 Compose bind mount가 삭제하면 안 되는 Git 관리 설정임을 확인해
     data deletion 목록에서 제외했다. 제거 시 Homepage config는 보존되고 컨테이너,
     이미지, route, private 설정만 제거하도록 세 번째 계약을 등록했다.
+    n8n은 workflows, credentials, encryption keys, execution 데이터가 named volume에만
+    있음을 확인해 해당 volume을 지우는 완전 제거 계약을 추가했다.
   - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
     `[[commands]]`로 옮겼다. Hermes, WordPress, Supabase가 자신의 명령 이름,
     설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.

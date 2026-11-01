@@ -56,3 +56,11 @@ n8n_data
 ```
 
 This is a Docker named volume managed by Compose. It avoids host filesystem permission problems on Ubuntu Server.
+
+## Remove
+
+Preview the removal plan with `./opendock remove n8n --dry-run`. Complete
+removal asks for explicit confirmation and deletes the n8n container, its
+`n8n_data` volume, image, configured public route, and service-local settings.
+The volume contains workflows, credentials, encryption keys, and execution
+data. Shared infrastructure and the gateway are preserved.
