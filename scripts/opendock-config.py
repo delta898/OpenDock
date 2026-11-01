@@ -202,6 +202,8 @@ def prompt_required(field, values):
 def prompt_defaulted(field, values):
     current = values.get(field.name, "")
     default = current if is_real_value(field.name, values) else field.default
+    if field.note:
+        print(f"  {field.note}")
     if default:
         answer = input(f"{field.name} [{default}]: ").strip()
         return default if not answer else answer
@@ -304,14 +306,20 @@ def print_generated_notices(generated_keys, fields):
 
 def main():
     args = sys.argv[1:]
-    optional_only = bool(args and args[0] == "--optional-only")
-    if optional_only:
-        args = args[1:]
+    optional_only = "--optional-only" in args
+    storage_only = "--storage-only" in args
+    if optional_only and storage_only:
+        raise SystemExit("--optional-only and --storage-only cannot be combined")
+    args = [arg for arg in args if arg not in {"--optional-only", "--storage-only"}]
     if len(args) > 1:
-        raise SystemExit("Usage: opendock-config.py [--optional-only] [target]")
+        raise SystemExit(
+            "Usage: opendock-config.py [--optional-only | --storage-only] [target]"
+        )
     target = args[0] if args else "all"
+    if storage_only and target not in service_targets():
+        raise SystemExit("--storage-only requires one service target")
     sections = resolve_sections(target)
-    optional_configs = optional_configs_for(sections)
+    optional_configs = [] if storage_only else optional_configs_for(sections)
 
     SETTINGS.initialize()
     values = SETTINGS.load_values(process_env=False)
@@ -333,13 +341,25 @@ def main():
             if skip_key and values.get(skip_key, "").strip().lower() in {"1", "true", "yes"}:
                 updates[skip_key] = "false"
 
-    print(f"OpenDock setup: {'optional ' if optional_only else ''}{target}")
+    label = f"{target} storage location" if storage_only else target
+    print(f"OpenDock setup: {'optional ' if optional_only else ''}{label}")
     print()
     print("Existing values are kept when you press Enter.")
     print("Secrets are generated or kept without printing their values.")
     print()
 
     fields = selected_fields(sections)
+    services = set(service_targets())
+    storage_keys = {
+        mount["setting_key"]
+        for service in sections
+        if service in services
+        for mount in ServiceCatalog(ROOT_DIR).get(service).storage_mounts
+    }
+    if storage_only:
+        if not storage_keys:
+            raise SystemExit(f"Service {target!r} does not declare configurable storage.")
+        fields = [field for field in fields if field.name in storage_keys]
 
     chosen = {}
     for field in fields:
@@ -363,7 +383,10 @@ def main():
         key: value
         for key, value in chosen.items()
         if value != "__GENERATE__"
-        and not (value == values.get(key) and is_real_value(key, values))
+        and (
+            key in storage_keys
+            or not (value == values.get(key) and is_real_value(key, values))
+        )
     }
     updates.update(chosen_updates)
     updates.update(generated)

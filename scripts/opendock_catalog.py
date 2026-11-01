@@ -61,6 +61,11 @@ class ServiceDefinition:
         return self.descriptor.get("removal", {})
 
     @property
+    def storage_mounts(self) -> tuple[Mapping[str, object], ...]:
+        storage = self.descriptor.get("storage", {})
+        return tuple(storage.get("mounts", ()))
+
+    @property
     def commands(self) -> tuple[Mapping[str, object], ...]:
         return tuple(self.descriptor.get("commands", ()))
 
@@ -442,6 +447,7 @@ class ServiceCatalog:
             set(descriptor) - {
                 "schema_version", "service_id", "display_name", "capability_api_version",
                 "capabilities", "dependencies", "commands", "setup", "routing", "removal",
+                "storage",
             }
         )
         if unknown_descriptor_fields:
@@ -775,6 +781,76 @@ class ServiceCatalog:
                     raise CatalogError(
                         f"Service descriptor {path} has unsafe removal {key} path {item!r}."
                     )
+
+        storage = descriptor.get("storage", {})
+        if not isinstance(storage, dict):
+            raise CatalogError(f"Service descriptor {path} has invalid [storage] metadata.")
+        unknown_storage_fields = sorted(set(storage) - {"mounts"})
+        if unknown_storage_fields:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported storage fields: "
+                + ", ".join(unknown_storage_fields)
+            )
+        mounts = storage.get("mounts", [])
+        if not isinstance(mounts, list):
+            raise CatalogError(f"Service descriptor {path} storage.mounts must be an array of tables.")
+        fields_by_name = {field["name"]: field for field in setup_fields}
+        seen_mounts = set()
+        seen_mount_keys = set()
+        for mount in mounts:
+            if not isinstance(mount, dict):
+                raise CatalogError(f"Service descriptor {path} contains an invalid storage mount.")
+            unknown_mount_fields = sorted(
+                set(mount) - {"name", "setting_key", "container_path", "access"}
+            )
+            if unknown_mount_fields:
+                raise CatalogError(
+                    f"Service descriptor {path} has unsupported storage mount fields: "
+                    + ", ".join(unknown_mount_fields)
+                )
+            name = mount.get("name")
+            setting_key = mount.get("setting_key")
+            container_path = mount.get("container_path")
+            access = mount.get("access")
+            if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
+                raise CatalogError(f"Service descriptor {path} has an invalid storage mount name.")
+            if name in seen_mounts:
+                raise CatalogError(f"Service descriptor {path} repeats storage mount {name!r}.")
+            seen_mounts.add(name)
+            if (
+                not isinstance(setting_key, str)
+                or not setting_key.startswith(prefix)
+                or setting_key not in fields_by_name
+                or fields_by_name[setting_key].get("kind") != "defaulted-choice"
+            ):
+                raise CatalogError(
+                    f"Storage mount {name!r} in {path} must reference a defaulted service setup field."
+                )
+            if setting_key in seen_mount_keys:
+                raise CatalogError(f"Service descriptor {path} repeats storage setting {setting_key!r}.")
+            seen_mount_keys.add(setting_key)
+            if (
+                not isinstance(container_path, str)
+                or not container_path.startswith("/")
+                or ".." in PurePosixPath(container_path).parts
+            ):
+                raise CatalogError(f"Storage mount {name!r} in {path} has an invalid container_path.")
+            if access not in ("read-only", "read-write"):
+                raise CatalogError(
+                    f"Storage mount {name!r} in {path} access must be read-only or read-write."
+                )
+            default_path = fields_by_name[setting_key].get("default")
+            relative_default = PurePosixPath(default_path) if isinstance(default_path, str) else None
+            if (
+                relative_default is None
+                or relative_default.is_absolute()
+                or ".." in relative_default.parts
+                or relative_default.as_posix().removeprefix("./") not in data_paths
+            ):
+                raise CatalogError(
+                    f"Storage mount {name!r} in {path} must default to a declared removal.data_paths entry."
+                )
+
         if set(data_paths) & set(config_files):
             raise CatalogError(
                 f"Service descriptor {path} declares a path as both data and config."

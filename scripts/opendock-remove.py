@@ -15,6 +15,11 @@ from opendock_catalog import ServiceCatalog
 from opendock_settings import (
     CONFIG, LEGACY_ENV, compose_env_files, initialize, load_values,
 )
+from opendock_storage import (
+    external_paths_for_removal,
+    resolve_mount_source,
+    symlink_component,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -317,6 +322,29 @@ def build_plan(service):
     )
     configured_keys = sorted(set(configured_keys))
     settings = load_values(service=service, process_env=False)
+    external_storage = external_paths_for_removal(definition, settings)
+    for owned in external_storage:
+        if not owned["exists"]:
+            continue
+        target_path = owned["path"].resolve()
+        for other in catalog.services:
+            if other.name == service:
+                continue
+            other_values = load_values(service=other.name, process_env=False)
+            for other_mount in other.storage_mounts:
+                try:
+                    other_path = resolve_mount_source(other, other_mount, other_values).resolve()
+                except (KeyError, ValueError):
+                    continue
+                if (
+                    target_path == other_path
+                    or target_path in other_path.parents
+                    or other_path in target_path.parents
+                ):
+                    raise RemovalError(
+                        f"Cannot remove {target_path}; it overlaps the configured "
+                        f"{other.display_name} storage path {other_path}."
+                    )
     shared_database = resolve_shared_database(service, catalog, settings)
     custom_data = [
         relative for relative, path in paths.items() if path.exists()
@@ -331,6 +359,7 @@ def build_plan(service):
         "volumes": volumes,
         "images": images,
         "data_paths": custom_data,
+        "external_storage": external_storage,
         "preserve_paths": preserved_paths,
         "config_files": config_files,
         "shared_database": shared_database,
@@ -379,6 +408,12 @@ def print_plan(plan):
         for preserved in plan["preserve_paths"]:
             if Path(preserved).is_relative_to(Path(relative)):
                 print(f"    Preserve: services/{name}/{preserved}")
+    for item in plan.get("external_storage", []):
+        state = "" if item["exists"] else " (not present)"
+        print(
+            f"  Delete configured {item['mount']['name']} storage directory: "
+            f"{item['path']}{state}"
+        )
     if plan["config_files"]:
         print(f"  Remove additional private configuration for {definition.display_name}:")
         for relative in plan["config_files"]:
@@ -513,6 +548,26 @@ def remove_declared_data(service, relative, preserve_paths=()):
         print(f"Removed services/{service}/{relative}/")
 
 
+def remove_external_storage(items):
+    for item in items:
+        path = Path(item["path"])
+        if not path.exists() and not path.is_symlink():
+            continue
+        linked = symlink_component(path)
+        if linked:
+            raise RemovalError(f"Refusing to remove storage path through a symlink: {linked}")
+        if not path.is_dir() or path.is_mount():
+            raise RemovalError(
+                f"Refusing to remove configured storage path that is not a regular directory: {path}"
+            )
+        resolved = path.resolve()
+        home = Path.home().resolve()
+        if resolved == Path(resolved.anchor) or resolved == home or home.is_relative_to(resolved):
+            raise RemovalError(f"Refusing to remove a filesystem root or home directory: {path}")
+        shutil.rmtree(path)
+        print(f"Removed external storage directory: {path}")
+
+
 def remove_resources(plan):
     definition = plan["service"]
     service = definition.name
@@ -538,6 +593,7 @@ def remove_resources(plan):
             if Path(item).is_relative_to(Path(relative))
         ]
         remove_declared_data(service, relative, preserved)
+    remove_external_storage(plan.get("external_storage", []))
     remove_service_config(service)
     for relative in plan["config_files"]:
         remove_additional_config_file(service, relative)

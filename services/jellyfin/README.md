@@ -21,11 +21,27 @@ Jellyfin stores app configuration and cache in Docker named volumes:
 - `jellyfin_config`
 - `jellyfin_cache`
 
-Media files are stored in:
+By default, media files are stored in:
 
 ```text
 services/jellyfin/media
 ```
+
+On first launch, OpenDock asks whether to keep this path or use another
+location and remembers the choice. To review or change it later, run
+`./opendock setup jellyfin` and set `JELLYFIN_MEDIA_PATH` to an existing
+absolute path. For example, use `/mnt/media/jellyfin` on Linux or
+`/Volumes/Media/jellyfin` on macOS. OpenDock creates the default local directory
+if needed. A custom path must already exist and be accessible or launch stops.
+OpenDock does not check whether the directory is on an external disk. Choose a
+dedicated directory rather than the filesystem root; complete removal deletes
+the configured directory after confirmation.
+Press Enter to keep the default path. Configuration and cache remain in Docker
+named volumes.
+
+Changing this setting only changes the mounted directory; OpenDock does not
+move existing media. For an existing library, stop Jellyfin, copy the media to
+the new directory, then update the setting and launch again.
 
 Suggested folders:
 
@@ -48,7 +64,8 @@ DLNA discovery and hardware acceleration may require additional host networking 
 Preview the removal plan with `./opendock remove jellyfin --dry-run`. Complete
 removal asks for explicit confirmation and deletes the Jellyfin containers,
 `jellyfin_config` and `jellyfin_cache` volumes, image, configured public route,
-service-local settings, and media files under `services/jellyfin/media/`.
+service-local settings, and the configured media directory (including an
+external disk directory, if configured).
 This permanently deletes your media library. The tracked `.gitkeep` directory
 placeholders are preserved so removal does not modify repository source.
 Shared infrastructure and the gateway are preserved.

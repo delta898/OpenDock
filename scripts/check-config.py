@@ -9,6 +9,7 @@ from opendock_groups import group_services, validate_services
 from opendock_catalog import ServiceCatalog, service_names
 from opendock_capabilities import ValidationContext, runtime_environment, validate_config
 from opendock_settings import CORE_PLACEHOLDERS, CORE_REQUIRED_KEYS, load_values
+from opendock_storage import validate_mounts
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -151,6 +152,7 @@ def check_target(target, common_values, example_values):
             )).issues)
         except ValueError as error:
             raise SystemExit(str(error)) from error
+        invalid.extend(validate_mounts(definition, env))
 
     optional_missing = {}
     target_subdomain = definition.routing.get("subdomain_key") if definition else None

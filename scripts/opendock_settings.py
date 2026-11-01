@@ -298,6 +298,15 @@ def load_values(service=None, *, examples=False, process_env=False, legacy=True)
     return values
 
 
+def load_local_values(service):
+    """Load private values owned by one service, without tracked defaults."""
+    if service not in SERVICE_PREFIXES:
+        raise ValueError(f"Unknown service configuration owner: {service}")
+    values = parse_env(CONFIG / "services" / f"{service}.env")
+    values.update(parse_env(ROOT / "services" / service / ".env"))
+    return values
+
+
 def compose_env_files(service=None):
     defaults = config_paths(service, examples=True)
     local_config = config_paths(service)

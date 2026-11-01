@@ -88,6 +88,11 @@ automatic, configure `cloudflare.env` with a token, tunnel ID, and access to
 the zones used by your routes. Without those API credentials, OpenDock can
 still apply local Caddy routes and print the routes to configure manually in
 Cloudflare.
+After publishing, URLs are clickable in terminals that support OSC 8 links.
+In an interactive desktop terminal, OpenDock also offers to open one in the
+browser; headless SSH sessions only show the URL. In macOS Terminal, hold
+Command and double-click the URL. Other terminal apps may use Cmd-click or
+Ctrl-click.
 
 ## Setup Overview
 
@@ -265,6 +270,28 @@ managed by the user; OpenDock applies its serving and publishing route:
 Before starting services, OpenDock fills generated secrets and checks the
 layered configuration for required values. This helps catch missing external
 settings after `git pull` adds a new service.
+
+## External media storage
+
+Services with large libraries can use a service-specific host directory, such
+as a directory on an external disk. On first launch, OpenDock asks whether to
+keep the default or choose another location and remembers the choice. To review
+or change it later, run `./opendock setup jellyfin`, `./opendock setup immich`,
+or `./opendock setup wordpress`. Set `JELLYFIN_MEDIA_PATH`,
+`IMMICH_LIBRARY_PATH`, or `WORDPRESS_WEBROOT_PATH` to an existing absolute
+directory; press Enter to keep the checkout-local default. OpenDock checks that
+the configured directory exists and is accessible before launch. It creates a
+missing checkout-local default; a custom path must already exist.
+OpenDock uses the path as configured and does not determine whether its disk is mounted.
+`./opendock remove <service> --dry-run` shows the path that complete removal
+would delete.
+
+Immich's PostgreSQL data remains on local storage; only its photo and video
+library can be configured on another disk. Changing a path does not move
+existing files; follow the service-specific migration guidance before switching
+an existing installation. WordPress exposes its entire webroot, including core,
+plugins, themes, and uploads, through one path. Back up user data before a
+complete removal.
 
 ## Cloudflare Publishing
 

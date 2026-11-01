@@ -8,6 +8,12 @@ name = "JELLYFIN_SUBDOMAIN"
 kind = "defaulted-choice"
 default = "media"
 
+[[setup.fields]]
+name = "JELLYFIN_MEDIA_PATH"
+kind = "defaulted-choice"
+default = "./media"
+note = "Press Enter to keep ./media. For another location, enter an existing absolute host directory. OpenDock does not detect which disk it is on."
+
 [removal]
 data_paths = ["media"]
 preserve_paths = [
@@ -19,3 +25,9 @@ preserve_paths = [
 [routing]
 subdomain_key = "JELLYFIN_SUBDOMAIN"
 caddy_handler = "jellyfin_proxy"
+
+[[storage.mounts]]
+name = "media"
+setting_key = "JELLYFIN_MEDIA_PATH"
+container_path = "/media"
+access = "read-write"

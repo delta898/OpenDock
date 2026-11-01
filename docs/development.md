@@ -562,6 +562,23 @@ jellyfin/media
 wordpress/data/webroot
 ```
 
+For large user libraries, declare a service-specific host path setting with a
+checkout-local default. Users can replace it with an absolute directory on a
+mounted disk through `./opendock setup <service>`. Keep `create_host_path: false`
+in Compose so an unavailable mount cannot be replaced by an empty directory,
+validate the path before launch, and show the configured path in the service's
+removal plan. Keep databases on local storage unless the upstream service
+explicitly supports another location.
+
+This is opt-in per service, not a requirement for every persistent mount.
+WordPress' selectable path covers the entire webroot, including core, plugins,
+themes, and uploads. Hermes' `/opt/data` includes credentials and sessions,
+while its sandbox workspace also participates in nested Docker bind mounts and
+container cleanup; leave those on their current storage until that separate
+contract is designed. `create_host_path: false` prevents Compose from creating
+a missing path but does not detect an unmounted disk when its mount-point
+directory remains present.
+
 Services should use shared MariaDB, PostgreSQL, or Redis when the generic infrastructure is enough. Some services require app-specific infrastructure instead. For example, Immich uses the shared Redis service, but runs its own PostgreSQL image because Immich requires vector extensions that are not part of a generic PostgreSQL service.
 
 ## Image Policy
