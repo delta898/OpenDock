@@ -171,7 +171,7 @@ Runtime cleanup and code registration are separate lifecycles. `remove
 available in the checkout. Removing a contribution from OpenDock source must
 not silently delete runtime data on a user's host.
 
-Removal is currently enabled for Hermes, Homepage, n8n, and Uptime Kuma. Declare
+Removal is currently enabled for Hermes, Homepage, Immich, n8n, and Uptime Kuma. Declare
 service-owned bind data paths, extra images, and labeled non-Compose containers
 under `[removal]` in the service descriptor. Every orphan container must be
 tied to a declared data path and is selected only when its mount source is
@@ -186,6 +186,8 @@ Homepage has no persistent runtime volume; its mounted YAML configuration is
 tracked source and remains in place during removal.
 n8n stores its workflows, credentials, encryption keys, and execution data in
 its Compose named volume, which complete removal deletes after confirmation.
+Immich complete removal deletes both its service-local database and uploaded
+photo/video library paths, along with the Compose-managed ML cache volume.
 
 After every current service has a removal contract, the final acceptance pass
 must use a clean, isolated host. For each service, configure and launch it,

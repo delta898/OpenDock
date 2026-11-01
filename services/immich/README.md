@@ -41,3 +41,13 @@ Keep both directories backed up. The database directory should stay on local sto
 Machine-learning model files are stored in the Docker named volume `immich_model_cache`.
 
 When using Cloudflare Tunnel, large photo or video uploads may be affected by Cloudflare request size limits. Test mobile backup with real videos before relying on it as the only photo backup path.
+
+## Remove
+
+Preview the removal plan with `./opendock remove immich --dry-run`. Complete
+removal asks for explicit confirmation and deletes the Immich containers,
+`immich_model_cache`, image, configured public route, service-local settings,
+and both `services/immich/data/library/` and
+`services/immich/data/postgres/`. The library contains uploaded photos and
+videos; the database contains Immich's application state. Back up anything you
+need before confirming. Shared infrastructure and the gateway are preserved.
