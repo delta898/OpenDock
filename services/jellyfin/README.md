@@ -42,3 +42,13 @@ Use Jellyfin primarily for movies, shows, music, and music videos. Use Immich fo
 Cloudflare Tunnel is useful for the Jellyfin web UI and light remote access. For heavy video streaming, LAN access is usually a better experience.
 
 DLNA discovery and hardware acceleration may require additional host networking or device passthrough settings. They are intentionally not enabled in the default beginner-friendly setup.
+
+## Remove
+
+Preview the removal plan with `./opendock remove jellyfin --dry-run`. Complete
+removal asks for explicit confirmation and deletes the Jellyfin containers,
+`jellyfin_config` and `jellyfin_cache` volumes, image, configured public route,
+service-local settings, and media files under `services/jellyfin/media/`.
+This permanently deletes your media library. The tracked `.gitkeep` directory
+placeholders are preserved so removal does not modify repository source.
+Shared infrastructure and the gateway are preserved.

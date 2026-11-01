@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Plan and remove one service's declared OpenDock resources."""
 
+import errno
 import importlib.util
 import json
 import shutil
@@ -151,6 +152,11 @@ def build_plan(service):
 
     declared_paths = list(removal.get("data_paths", ()))
     paths = {relative: owned_path(service, relative) for relative in declared_paths}
+    preserved_paths = []
+    for relative in removal.get("preserve_paths", ()):
+        path = owned_path(service, relative)
+        if path.exists():
+            preserved_paths.append(relative)
     declared_config_files = list(removal.get("config_files", ()))
     config_files = []
     for relative in declared_config_files:
@@ -210,6 +216,7 @@ def build_plan(service):
         "volumes": volumes,
         "images": images,
         "data_paths": custom_data,
+        "preserve_paths": preserved_paths,
         "config_files": config_files,
         "configured_keys": configured_keys,
         "remove_service_config": service_config.exists() or legacy_service_config.exists(),
@@ -245,6 +252,9 @@ def print_plan(plan):
         print("    Cloudflare API cleanup unavailable; cloudflare.env is absent")
     for relative in plan["data_paths"]:
         print(f"  Delete declared service data: services/{name}/{relative}/")
+        for preserved in plan["preserve_paths"]:
+            if Path(preserved).is_relative_to(Path(relative)):
+                print(f"    Preserve: services/{name}/{preserved}")
     if plan["config_files"]:
         print(f"  Remove additional private configuration for {definition.display_name}:")
         for relative in plan["config_files"]:
@@ -325,15 +335,31 @@ def remove_routes(service, plan):
         print("Caddy is not running; the removed route will stay absent on next launch.")
 
 
-def remove_declared_data(service, relative):
+def remove_path_preserving(path, preserve):
+    if path in preserve:
+        return
+    if path.is_symlink() or not path.is_dir():
+        if path.exists() or path.is_symlink():
+            path.unlink()
+        return
+    for child in path.iterdir():
+        remove_path_preserving(child, preserve)
+    try:
+        path.rmdir()
+    except OSError as exc:
+        # A non-empty directory contains a declared preserved path.
+        if exc.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+            raise
+
+
+def remove_declared_data(service, relative, preserve_paths=()):
     path = owned_path(service, relative)
     if not path.exists():
         return
-    if path.is_dir():
-        shutil.rmtree(path)
-    else:
-        path.unlink()
-    print(f"Removed services/{service}/{relative}/")
+    preserve = {owned_path(service, item) for item in preserve_paths}
+    remove_path_preserving(path, preserve)
+    suffix = " (declared source paths preserved)" if preserve else ""
+    print(f"Removed services/{service}/{relative}/{suffix}")
 
 
 def remove_resources(plan):
@@ -348,7 +374,11 @@ def remove_resources(plan):
         run_command(["docker", "rm", "-f", *orphan_ids])
 
     for relative in plan["data_paths"]:
-        remove_declared_data(service, relative)
+        preserved = [
+            item for item in plan["preserve_paths"]
+            if Path(item).is_relative_to(Path(relative))
+        ]
+        remove_declared_data(service, relative, preserved)
     remove_service_config(service)
     for relative in plan["config_files"]:
         remove_additional_config_file(service, relative)

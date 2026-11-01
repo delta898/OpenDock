@@ -7,3 +7,11 @@ dependencies = ["infra"]
 name = "JELLYFIN_SUBDOMAIN"
 kind = "defaulted-choice"
 default = "media"
+
+[removal]
+data_paths = ["media"]
+preserve_paths = [
+  "media/movies/.gitkeep",
+  "media/shows/.gitkeep",
+  "media/music/.gitkeep",
+]

@@ -102,6 +102,9 @@ changes.
 - If a service has additional ignored secret/config files beyond `.env`, declare
   them under `removal.config_files`; back them up with restrictive permissions
   before deletion and list them in the plan.
+- If a removable directory contains tracked source files that must stay in the
+  checkout, declare each under `removal.preserve_paths`; show and preserve them
+  while deleting the rest of the declared data path.
 - Treat resources according to ownership. Never remove shared infra databases
   or volumes, global OpenDock configuration such as the primary domain,
   resources belonging to another service, or user content outside the selected

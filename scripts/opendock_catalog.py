@@ -538,7 +538,10 @@ class ServiceCatalog:
             raise CatalogError(f"Service descriptor {path} has an invalid [removal] section.")
         unknown_removal = sorted(
             set(removal)
-            - {"data_paths", "config_files", "extra_images", "orphan_containers"}
+            - {
+                "data_paths", "preserve_paths", "config_files",
+                "extra_images", "orphan_containers",
+            }
         )
         if unknown_removal:
             raise CatalogError(
@@ -546,11 +549,13 @@ class ServiceCatalog:
                 + ", ".join(unknown_removal)
             )
         data_paths = removal.get("data_paths", [])
+        preserve_paths = removal.get("preserve_paths", [])
         config_files = removal.get("config_files", [])
         extra_images = removal.get("extra_images", [])
         orphan_containers = removal.get("orphan_containers", [])
         for key, entries in (
             ("data_paths", data_paths),
+            ("preserve_paths", preserve_paths),
             ("config_files", config_files),
             ("extra_images", extra_images),
         ):
@@ -564,7 +569,11 @@ class ServiceCatalog:
                 raise CatalogError(
                     f"Service descriptor {path} removal.{key} contains duplicates."
                 )
-        for key, entries in (("data_paths", data_paths), ("config_files", config_files)):
+        for key, entries in (
+            ("data_paths", data_paths),
+            ("preserve_paths", preserve_paths),
+            ("config_files", config_files),
+        ):
             for item in entries:
                 relative = PurePosixPath(item)
                 if relative.is_absolute() or ".." in relative.parts or not relative.parts:
@@ -575,6 +584,19 @@ class ServiceCatalog:
             raise CatalogError(
                 f"Service descriptor {path} declares a path as both data and config."
             )
+        if set(preserve_paths) & (set(data_paths) | set(config_files)):
+            raise CatalogError(
+                f"Service descriptor {path} declares a preserved path as removable."
+            )
+        for preserved in preserve_paths:
+            preserved_path = PurePosixPath(preserved)
+            if not any(
+                preserved_path.is_relative_to(PurePosixPath(data_path))
+                for data_path in data_paths
+            ):
+                raise CatalogError(
+                    f"Preserved path {preserved!r} in {path} must be inside a removal data path."
+                )
         if not isinstance(orphan_containers, list):
             raise CatalogError(
                 f"Service descriptor {path} removal.orphan_containers must be an array of tables."

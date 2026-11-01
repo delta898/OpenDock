@@ -764,6 +764,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     이를 descriptor의 private `config_files`로 선언하고, 공통 remover가 삭제 전에
     restrictive backup을 남기는 처리를 추가했다. 추적되는 Edge Function source와 config는
     제거 대상에서 뺐다.
+    Jellyfin media 디렉터리에는 Git 관리 `.gitkeep` placeholder가 있어 사용자 미디어를
+    삭제하면서도 checkout을 변경하지 않도록 descriptor `preserve_paths`와 공통 선택적
+    tree cleanup을 추가했다.
   - 추가 명령의 help 설명도 중앙 `COMMAND_HELP` 표에서 서비스 descriptor의
     `[[commands]]`로 옮겼다. Hermes, WordPress, Supabase가 자신의 명령 이름,
     설명, 실행 예를 소유하고 common dispatcher는 파일 탐색과 공통 렌더링만 담당한다.
