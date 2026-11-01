@@ -100,6 +100,26 @@ Rules:
 - Empty input is invalid.
 - Existing real values can be shown as defaults for confirmation.
 
+### secret-user
+
+Values the operator chooses that must be stored as secrets and supplied to an
+application at runtime.
+
+Examples:
+
+```text
+SMTP_PASSWORD
+HERMES_DASHBOARD_PASSWORD
+```
+
+Rules:
+
+- Prompt without echoing the entered value.
+- Require a non-empty value when it is not already configured.
+- Keep existing values unless the operator explicitly chooses to replace them.
+- Store the value in the owning private `.env` file; never print it in summaries.
+- Explain when a running service must be recreated to apply a change.
+
 ### generated-secret
 
 Values that users do not need to choose and should usually not see.

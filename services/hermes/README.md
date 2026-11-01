@@ -47,18 +47,19 @@ hostname, add it first and launch that hostname:
 ./opendock launch agent.example.com
 ```
 
-The dashboard username and generated password are stored in the private
-`services/hermes/.env` as
-`HERMES_DASHBOARD_USERNAME` and `HERMES_DASHBOARD_PASSWORD`.
-The username is the value entered during `./opendock setup hermes`; OpenDock
-generates the password without printing it. From the repository root, retrieve
-it with:
+The dashboard username, password, and session-signing secret are supplied to
+the container at runtime from the private `services/hermes/.env`. Set the
+username and password with `./opendock setup hermes`; password input is hidden
+and its value is never printed. The session-signing secret is generated and
+kept by OpenDock. If you need to retrieve the password later, use:
 
 ```sh
 grep '^HERMES_DASHBOARD_PASSWORD=' services/hermes/.env
 ```
 
-Treat the output as a secret and do not paste it into logs or chat. This browser
+Treat the output as a secret and do not paste it into logs or chat. These values
+are read whenever the Hermes container starts. After changing the password,
+`./opendock launch hermes` recreates the container to apply it. This browser
 login protects the dashboard; Hermes onboarding separately configures its model
 provider and credentials. `./opendock launch hermes` skips that onboarding when
 a default model is already configured in Hermes' persistent data volume. To

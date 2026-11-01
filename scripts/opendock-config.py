@@ -134,8 +134,11 @@ CONFIG_FIELDS = {
         Field("HERMES_DASHBOARD_USERNAME", "defaulted-choice", default="opendock"),
         Field(
             "HERMES_DASHBOARD_PASSWORD",
-            "generated-secret",
-            note="Used for the Hermes web dashboard login.",
+            "secret-user",
+            note=(
+                "Used at runtime for Hermes dashboard login. Enter a password; "
+                "OpenDock stores it privately and does not display it."
+            ),
         ),
         Field("HERMES_DASHBOARD_SECRET", "generated-secret"),
     ],
@@ -312,6 +315,10 @@ def print_summary(changed, generated_keys, backup):
 
 
 def print_credential_notices(changed):
+    if "HERMES_DASHBOARD_PASSWORD" in changed:
+        print()
+        print("Hermes dashboard password is stored in private services/hermes/.env.")
+        print("Run './opendock launch hermes' to apply a changed password.")
     if "NEXTCLOUD_ADMIN_PASSWORD" in changed:
         print()
         print("Nextcloud initial admin password is stored in config/services/nextcloud.env.")

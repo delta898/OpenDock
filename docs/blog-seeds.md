@@ -515,6 +515,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - upstream provider나 messaging integration을 나중에 바꾸려는 의도적인
     재설정 경로로 `./opendock service hermes onboard`를 유지한다. 따라서 보통의
     첫 실행은 간단하지만 기존 사용자가 다시 설정할 수 있는 수단도 남는다.
+  - dashboard username/password는 Hermes model onboarding 값과 별도다. Compose가
+    `services/hermes/.env`의 값을 컨테이너 시작 때 Basic Auth 환경변수로 전달하므로
+    private runtime config에 보존해야 한다. 사용자가 password를 직접 입력하길 원해
+    자동 생성에서 마스킹 입력으로 바꾸고, 바뀐 값을 적용하려면 컨테이너 재생성이
+    필요하다는 점을 안내한다. 내부 session-signing secret은 계속 자동 생성한다.
   - 기본 route 파일에 Hermes 항목이 빠져 있어도 `launch hermes`가 서비스의
     default hostname을 추가하도록 해, launch가 성공했는데 공개 route가 없는
     상태를 피한다.
@@ -526,7 +531,7 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     인터랙티브 wizard를 띄우면 자동화와 일상적인 설정 변경이 충돌한다.
   - shared infra는 서비스 내부의 부수 작업이 아니라 플랫폼이 처리하는
     prerequisite로 보여줘야 한다.
-  - 검증 상태: macOS에서 CLI/unit test 26개가 통과했다. 사용자는 Linux 테스트
+  - 검증 상태: macOS에서 CLI/unit test 27개가 통과했다. 사용자는 Linux 테스트
     서버에서 기존 remove/launch를 수행했고 볼륨 제거 및 probe 직후 onboarding skip을
     관찰했다. 볼륨이 없는 경우 probe를 생략하는 수정은 아직 테스트 서버에서 확인
     대기 중이며, 반복 launch의 skip 동작과 custom hostname 공개도 재확인이 필요하다.

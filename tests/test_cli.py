@@ -17,6 +17,12 @@ cli = importlib.util.module_from_spec(spec)
 cli.__file__ = str(ROOT / "opendock")
 exec(compile((ROOT / "opendock").read_text(), str(ROOT / "opendock"), "exec"), cli.__dict__)
 
+config_spec = importlib.util.spec_from_file_location(
+    "opendock_config", ROOT / "scripts" / "opendock-config.py"
+)
+config_setup = importlib.util.module_from_spec(config_spec)
+config_spec.loader.exec_module(config_setup)
+
 
 class CLITests(unittest.TestCase):
     def test_help_shows_workflow_before_advanced_commands(self):
@@ -137,6 +143,15 @@ class CLITests(unittest.TestCase):
         probe.assert_called_once_with()
         compose.assert_called_once_with("hermes", "run", "--rm", "hermes", "setup")
         self.assertIn("first-run onboarding required", output.getvalue())
+
+    def test_hermes_dashboard_password_is_a_masked_user_secret(self):
+        field = next(item for item in config_setup.CONFIG_FIELDS["hermes"]
+                     if item.name == "HERMES_DASHBOARD_PASSWORD")
+        self.assertEqual(field.kind, "secret-user")
+        with mock.patch.object(config_setup, "is_real_value", return_value=False), \
+             mock.patch.object(config_setup.getpass, "getpass", return_value="chosen-secret") as prompt:
+            self.assertEqual(config_setup.prompt_secret(field, {}), "chosen-secret")
+        prompt.assert_called_once()
 
 
 if __name__ == "__main__":
