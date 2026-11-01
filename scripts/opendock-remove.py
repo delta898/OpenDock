@@ -358,8 +358,10 @@ def remove_declared_data(service, relative, preserve_paths=()):
         return
     preserve = {owned_path(service, item) for item in preserve_paths}
     remove_path_preserving(path, preserve)
-    suffix = " (declared source paths preserved)" if preserve else ""
-    print(f"Removed services/{service}/{relative}/{suffix}")
+    if preserve:
+        print(f"Removed services/{service}/{relative} except declared preserved paths.")
+    else:
+        print(f"Removed services/{service}/{relative}/")
 
 
 def remove_resources(plan):
