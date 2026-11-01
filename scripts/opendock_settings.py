@@ -54,7 +54,7 @@ def _load_config_sections():
         unknown_fields = sorted(
             set(descriptor) - {
                 "schema_version", "section_id", "config_file", "setting_keys", "setup",
-                "optional_prompt", "skip_key",
+                "optional_prompt", "skip_key", "shared_settings",
             }
         )
         if unknown_fields:
@@ -84,8 +84,6 @@ def _load_config_sections():
         relative = Path(config_file)
         if relative.is_absolute() or ".." in relative.parts or relative.parts[:1] != ("config",):
             raise ValueError(f"Configuration file must stay under config/: {config_file}")
-        if not (ROOT / relative).is_file():
-            raise ValueError(f"Configuration descriptor {path} references missing file {config_file}.")
         prompt = descriptor.get("optional_prompt")
         skip_key = descriptor.get("skip_key")
         if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
@@ -99,6 +97,26 @@ def _load_config_sections():
             raise ValueError(f"Invalid optional setup skip key in {path}.")
         if not isinstance(setup, dict) or set(setup) - {"fields"}:
             raise ValueError(f"Invalid setup section in configuration descriptor {path}.")
+        shared_settings = descriptor.get("shared_settings", [])
+        platform_shared_groups = {
+            group
+            for component in SERVICE_CATALOG.platform.components
+            for group in component.shared_groups
+        }
+        if not isinstance(shared_settings, list):
+            raise ValueError(f"Invalid shared_settings in configuration descriptor {path}.")
+        seen_shared_settings = set()
+        for setting in shared_settings:
+            if (
+                not isinstance(setting, dict)
+                or set(setting) != {"name", "shared_group"}
+                or setting.get("name") not in setting_keys
+                or setting.get("name") in seen_shared_settings
+                or not isinstance(setting.get("shared_group"), str)
+                or setting.get("shared_group") not in platform_shared_groups
+            ):
+                raise ValueError(f"Invalid shared setting in configuration descriptor {path}.")
+            seen_shared_settings.add(setting["name"])
         field_names = set()
         for field in fields:
             if (
@@ -167,6 +185,15 @@ CONFIG_OPTIONAL_SKIP_KEYS = {
     for name, section in CONFIG_SECTIONS.items()
     if isinstance(section.get("skip_key"), str)
 }
+for service in SERVICE_CATALOG.services:
+    unknown_optional = sorted(
+        set(service.optional_setup_configs) - set(CONFIG_OPTIONAL_PROMPTS)
+    )
+    if unknown_optional:
+        raise ValueError(
+            f"Service {service.name!r} declares unknown optional setup config(s): "
+            + ", ".join(unknown_optional)
+        )
 CORE_REQUIRED_KEYS = frozenset(
     field["name"]
     for field in CONFIG_SECTIONS["core"].get("setup", {}).get("fields", [])
@@ -179,7 +206,11 @@ CORE_PLACEHOLDERS = {
 }
 
 PLATFORM_SETTING_OWNERS = {}
-SHARED_SETTING_GROUPS = {}
+SHARED_SETTING_GROUPS = {
+    setting["name"]: setting["shared_group"]
+    for section in CONFIG_SECTIONS.values()
+    for setting in section.get("shared_settings", [])
+}
 for component in sorted(
     SERVICE_CATALOG.platform.components,
     key=lambda item: item.name,
@@ -188,11 +219,6 @@ for component in sorted(
         if key in CONFIG_SETTING_OWNERS or key in PLATFORM_SETTING_OWNERS:
             raise ValueError(f"Configuration setting has multiple owners: {key}")
         PLATFORM_SETTING_OWNERS[key] = Path(component.config_file)
-    for setting in component.shared_settings:
-        if setting["name"] in CONFIG_SETTING_OWNERS or setting["name"] in PLATFORM_SETTING_OWNERS:
-            raise ValueError(f"Configuration setting has multiple owners: {setting['name']}")
-        PLATFORM_SETTING_OWNERS[setting["name"]] = Path(setting["owner_file"])
-        SHARED_SETTING_GROUPS[setting["name"]] = setting["shared_group"]
 def parse_env(path):
     values = {}
     if not path.is_file():
@@ -228,10 +254,6 @@ def config_paths(service=None, examples=False):
     layer_files.extend(
         Path(section["config_file"]) for section in SHARED_CONFIG_SECTIONS.values()
     )
-    for component in SERVICE_CATALOG.platform.components:
-        layer_files.extend(
-            Path(setting["owner_file"]) for setting in component.shared_settings
-        )
     layer_files = list(dict.fromkeys(layer_files))
     if examples:
         paths = [path.with_name(path.name + ".default") for path in layer_files]

@@ -396,7 +396,7 @@ Review or update local setup interactively:
 
 ### Optional email (SMTP)
 
-SMTP is one shared, optional setting for Mastodon, Mattermost, n8n, and Supabase. Their setup or first start offers to configure it. Choose **No** to continue without SMTP; OpenDock remembers the choice, and the service still starts. Email-dependent features may be unavailable until you configure a relay. Supabase keeps its local Inbucket fallback unless you configure an external relay.
+SMTP is a shared, optional setting. Services that declare support for it offer configuration during setup or first launch. Choose **No** to continue without SMTP; OpenDock remembers the choice, and the service still starts. Email-dependent features may be unavailable until you configure a relay. Supabase keeps its local Inbucket fallback unless you configure an external relay. The currently integrated services are Mastodon, Mattermost, n8n, and Supabase.
 
 To configure or change the relay later:
 

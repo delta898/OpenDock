@@ -110,18 +110,19 @@ setup fields, secret generator declarations, and dependency groups such as
 service declares only the shared groups it needs in
 `services/<service>/opendock.toml`; the common setup and secret coordinators
 resolve those declarations. Platform config ownership is also derived from the
-component descriptors. SMTP is an optional shared config section in
-`config/shared/mail.toml`. Services that use it declare
+component descriptors. Shared concerns keep their configuration descriptor
+and tracked defaults together under `config/shared/`: `mail.toml` with
+`mail.env.default`, and `database.toml` with `database.env.default`. The TOML
+descriptor declares keys, shared dependency groups, and optional setup prompts;
+the defaults file contains values only.
+
+SMTP is an optional shared config section. Services that use it declare
 `setup.optional_config = ["mail"]`; common setup offers the relay once, and
 starting a service offers it after required config validation if the user has
-not configured or previously skipped it.
-
-An infra descriptor may declare a setting consumed by multiple services under
-`[[shared_settings]]`, including its shared group and owner file. For example,
-`MARIADB_CLIENT_VERSION` belongs to the shared database config file and is
-accepted from a legacy service config only when that service declares the
-matching `mariadb` setup dependency. This keeps the migration rule beside the
-shared dependency it describes.
+not configured or previously skipped it. `MARIADB_CLIENT_VERSION` is declared
+by the shared database config and is accepted from a legacy service config only
+when that service declares the matching `mariadb` setup dependency. Infra still
+owns the MariaDB service, shared dependency group, and database removal adapter.
 
 ## Contributing a service
 
@@ -151,8 +152,9 @@ forwards arguments without maintaining a per-service help dictionary.
 
 Contributors should define the service's defaults, shared dependencies, public
 route metadata, setup and validation needs, generated secret relationships,
-launch preparation, health checks, and exact removal/preservation scope in the
-service contribution. Put reusable execution, user prompts, confirmation,
+launch preparation, supported lifecycle operations, and exact
+removal/preservation scope in the service contribution. Health check
+capabilities are not implemented yet. Put reusable execution, user prompts, confirmation,
 platform routing, and output formatting in the common workflows. Follow
 [Command and Service Ownership](command-architecture.md) for the boundary and
 compatibility rules.
@@ -329,8 +331,10 @@ Secret generation rules:
 Mail setup rules:
 
 - `./opendock setup mail` stores shared outbound SMTP relay values in `config/shared/mail.env`.
-- `config/shared/mail.toml` declares the shared mail keys and setup prompts; the
-  common setup workflow reads this metadata instead of embedding SMTP names in Python.
+- `config/shared/mail.toml` declares shared mail keys and setup prompts;
+  `config/shared/database.toml` declares shared database keys and dependency
+  groups. Their matching `.env.default` files contain tracked values, while
+  the common setup workflow reads the TOML metadata.
 - Services opt into the optional prompt through
   `setup.optional_config = ["mail"]` in their descriptor. Declining does not
   block setup or startup and is remembered; `./opendock setup mail` remains the

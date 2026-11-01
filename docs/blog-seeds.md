@@ -789,9 +789,10 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     setup field와 secret generator를 선언했다. Service catalog는 platform descriptor의
     shared group을 기준으로 service dependency를 검증하고, setup/secrets는 서비스가
     선언한 group에서 infra field를 선택한다. 설정 owner 경로도 infra descriptor의
-    setting key 목록에서 파생된다. `MARIADB_CLIENT_VERSION`은 shared setting으로
-    database env 파일 소유자와 `mariadb` dependency 조건을 선언했다. 따라서 legacy
-    서비스 설정 migration도 같은 선언을 참고한다. 이어 gateway setting key도
+    setting key 목록에서 파생된다. 당시 `MARIADB_CLIENT_VERSION`은 infra의 shared
+    setting으로 database env 파일 소유자와 `mariadb` dependency 조건을 선언했다. 따라서
+    legacy 서비스 설정 migration도 같은 선언을 참고했다. 이후 mail metadata와의 위치
+    일관성을 위해 shared setting 선언을 `config/shared/database.toml`로 옮겼다. 이어 gateway setting key도
     `gateway/opendock.toml`로 옮겼다. SMTP 설정은 `config/shared/mail.toml`에 key,
     owner file, setup field를 선언하고 common setup/settings workflow가 읽도록 바꿨다.
     `STACK_DOMAIN`도 `config/core.toml`로 옮겨 core owner와 placeholder를 선언한다.
@@ -817,6 +818,24 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     mail 의존을 선언하게 하고 common setup에서 한 번 제안하도록 설계했다. 거절은 private
     shared config에 저장해 매 launch마다 묻지 않으며, SMTP 미설정도 서비스 시작 실패 조건이
     아니다. setup/launch 인터랙션은 아직 실환경에서 검증하지 않았다.
+  - 전체 구조 재검토에서는 descriptor의 미지원 키가 일부 위치에서 조용히 무시되거나,
+    선언한 capability handler의 누락이 해당 동작 호출 때까지 드러나지 않는 문제가 확인됐다.
+    catalog의 nested descriptor 키 검증을 강화하고 launch/setup 상태 변경 전에 handler를
+    preflight하도록 보강했다. removal은 Compose 제거와 route 정리 이후 shared database를
+    삭제하게 순서를 조정해 중간 실패가 데이터 삭제로 번지는 범위를 줄였다. 이어 shared
+    설정 descriptor 위치도 통일해 `MARIADB_CLIENT_VERSION` 선언을 infra descriptor에서
+    `config/shared/database.toml`로 옮겼다. 이 TOML이 shared ownership을 선언하고,
+    `database.env.default`에는 추적 기본값만 남는다. infra는 MariaDB 서비스와 dependency
+    group의 소유자로 유지된다.
+    초기에 `tests/test_cli.py`의 구형 Hermes 중앙 함수/help 기대와
+    `tests/test_remove.py`의 Hermes 전용 remover 가정이 현재 구현과 어긋난 것을 발견했다.
+    테스트를 capability 계약과 공통 descriptor 기반 remover 흐름으로 바꾸고,
+    설정 파일은 첫 setup 전에는 없을 수 있다는 점을 반영해 descriptor import 시 실제 env
+    파일 존재를 요구하지 않도록 수정했다. 새 clone에서 발생하던 import 실패도 이 과정에서
+    확인됐다. Python 3.15에서 전체 36개 테스트가 통과했고, removal Compose 실패 시 route와
+    shared database를 보존하는 순서 테스트도 포함했다. 실제 Docker/Cloudflare 환경 동작은
+    여기서 검증하지 않았다. shared descriptor 이동 후에도 Python 3.15에서 전체 36개 테스트와
+    TOML/catalog 검증을 다시 통과했다.
   - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
     `HERMES_SUBDOMAIN`이 변경된 것으로 표시됐다. 기본값 migration 직후 setup이
     이미 실효값인 tracked default를 private `.env`에 다시 쓰는 경로로 판단해,

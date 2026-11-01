@@ -1,12 +1,12 @@
-"""Tests for service removal planning and its destructive-action guard."""
+"""Tests for descriptor-driven removal planning and its destructive-action guard."""
 
 import importlib.util
 import io
-import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -29,7 +29,7 @@ class FakeResult:
 class FakeDomains:
     def __init__(self, routes):
         self.DOMAINS_FILE = Path("/tmp/domains.conf")
-        self.routes = routes
+        self.routes = list(routes)
         self.saved = None
         self.rendered = None
 
@@ -46,205 +46,133 @@ class FakeDomains:
         self.rendered = list(routes)
 
 
+def removal_plan(*, routes=None, shared_database=None):
+    definition = SimpleNamespace(name="example", display_name="Example")
+    return {
+        "service": definition,
+        "domains": FakeDomains(routes or []),
+        "routes": routes or [],
+        "compose_ids": ["compose-container"],
+        "orphan_containers": [],
+        "volumes": [],
+        "images": [],
+        "data_paths": [],
+        "preserve_paths": [],
+        "config_files": [],
+        "shared_database": shared_database,
+        "configured_keys": [],
+        "remove_service_config": False,
+        "migrate_legacy_config": False,
+    }
+
+
 class RemoveTests(unittest.TestCase):
-    def test_build_plan_lists_hermes_owned_resources_only(self):
+    def test_service_config_removal_keeps_restricted_backup(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            service = root / "services" / "hermes"
-            sandbox = service / "data" / "sandboxes"
-            sandbox.mkdir(parents=True)
-            (service / "compose.yml").write_text("services: {}\n")
-            config = root / "config"
-            (config / "core.env").parent.mkdir(parents=True)
-            (config / "core.env").write_text("STACK_DOMAIN=example.test\n")
-            service_config = service / ".env"
-            service_config.parent.mkdir(parents=True, exist_ok=True)
-            service_config.write_text(
-                "HERMES_SUBDOMAIN=agent\nHERMES_DASHBOARD_PASSWORD=private-value\n"
-            )
-            service_config_example = service / ".env.default"
-            service_config_example.write_text("HERMES_SUBDOMAIN=hermes\nHERMES_VERSION=v1.2.3\n")
-            legacy = root / "common.env"
-            legacy.write_text("STACK_DOMAIN=example.test\nHERMES_DASHBOARD_SECRET=legacy\n")
-            fake_domains = FakeDomains([
-                {"hostname": "agent.example.test", "type": "docker", "target": "hermes"},
-                {"hostname": "blog.example.test", "type": "docker", "target": "wordpress"},
-            ])
-            sandbox_container = {
-                "Id": "task-id",
-                "Name": "/hermes-12345678",
-                "Config": {"Image": "nousresearch/hermes-sandbox:desktop"},
-                "Mounts": [{"Source": str(sandbox / "docker" / "root")}],
-            }
-            unrelated_container = {
-                "Id": "other-id",
-                "Name": "/other-agent",
-                "Config": {"Image": "nousresearch/hermes-sandbox:desktop"},
-                "Mounts": [{"Source": str(root / "other-agent-data")}],
-            }
+            service_config = root / "services" / "example" / ".env"
+            service_config.parent.mkdir(parents=True)
+            service_config.write_text("EXAMPLE_PASSWORD=private-value\n")
+            with mock.patch.object(remove, "ROOT", root):
+                remove.remove_service_config("example")
 
-            def fake_run(args, **kwargs):
-                args = [str(item) for item in args]
-                if args[1:4] == ["ps", "-aq", "--filter"] and any(
-                    "com.docker.compose.project=hermes" in item for item in args
-                ):
-                    return FakeResult("compose-id\n")
-                if args[1:4] == ["ps", "-aq", "--filter"] and "label=hermes-task-id" in args:
-                    return FakeResult("task-id\nother-id\ncompose-id\n")
-                if args[1] == "inspect":
-                    return FakeResult(json.dumps([sandbox_container, unrelated_container]))
-                if args[1:3] == ["volume", "ls"]:
-                    return FakeResult("hermes_hermes_data\n")
-                if args[-2:] == ["config", "--images"]:
-                    return FakeResult("nousresearch/hermes-agent:v1.2.3\n")
-                self.fail(f"Unexpected command in fixture: {args}")
-
-            with mock.patch.object(remove, "ROOT", root), \
-                 mock.patch.object(remove, "CONFIG", config), \
-                 mock.patch.object(remove, "SERVICES", root / "services"), \
-                 mock.patch.object(remove, "HERMES", service), \
-                 mock.patch.object(remove, "COMPOSE", service / "compose.yml"), \
-                 mock.patch.object(remove, "SERVICE_CONFIG", service_config), \
-                 mock.patch.object(remove, "SERVICE_CONFIG_EXAMPLE", service_config_example), \
-                 mock.patch.object(remove, "LEGACY_ENV", legacy), \
-                 mock.patch.object(remove, "initialize") as initialize, \
-                 mock.patch.object(remove, "SANDBOX_DATA", sandbox), \
-                 mock.patch.object(remove, "domains_module", return_value=fake_domains), \
-                 mock.patch.object(remove, "run_command", side_effect=fake_run):
-                plan = remove.build_plan()
-                initialize.assert_not_called()
-                self.assertTrue(plan["migrate_legacy_config"])
-                self.assertEqual(
-                    legacy.read_text(),
-                    "STACK_DOMAIN=example.test\nHERMES_DASHBOARD_SECRET=legacy\n",
-                )
-
-        self.assertEqual([route["hostname"] for route in plan["routes"]],
-                         ["agent.example.test"])
-        self.assertEqual(plan["compose_ids"], ["compose-id"])
-        self.assertEqual([item["id"] for item in plan["sandbox_containers"]], ["task-id"])
-        self.assertEqual(plan["volumes"], ["hermes_hermes_data"])
-        self.assertIn("HERMES_DASHBOARD_PASSWORD", plan["configured_keys"])
-        self.assertNotIn("WORDPRESS_DB_PASSWORD", plan["configured_keys"])
-        self.assertTrue(plan["remove_sandbox_data"])
-
-    def test_remove_config_backs_up_service_settings_and_preserves_global_values(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            config = root / "config"
-            (config / "core.env").parent.mkdir(parents=True)
-            core = config / "core.env"
-            core.write_text("STACK_DOMAIN=example.test\n")
-            service_config = root / "services" / "hermes" / ".env"
-            service_config.parent.mkdir(parents=True, exist_ok=True)
-            service_config.write_text(
-                "HERMES_SUBDOMAIN=agent\nHERMES_DASHBOARD_PASSWORD=secret\n"
-            )
-            with mock.patch.object(remove, "ROOT", root), \
-                 mock.patch.object(remove, "SERVICE_CONFIG", service_config):
-                remove.remove_service_config()
-
-            self.assertIn("STACK_DOMAIN=example.test", core.read_text())
             self.assertFalse(service_config.exists())
             backups = list(
-                (root / "backups" / "config" / "services" / "hermes").glob(".env.*.bak")
+                (root / "backups" / "config" / "services" / "example").glob(".env.*.bak")
             )
             self.assertEqual(len(backups), 1)
-            self.assertIn("HERMES_DASHBOARD_PASSWORD=secret", backups[0].read_text())
+            self.assertEqual(backups[0].read_text(), "EXAMPLE_PASSWORD=private-value\n")
+            self.assertEqual(backups[0].stat().st_mode & 0o777, 0o600)
 
-    def test_confirmed_hermes_removal_wipes_only_declared_local_state(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            service = root / "services" / "hermes"
-            service.mkdir(parents=True)
-            sandbox = service / "data" / "sandboxes"
-            sandbox.mkdir(parents=True)
-            (sandbox / "workspace").write_text("user sandbox file")
-            plan = {
-                "domains": FakeDomains([]), "routes": [], "compose_ids": ["compose-id"],
-                "sandbox_containers": [{"id": "task-id", "name": "hermes-task"}],
-                "volumes": ["hermes_hermes_data"],
-                "images": ["nousresearch/hermes-agent:v1", "nousresearch/hermes-sandbox:desktop"],
-                "configured_keys": ["HERMES_SUBDOMAIN"],
-                "remove_sandbox_data": True, "remove_service_config": True,
-            }
-            service_config = service / ".env"
-            service_config.parent.mkdir(parents=True, exist_ok=True)
-            service_config.write_text("HERMES_SUBDOMAIN=agent\n")
-            core = root / "config" / "core.env"
-            core.parent.mkdir(parents=True, exist_ok=True)
-            core.write_text("STACK_DOMAIN=example.test\n")
-            with mock.patch.object(remove, "ROOT", root), \
-                 mock.patch.object(remove, "SERVICE_CONFIG", service_config), \
-                 mock.patch.object(remove, "initialize") as initialize, \
-                 mock.patch.object(remove, "SANDBOX_DATA", sandbox), \
-                 mock.patch.object(remove, "compose_prefix", return_value=["docker", "compose"]), \
-                 mock.patch.object(remove, "remove_routes") as remove_routes, \
-                 mock.patch.object(remove, "run_command", return_value=FakeResult()) as run:
-                remove.remove_hermes(plan)
-                initialize.assert_called_once_with()
+    def test_removal_orders_compose_and_routes_before_shared_database(self):
+        events = []
+        plan = removal_plan(shared_database={"database": "example_db"})
 
-            calls = [call.args[0] for call in run.call_args_list]
-            self.assertIn(["docker", "compose", "down", "--volumes", "--remove-orphans"], calls)
-            self.assertIn(["docker", "rm", "-f", "task-id"], calls)
-            self.assertIn(["docker", "image", "rm", "nousresearch/hermes-agent:v1"], calls)
-            self.assertTrue(all("--force" not in call for call in calls))
-            remove_routes.assert_called_once_with(plan)
-            self.assertFalse(sandbox.exists())
-            self.assertFalse(service_config.exists())
-            self.assertEqual(core.read_text(), "STACK_DOMAIN=example.test\n")
+        def run(args, **kwargs):
+            events.append("compose-down" if "down" in args else "compose-stop")
+            return FakeResult()
 
-    def test_route_removal_preserves_other_service_routes(self):
+        with mock.patch.object(remove, "initialize"), \
+             mock.patch.object(remove, "compose_prefix", return_value=["docker", "compose"]), \
+             mock.patch.object(remove, "run_command", side_effect=run), \
+             mock.patch.object(remove, "remove_routes", side_effect=lambda *_: events.append("routes")), \
+             mock.patch.object(remove, "remove_shared_database", side_effect=lambda *_: events.append("database")), \
+             mock.patch.object(remove, "remove_service_config"), \
+             mock.patch("sys.stdout", new_callable=io.StringIO):
+            remove.remove_resources(plan)
+
+        self.assertEqual(events, ["compose-stop", "compose-down", "routes", "database"])
+
+    def test_compose_failure_preserves_routes_and_shared_database(self):
+        plan = removal_plan(shared_database={"database": "example_db"})
+        with mock.patch.object(remove, "initialize"), \
+             mock.patch.object(remove, "compose_prefix", return_value=["docker", "compose"]), \
+             mock.patch.object(remove, "run_command", side_effect=remove.RemovalError("compose failed")), \
+             mock.patch.object(remove, "remove_routes") as remove_routes, \
+             mock.patch.object(remove, "remove_shared_database") as remove_database:
+            with self.assertRaisesRegex(remove.RemovalError, "compose failed"):
+                remove.remove_resources(plan)
+
+        remove_routes.assert_not_called()
+        remove_database.assert_not_called()
+
+    def test_route_removal_preserves_other_services(self):
         routes = [
-            {"hostname": "agent.example.test", "type": "docker", "target": "hermes"},
+            {"hostname": "agent.example.test", "type": "docker", "target": "example"},
             {"hostname": "blog.example.test", "type": "docker", "target": "wordpress"},
         ]
-        fake_domains = FakeDomains(routes)
-        with tempfile.TemporaryDirectory() as temp:
-            fake_domains.DOMAINS_FILE = Path(temp) / "domains.conf"
-            fake_domains.DOMAINS_FILE.write_text("fixture\n")
-            plan = {"domains": fake_domains, "routes": [routes[0]]}
-            with mock.patch.object(remove, "CONFIG", Path(temp) / "config"), \
-                 mock.patch.object(remove, "run_command", return_value=FakeResult("")) as run:
-                remove.remove_routes(plan)
+        domains = FakeDomains(routes)
+        domains.DOMAINS_FILE = Path("/tmp/domains.conf")
+        plan = removal_plan(routes=[routes[0]])
+        plan["domains"] = domains
 
-        self.assertEqual(fake_domains.saved, [routes[1]])
-        self.assertEqual(fake_domains.rendered, [routes[1]])
+        def run(args, **kwargs):
+            if args[0] == "docker":
+                return FakeResult("caddy\n")
+            return FakeResult()
+
+        with mock.patch.object(remove, "routes_for_removal", return_value=routes), \
+             mock.patch.object(remove, "run_command", side_effect=run) as run_command:
+            remove.remove_routes("example", plan)
+
+        self.assertEqual(domains.saved, [routes[1]])
+        self.assertEqual(domains.rendered, [routes[1]])
         self.assertTrue(any("publish-cloudflare.py" in str(arg)
-                            for arg in run.call_args_list[0].args[0]))
+                            for arg in run_command.call_args_list[0].args[0]))
 
     def test_dry_run_and_noninteractive_invocations_never_remove(self):
-        plan = {"routes": [], "compose_ids": [], "sandbox_containers": [], "volumes": [],
-                "images": [], "configured_keys": [], "remove_sandbox_data": False,
-                "remove_service_config": False}
+        plan = removal_plan()
         with mock.patch.object(remove, "build_plan", return_value=plan), \
-             mock.patch.object(remove, "remove_hermes") as remove_action, \
+             mock.patch.object(remove, "print_plan"), \
+             mock.patch.object(remove, "remove_resources") as remove_action, \
              mock.patch("sys.stdout", new_callable=io.StringIO):
-            self.assertEqual(remove.main(["hermes", "--dry-run"]), 0)
+            self.assertEqual(remove.main(["example", "--dry-run"]), 0)
             remove_action.assert_not_called()
 
         with mock.patch.object(remove, "build_plan", return_value=plan), \
-             mock.patch.object(remove, "remove_hermes") as remove_action, \
+             mock.patch.object(remove, "print_plan"), \
+             mock.patch.object(remove, "remove_resources") as remove_action, \
              mock.patch.object(remove.sys, "stdin", mock.Mock(isatty=mock.Mock(return_value=False))), \
              mock.patch("sys.stderr", new_callable=io.StringIO):
-            self.assertEqual(remove.main(["hermes"]), 1)
+            self.assertEqual(remove.main(["example"]), 1)
             remove_action.assert_not_called()
 
     def test_wrong_confirmation_cancels_without_removal(self):
-        plan = {"routes": [], "compose_ids": [], "sandbox_containers": [], "volumes": [],
-                "images": [], "configured_keys": [], "remove_sandbox_data": False,
-                "remove_service_config": False}
+        plan = removal_plan()
         with mock.patch.object(remove, "build_plan", return_value=plan), \
-             mock.patch.object(remove, "remove_hermes") as remove_action, \
+             mock.patch.object(remove, "print_plan"), \
+             mock.patch.object(remove, "remove_resources") as remove_action, \
              mock.patch.object(remove.sys, "stdin", mock.Mock(isatty=mock.Mock(return_value=True))), \
              mock.patch("builtins.input", return_value="yes"), \
              mock.patch("sys.stdout", new_callable=io.StringIO):
-            self.assertEqual(remove.main(["hermes"]), 0)
+            self.assertEqual(remove.main(["example"]), 0)
             remove_action.assert_not_called()
 
-    def test_unsupported_service_fails_closed(self):
-        with mock.patch("sys.stderr", new_callable=io.StringIO):
-            self.assertEqual(remove.main(["wordpress"]), 2)
+    def test_unknown_service_fails_closed_before_docker_access(self):
+        with mock.patch.object(remove, "run_command") as run_command, \
+             mock.patch("sys.stderr", new_callable=io.StringIO):
+            self.assertEqual(remove.main(["not-a-service"]), 1)
+        run_command.assert_not_called()
 
 
 if __name__ == "__main__":

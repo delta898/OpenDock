@@ -17,7 +17,11 @@ not Renovate inputs.
 Core owns settings such as `STACK_DOMAIN`. Infra owns shared database
 administrator credentials. Shared files are for values deliberately consumed
 by several services, such as SMTP relay settings and the MariaDB client image
-used by WordPress and Nextcloud bootstrap containers.
+used by WordPress and Nextcloud bootstrap containers. Each shared concern keeps
+its descriptor beside its defaults: `config/shared/<concern>.toml` declares
+setting ownership and setup prompts, while `.env.default` contains tracked
+values. For example, `mail.toml` and `mail.env.default` describe SMTP;
+`database.toml` and `database.env.default` describe shared database settings.
 
 ## Service configuration
 
@@ -41,8 +45,8 @@ Compose file serves a different purpose. For each service the order is:
 config/core.env.default     -> config/core.env
 config/infra.env.default    -> config/infra.env
 config/gateway.env.default -> config/gateway.env
-config/shared/mail.env.default -> config/shared/mail.env
 config/shared/database.env.default -> config/shared/database.env
+config/shared/mail.env.default -> config/shared/mail.env
 services/<service>/.env.default -> services/<service>/.env
 process environment (highest precedence)
 ```

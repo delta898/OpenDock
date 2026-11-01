@@ -102,6 +102,14 @@ class ServiceContext:
 
 
 _MODULES: dict[str, ModuleType] = {}
+CAPABILITY_HANDLERS = {
+    "runtime_environment": "runtime_environment",
+    "prepare": "prepare",
+    "plan_secrets": "plan_secrets",
+    "generate_secrets": "generate_secrets",
+    "validate_config": "validate_config",
+    "post_launch": "post_launch",
+}
 
 
 def _module_for(service: ServiceDefinition) -> ModuleType:
@@ -136,12 +144,28 @@ def _module_for(service: ServiceDefinition) -> ModuleType:
             f"Service {service.name!r} implements capability API {actual!r}; "
             f"its descriptor requires {expected!r}."
         )
+    missing = [
+        capability for capability in service.capabilities
+        if not callable(getattr(module, CAPABILITY_HANDLERS[capability], None))
+    ]
+    if missing:
+        sys.modules.pop(module_name, None)
+        raise CapabilityError(
+            f"Service {service.name!r} declares capabilities without handlers: "
+            + ", ".join(sorted(missing))
+        )
     _MODULES[module_name] = module
     return module
 
 
 def has_capability(service: ServiceDefinition, name: str) -> bool:
     return name in service.capabilities
+
+
+def validate_service_capabilities(service: ServiceDefinition) -> None:
+    """Preflight declared handlers before a workflow changes service state."""
+    if service.capabilities:
+        _module_for(service)
 
 
 def runtime_environment(
@@ -203,6 +227,10 @@ def prepare(context: ServiceContext) -> PreparationResult:
         raise CapabilityError(
             f"Service {service.name!r} returned an unknown preparation status."
         )
+    if not isinstance(result.message, str):
+        raise CapabilityError(
+            f"Service {service.name!r} prepare returned a non-string message."
+        )
     return result
 
 
@@ -250,7 +278,9 @@ def plan_secrets(context: SecretPlanningContext) -> SecretPlan:
         ) from exc
     if not isinstance(result, SecretPlan):
         raise CapabilityError(f"Service {service.name!r} plan_secrets must return SecretPlan.")
-    if any(not isinstance(key, str) for key in result.keys):
+    if not isinstance(result.keys, frozenset) or any(
+        not isinstance(key, str) for key in result.keys
+    ):
         raise CapabilityError(f"Service {service.name!r} returned invalid secret keys.")
     unknown = result.keys - context.selected_keys
     if unknown:
@@ -309,8 +339,10 @@ def validate_config(context: ValidationContext) -> ValidationResult:
         raise CapabilityError(
             f"Service {service.name!r} configuration validation failed: {exc}"
         ) from exc
-    if not isinstance(result, ValidationResult) or any(
-        not isinstance(issue, str) for issue in result.issues
+    if (
+        not isinstance(result, ValidationResult)
+        or not isinstance(result.issues, tuple)
+        or any(not isinstance(issue, str) for issue in result.issues)
     ):
         raise CapabilityError(
             f"Service {service.name!r} validate_config must return ValidationResult."

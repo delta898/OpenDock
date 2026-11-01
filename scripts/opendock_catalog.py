@@ -100,10 +100,6 @@ class PlatformComponentDefinition:
         return tuple(setup.get("fields", ()))
 
     @property
-    def shared_settings(self) -> tuple[Mapping[str, object], ...]:
-        return tuple(self.descriptor.get("shared_settings", ()))
-
-    @property
     def shared_databases(self) -> tuple[Mapping[str, object], ...]:
         return tuple(self.descriptor.get("shared_databases", ()))
 
@@ -129,10 +125,7 @@ class PlatformCatalog:
         keys = [
             key
             for component in self.components
-            for key in (
-                *component.setting_keys,
-                *(item["name"] for item in component.shared_settings),
-            )
+            for key in component.setting_keys
         ]
         if len(keys) != len(set(keys)):
             raise CatalogError("Platform descriptors declare duplicate setting ownership.")
@@ -164,6 +157,17 @@ class PlatformCatalog:
         if descriptor.get("component_id") != name:
             raise CatalogError(
                 f"Platform descriptor {path} must declare component_id = {name!r}."
+            )
+        unknown_component_fields = sorted(
+            set(descriptor) - {
+                "schema_version", "component_id", "always_include_config", "config_file",
+                "setting_keys", "shared_groups", "shared_databases", "setup",
+            }
+        )
+        if unknown_component_fields:
+            raise CatalogError(
+                f"Platform descriptor {path} has unsupported fields: "
+                + ", ".join(unknown_component_fields)
             )
         if "always_include_config" in descriptor and type(
             descriptor["always_include_config"]
@@ -258,34 +262,15 @@ class PlatformCatalog:
                 )
             seen_database_groups.add(group)
 
-        shared_settings = descriptor.get("shared_settings", [])
-        if not isinstance(shared_settings, list):
-            raise CatalogError(f"Platform descriptor {path} shared_settings must be a list.")
-        seen_shared_settings = set()
-        for setting in shared_settings:
-            if not isinstance(setting, dict):
-                raise CatalogError(f"Platform descriptor {path} has an invalid shared setting.")
-            key = setting.get("name")
-            group = setting.get("shared_group")
-            if (
-                not isinstance(key, str)
-                or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
-                or key in setting_keys
-                or key in seen_shared_settings
-            ):
-                raise CatalogError(
-                    f"Platform descriptor {path} has an invalid or duplicate shared setting key."
-                )
-            if not isinstance(group, str) or group not in shared_groups:
-                raise CatalogError(
-                    f"Shared setting {key!r} in {path} needs a declared shared_group."
-                )
-            seen_shared_settings.add(key)
-            validate_config_path(setting.get("owner_file"), f"owner_file for {key}")
-
         setup = descriptor.get("setup", {})
         if not isinstance(setup, dict):
             raise CatalogError(f"Platform descriptor {path} has an invalid [setup] section.")
+        unknown_setup_fields = sorted(set(setup) - {"fields"})
+        if unknown_setup_fields:
+            raise CatalogError(
+                f"Platform descriptor {path} has unsupported setup fields: "
+                + ", ".join(unknown_setup_fields)
+            )
         fields = setup.get("fields", [])
         if not isinstance(fields, list):
             raise CatalogError(f"Platform descriptor {path} setup.fields must be an array.")
@@ -293,6 +278,17 @@ class PlatformCatalog:
         for field in fields:
             if not isinstance(field, dict):
                 raise CatalogError(f"Platform descriptor {path} has an invalid setup field.")
+            unknown_field_keys = sorted(
+                set(field) - {
+                    "name", "kind", "default", "note", "change_notice",
+                    "generated_notice", "generator", "length", "required", "shared_group",
+                }
+            )
+            if unknown_field_keys:
+                raise CatalogError(
+                    f"Platform descriptor {path} has unsupported setup field keys: "
+                    + ", ".join(unknown_field_keys)
+                )
             key = field.get("name")
             kind = field.get("kind")
             group = field.get("shared_group")
@@ -442,6 +438,18 @@ class ServiceCatalog:
         except (OSError, tomllib.TOMLDecodeError) as exc:
             raise CatalogError(f"Invalid service descriptor {path}: {exc}") from exc
 
+        unknown_descriptor_fields = sorted(
+            set(descriptor) - {
+                "schema_version", "service_id", "display_name", "capability_api_version",
+                "capabilities", "dependencies", "commands", "setup", "routing", "removal",
+            }
+        )
+        if unknown_descriptor_fields:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported fields: "
+                + ", ".join(unknown_descriptor_fields)
+            )
+
         version = descriptor.get("schema_version")
         if type(version) is not int or version != self.DESCRIPTOR_VERSION:
             raise CatalogError(
@@ -507,6 +515,14 @@ class ServiceCatalog:
         for command in commands:
             if not isinstance(command, dict):
                 raise CatalogError(f"Service descriptor {path} contains an invalid command entry.")
+            unknown_command_fields = sorted(
+                set(command) - {"name", "summary", "details", "examples"}
+            )
+            if unknown_command_fields:
+                raise CatalogError(
+                    f"Service descriptor {path} has unsupported command fields: "
+                    + ", ".join(unknown_command_fields)
+                )
             name = command.get("name")
             if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
                 raise CatalogError(f"Service descriptor {path} has an invalid command name.")
@@ -558,6 +574,14 @@ class ServiceCatalog:
         setup = descriptor.get("setup", {})
         if not isinstance(setup, dict):
             raise CatalogError(f"Service descriptor {path} has an invalid [setup] section.")
+        unknown_setup_fields = sorted(
+            set(setup) - {"fields", "dependencies", "optional_config"}
+        )
+        if unknown_setup_fields:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported setup fields: "
+                + ", ".join(unknown_setup_fields)
+            )
         setup_fields = setup.get("fields", [])
         if not isinstance(setup_fields, list):
             raise CatalogError(f"Service descriptor {path} setup.fields must be an array of tables.")
@@ -596,6 +620,17 @@ class ServiceCatalog:
         for field in setup_fields:
             if not isinstance(field, dict):
                 raise CatalogError(f"Service descriptor {path} contains an invalid setup field.")
+            unknown_field_keys = sorted(
+                set(field) - {
+                    "name", "kind", "default", "note", "change_notice",
+                    "generated_notice", "required", "generator", "length",
+                }
+            )
+            if unknown_field_keys:
+                raise CatalogError(
+                    f"Service descriptor {path} has unsupported setup field keys: "
+                    + ", ".join(unknown_field_keys)
+                )
             name = field.get("name")
             kind = field.get("kind")
             if not isinstance(name, str) or not name.startswith(prefix):
@@ -766,6 +801,12 @@ class ServiceCatalog:
             if not isinstance(item, dict):
                 raise CatalogError(
                     f"Service descriptor {path} has an invalid removal orphan container."
+                )
+            unknown_orphan_fields = sorted(set(item) - {"label", "path"})
+            if unknown_orphan_fields:
+                raise CatalogError(
+                    f"Service descriptor {path} has unsupported orphan container fields: "
+                    + ", ".join(unknown_orphan_fields)
                 )
             label = item.get("label")
             owned_path = item.get("path")

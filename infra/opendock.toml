@@ -24,11 +24,6 @@ engine = "postgres"
 adapter = "postgres"
 container = "postgres"
 
-[[shared_settings]]
-name = "MARIADB_CLIENT_VERSION"
-owner_file = "config/shared/database.env"
-shared_group = "mariadb"
-
 [[setup.fields]]
 name = "MARIADB_ROOT_PASSWORD"
 kind = "generated-secret"

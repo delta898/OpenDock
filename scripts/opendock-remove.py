@@ -520,13 +520,17 @@ def remove_resources(plan):
     if plan["shared_database"]:
         if plan["compose_ids"]:
             run_command([*compose_prefix(service), "stop"])
-        remove_shared_database(plan)
-    remove_routes(service, plan)
     run_command([*compose_prefix(service), "down", "--volumes", "--remove-orphans"])
 
     orphan_ids = [item["id"] for item in plan["orphan_containers"] if item.get("id")]
     if orphan_ids:
         run_command(["docker", "rm", "-f", *orphan_ids])
+
+    # Remove the route and shared database objects only after containers are
+    # cleanly removed. A Compose/API failure must not leave a running service
+    # without its route or database.
+    remove_routes(service, plan)
+    remove_shared_database(plan)
 
     for relative in plan["data_paths"]:
         preserved = [

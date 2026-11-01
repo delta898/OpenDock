@@ -156,7 +156,7 @@ discovering plugins].
 | `list`, `info` | Discover services, groups, targets; render consistent output | Declare display metadata or service-specific status details when needed |
 | `setup`, `secrets`, `check-config` | Prompt and secret UX, config loading/writing, validation engine, safe file permissions, common errors | Declare fields, defaults, validation rules, secret relationships, and service-specific setup steps |
 | `up`, `down`, `start`, `stop`, `restart`, `pull`, `build`, `config`, `ps`, `logs` | Resolve targets, validate where applicable, invoke Compose consistently, report failures | Declare Compose project; provide a hook only when the ordinary Compose operation is insufficient |
-| `launch` | Order the workflow: configuration check, shared prerequisites, service preparation, Compose start, gateway reload, route publication | Declare prerequisites and idempotent pre-launch/onboarding, post-launch, and health checks |
+| `launch` | Order the workflow: configuration check, shared prerequisites, service preparation, Compose start, gateway reload, route publication | Declare prerequisites and supported pre-launch/onboarding or post-launch operations |
 | `route`, `publish` | Own hostname mapping format, Caddy rendering, Cloudflare integration, common validation and output | Declare default hostname and upstream information; do not implement a parallel route manager |
 | `remove` | Resolve one service, request confirmation, show a plan, execute common cleanup primitives, report results | Declare owned resources and preservation boundaries; provide custom cleanup for resources Compose cannot safely identify |
 | `service <name> <command>` | Discover commands, provide common help/dispatch and environment context | Implement optional service-specific operations under that service directory |
@@ -183,7 +183,7 @@ Use declarative metadata for facts and common operations can interpret safely:
 - setup fields, defaults, and secret generation relationships;
 - shared infrastructure dependencies;
 - default hostname information;
-- whether preparation, health, or custom removal behavior exists;
+- whether preparation or custom removal behavior exists;
 - Compose-owned resources and explicitly scoped data paths.
 
 Use an optional service capability for procedures that need application
@@ -211,8 +211,10 @@ service declares which values it needs and implements application-specific
 generation or validation where required.
 
 Common capability results should be typed values, not printed text that the
-workflow has to parse. Examples include configuration issues, generated secret
-values, preparation status, health results, and a removal plan. The common
+workflow has to parse. Current examples include configuration issues,
+generated secret values, preparation status, and a removal plan. A health
+capability is a possible future extension; it is not part of capability API v1.
+The common
 workflow owns persistence, user-facing output, confirmation, and execution of
 platform operations. Where a service needs application-specific work, the
 contract passes a narrow service-scoped operation port; it does not grant
@@ -347,10 +349,11 @@ The shared contract should be deliberately small and explicit:
 - **Configuration capabilities:** optional validation and secret-bundle
   generation. They receive the selected service's values and return issues or
   values; the common settings store performs writes and secure file handling.
-- **Lifecycle capabilities:** optional `prepare`, `post_launch`, and `health`
-  operations. `prepare` runs only after common configuration checks and shared
-  prerequisites. It must be idempotent and report `not_needed`, `completed`, or
-  a structured failure.
+- **Lifecycle capabilities:** API v1 supports optional `prepare` and
+  `post_launch` operations. `prepare` runs only after common configuration
+  checks and shared prerequisites. It must be idempotent and report
+  `not_needed`, `completed`, or a structured failure. Health reporting is not
+  implemented yet.
 - **Removal contract:** the service descriptor declares service-owned data
   paths, extra images, database/role setting keys, and labeled non-Compose
   containers that must mount those paths. The shared remover applies declared

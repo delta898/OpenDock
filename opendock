@@ -29,6 +29,7 @@ from opendock_capabilities import (
     post_launch as run_service_post_launch,
     prepare as prepare_service,
     runtime_environment as service_runtime_environment,
+    validate_service_capabilities,
 )
 from opendock_catalog import ServiceCatalog
 
@@ -280,6 +281,8 @@ def lifecycle(command, target, *, already_started=()):
     for item in targets(target):
         if command == "up" and item in already_started:
             continue
+        if command == "up" and item in services():
+            validate_service_capabilities(ServiceCatalog(ROOT).get(item))
         if command in CHECKED:
             if command == "up":
                 env = os.environ.copy()
@@ -378,6 +381,8 @@ def run_service_preparations(selected):
 
 
 def prepare_service_set(selected, *, configure_missing=False):
+    for service in selected:
+        validate_service_capabilities(ServiceCatalog(ROOT).get(service))
     preparable = [
         service for service in selected
         if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
@@ -391,6 +396,8 @@ def prepare_service_set(selected, *, configure_missing=False):
 
 
 def launch_service_set(selected):
+    for service in selected:
+        validate_service_capabilities(ServiceCatalog(ROOT).get(service))
     preparable = [
         service for service in selected
         if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
@@ -711,8 +718,8 @@ def print_guide():
           ./opendock logs <service>                 Follow one service's logs
 
         Optional email setup
-          SMTP is shared by Mastodon, Mattermost, n8n, and Supabase.
-          Setup or start one of these services to be offered SMTP configuration.
+          Services that declare email support may offer shared SMTP setup.
+          Set up or launch a service that declares email support to see the prompt.
           You can skip it and start the service anyway, then run setup mail later.
 
         Docker operations
