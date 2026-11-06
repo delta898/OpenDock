@@ -47,13 +47,21 @@ Set the public catalog base URL in private `config/core.env` as
 ./dev_opendock update
 ./dev_opendock search uptime
 ./dev_opendock install uptime-kuma
+./dev_opendock launch n8n-v2
 ```
 
-The wrapper fixes these commands to the `dev` catalog. `update` refreshes
-catalog metadata, `search` finds a package, and `install` verifies the package
-checksum before placing the release under `services/extensions/`. Installation
-does not configure or launch the service. Select the production catalog with
-`./opendock update --environment prod`.
+The wrapper fixes these commands to the `dev` catalog. `search` uses the local
+catalog cache and refreshes it automatically when it is missing, invalid, or
+more than 24 hours old. `update` always forces a refresh. `install` verifies
+the package checksum before placing the release under `services/extensions/`;
+installation does not configure or launch the service. Select the production
+catalog with `./opendock update --environment prod` or
+`./opendock search n8n --environment prod`.
+
+For a service that is not installed yet, `launch <service>` refreshes the
+selected catalog, installs the matching package, opens its setup flow, and
+continues into launch. `./dev_opendock launch <service>` selects the dev
+catalog for this first-use flow; `./opendock launch <service>` uses prod.
 
 Uptime Kuma `0.1.0` has been published to the development catalog. The user
 confirmed update, search, install, setup, and launch on Linux. Infra and Uptime

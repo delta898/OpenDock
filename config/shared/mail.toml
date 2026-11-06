@@ -10,7 +10,7 @@ setting_keys = [
   "SMTP_PASSWORD",
   "SMTP_FROM_ADDRESS",
 ]
-optional_prompt = "Configure the shared SMTP relay? Some service email features won't work until it is configured."
+optional_prompt = "Configure the shared SMTP relay now? This is only needed for email sending; choose No to continue without email and configure it later if needed."
 skip_key = "OPENDOCK_MAIL_SETUP_SKIPPED"
 
 [[setup.fields]]

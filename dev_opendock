@@ -18,6 +18,8 @@ def main() -> None:
         if any(argument == "--environment" or argument.startswith("--environment=") for argument in arguments[1:]):
             raise SystemExit("dev_opendock fixes --environment dev; omit the environment option.")
         arguments.extend(("--environment", "dev"))
+    if arguments[0] == "launch":
+        os.environ["OPENDOCK_PACKAGE_ENVIRONMENT"] = "dev"
     os.execv(str(ROOT / "opendock"), [str(ROOT / "opendock"), *arguments])
 
 

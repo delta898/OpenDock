@@ -2,14 +2,21 @@
 
 import io
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from opendock_distribution import DistributionError, _safe_extract, validate_catalog
+from opendock_distribution import (
+    DistributionError,
+    _safe_extract,
+    load_cached,
+    validate_catalog,
+)
 
 
 class DistributionTests(unittest.TestCase):
@@ -19,6 +26,10 @@ class DistributionTests(unittest.TestCase):
             "artifact": "packages/example-service/1.0.0/opendock-service.zip",
             "sha256": "a" * 64,
             "size_bytes": 12,
+            "descriptor_schema": {"min": 1, "max": 1},
+            "capability_api": {"min": 1, "max": 1},
+            "opendock": {"min": "0.1.0", "max": None},
+            "supported_hosts": ["linux"],
             **release_overrides,
         }
         return {
@@ -60,6 +71,52 @@ class DistributionTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 with self.assertRaises(DistributionError):
                     _safe_extract(archive, Path(directory))
+
+    def test_search_cache_refreshes_when_missing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "catalog.json"
+            with patch("opendock_distribution.cache_path", return_value=cache), patch(
+                "opendock_distribution.fetch_catalog",
+                return_value=(self.catalog(), cache),
+            ) as fetch:
+                result = load_cached("dev")
+        self.assertEqual(result["services"][0]["service_id"], "example-service")
+        fetch.assert_called_once_with("dev")
+
+    def test_search_cache_refreshes_when_older_than_24_hours(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "catalog.json"
+            cache.write_text(json.dumps(self.catalog()))
+            old = 1
+            os.utime(cache, (old, old))
+            with patch("opendock_distribution.cache_path", return_value=cache), patch(
+                "opendock_distribution.fetch_catalog",
+                return_value=(self.catalog(), cache),
+            ) as fetch:
+                load_cached("dev")
+        fetch.assert_called_once_with("dev")
+
+    def test_search_uses_fresh_cache_without_network(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "catalog.json"
+            cache.write_text(json.dumps(self.catalog()))
+            with patch("opendock_distribution.cache_path", return_value=cache), patch(
+                "opendock_distribution.fetch_catalog"
+            ) as fetch:
+                result = load_cached("dev")
+        self.assertEqual(result["services"][0]["service_id"], "example-service")
+        fetch.assert_not_called()
+
+    def test_search_repairs_invalid_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory) / "catalog.json"
+            cache.write_text("not json")
+            with patch("opendock_distribution.cache_path", return_value=cache), patch(
+                "opendock_distribution.fetch_catalog",
+                return_value=(self.catalog(), cache),
+            ) as fetch:
+                load_cached("dev")
+        fetch.assert_called_once_with("dev")
 
 if __name__ == "__main__":
     unittest.main()

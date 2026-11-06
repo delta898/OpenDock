@@ -128,6 +128,8 @@ def run(*args, env=None, capture=False, quiet=False, input_data=None):
     except FileNotFoundError as exc:
         raise CLIError(f"Required command not found: {exc.filename}") from exc
     if result.returncode:
+        if result.returncode in (130, -2):
+            raise KeyboardInterrupt
         raise CLIError(f"Command failed ({result.returncode}): {args[0]}")
     return result.stdout.strip() if capture else None
 
@@ -370,6 +372,11 @@ def service_targets_for(target):
 
 def ensure_service_configuration(service):
     settings_module().initialize()
+    # Generate service-owned machine secrets before validation so launch does
+    # not report them as user-entered missing configuration.
+    env = os.environ.copy()
+    env["OPEN_DOCK_QUIET_SECRETS"] = "1"
+    script("opendock-secrets.py", service, env=env)
     needs_setup = not (ROOT / "config" / "core.env").is_file()
     if not needs_setup:
         try:
@@ -380,6 +387,27 @@ def ensure_service_configuration(service):
         print(f"==> {service}: configuration required", flush=True)
         script("opendock-config.py", service)
         check_config(service, quiet=True)
+
+
+def install_package_for_launch(service):
+    environment = os.environ.get("OPENDOCK_PACKAGE_ENVIRONMENT", "prod")
+    print(f"==> {service}: refresh {environment} service catalog", flush=True)
+    catalog, _cache = fetch_catalog(environment)
+    if not any(item["service_id"] == service for item in catalog["services"]):
+        wrapper = "dev_opendock" if environment == "dev" else "opendock"
+        raise CLIError(
+            f"Service '{service}' is not in the {environment} catalog. "
+            f"Run './{wrapper} search {service}' to find a package."
+        )
+    destination = install_package(environment, service, catalog, ROOT)
+    print(f"==> {service}: installed package at {destination.relative_to(ROOT)}", flush=True)
+    if not sys.stdin.isatty():
+        raise CLIError(
+            f"Package installed. Run './opendock setup {service}' interactively, "
+            f"then './opendock launch {service}'."
+        )
+    print(f"==> {service}: setup", flush=True)
+    script("opendock-config.py", service)
 
 
 def ensure_cloudflare_configuration():
@@ -544,6 +572,10 @@ def launch(target):
     if len(matches) > 1:
         raise CLIError(f"'{target}' has multiple hostnames; use one of:\n" +
                        "\n".join(f"  ./opendock launch {host}" for host in matches))
+    if (target not in services() and target not in groups()
+            and target not in ("all", "services", "infra", "gateway")
+            and target not in settings_module().SHARED_CONFIG_SECTIONS):
+        install_package_for_launch(target)
     selected_services = service_targets_for(target)
     if (not selected_services and target not in ("all", "services", "infra", "gateway")
             and target not in groups()
@@ -1097,8 +1129,13 @@ def main(argv=None):
         elif command == "launch":
             launch(args.target)
         elif command == "purge":
-            run(sys.executable, ROOT / "scripts" / "opendock-remove.py",
-                args.target, *( ["--dry-run"] if args.dry_run else [] ))
+            result = subprocess.run(
+                [sys.executable, ROOT / "scripts" / "opendock-remove.py",
+                 args.target, *( ["--dry-run"] if args.dry_run else [] )],
+                cwd=ROOT,
+                check=False,
+            )
+            return result.returncode
         elif command == "route":
             route(args.route_command, getattr(args, "hostname", None), getattr(args, "service", None))
         elif command == "service":
@@ -1115,6 +1152,9 @@ def main(argv=None):
     except (CLIError, OSError, ValueError) as exc:
         print(f"OpenDock: {exc}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        print("\nOpenDock: cancelled.", file=sys.stderr)
+        return 130
     return 0
 
 

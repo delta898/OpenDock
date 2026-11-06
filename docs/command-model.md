@@ -6,9 +6,14 @@ contract.
 
 The implemented distribution slice currently uses direct HTTPS GETs to public
 R2 objects: `update` fetches static catalog JSON, `search` searches the local
-cache (fetching only when absent), and `install` downloads the catalog-listed
-ZIP and verifies its SHA-256. There is no OpenDock API service in this path.
-Installed packages now enter the common `launch <service>` route: OpenDock
+cache and refreshes it when missing, invalid, or older than 24 hours, and
+`install` downloads the catalog-listed ZIP and verifies its SHA-256. There is
+no OpenDock API service in this path.
+When a service target is not installed, `launch <service>` refreshes the
+selected catalog, installs the package, opens setup, and continues through the
+common launch path. `dev_opendock launch <service>` selects the development
+catalog; the regular `opendock` command selects production. Installed packages
+enter the common `launch <service>` route: OpenDock
 checks configuration, starts declared shared prerequisites, prepares the
 service, waits for Compose's running/healthy condition, then applies gateway
 and Cloudflare publication. The user verified on Linux that the service and
@@ -81,11 +86,9 @@ mean “launch everything”; it requires a service and an instance.
 | `purge` | Confirm and remove one instance's owned resources/data/config/routes | Destructive; package remains |
 | `uninstall` | Remove package code when no instances remain | `install` counterpart |
 
-**Target policy, not implemented yet:** for Homebrew-like convenience,
-`install` and `upgrade` should refresh the catalog automatically when no cache
-exists or it is older than 24 hours; `update` forces an explicit refresh.
-`search` can use a stale cache and show its last refresh time. This is client
-policy, not service metadata.
+`search` and `install` share the same 24-hour catalog freshness policy;
+`update` always forces an explicit refresh. This is client policy, not service
+metadata.
 
 Omit the ambiguous verb `remove`. `purge` is instance cleanup; `uninstall` is
 package-code removal. Neither may guess resource ownership. `update` and

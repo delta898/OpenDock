@@ -24,6 +24,7 @@ class DistributionError(ValueError):
 MAX_CATALOG_BYTES = 4 * 1024 * 1024
 MAX_PACKAGE_BYTES = 128 * 1024 * 1024
 MAX_EXPANDED_BYTES = 512 * 1024 * 1024
+CATALOG_MAX_AGE = datetime.timedelta(hours=24)
 ID_RE = re.compile(r"[a-z][a-z0-9-]*\Z")
 VERSION_RE = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?\Z")
 SEMVER_RE = re.compile(
@@ -190,9 +191,20 @@ def fetch_catalog(environment: str, *, force: bool = True) -> tuple[dict, Path]:
 
 def load_cached(environment: str) -> dict:
     path = cache_path(environment)
-    if not path.is_file():
-        return fetch_catalog(environment)[0]
-    return validate_catalog(path.read_bytes())
+    if path.is_file():
+        try:
+            cached = validate_catalog(path.read_bytes())
+            modified = datetime.datetime.fromtimestamp(
+                path.stat().st_mtime, tz=datetime.timezone.utc
+            )
+            age = datetime.datetime.now(datetime.timezone.utc) - modified
+            if age < CATALOG_MAX_AGE:
+                return cached
+        except (OSError, DistributionError):
+            # A missing, unreadable, or invalid cache should be repaired from
+            # the source of truth instead of making search fail locally.
+            pass
+    return fetch_catalog(environment)[0]
 
 
 def _safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:

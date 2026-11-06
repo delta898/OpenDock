@@ -1,6 +1,8 @@
 """Checks for the public CLI without starting Docker or contacting Cloudflare."""
 
 import importlib.util
+from contextlib import redirect_stderr
+from io import StringIO
 import subprocess
 import sys
 import tempfile
@@ -25,6 +27,48 @@ def run_cli(*args):
 
 
 class CLITests(unittest.TestCase):
+    def test_launch_auto_installs_and_sets_up_a_catalog_package(self):
+        destination = ROOT / "services/extensions/n8n-v2/releases/0.1.0"
+        catalog = {"services": [{"service_id": "n8n-v2"}]}
+        with mock.patch.dict("os.environ", {"OPENDOCK_PACKAGE_ENVIRONMENT": "dev"}), \
+             mock.patch.object(cli, "fetch_catalog", return_value=(catalog, Path("cache"))) as fetch, \
+             mock.patch.object(cli, "install_package", return_value=destination) as install, \
+             mock.patch.object(cli.sys.stdin, "isatty", return_value=True), \
+             mock.patch.object(cli, "script") as run_setup:
+            cli.install_package_for_launch("n8n-v2")
+        fetch.assert_called_once_with("dev")
+        install.assert_called_once_with("dev", "n8n-v2", catalog, ROOT)
+        run_setup.assert_called_once_with("opendock-config.py", "n8n-v2")
+
+    def test_keyboard_interrupt_exits_cleanly(self):
+        stderr = StringIO()
+        with mock.patch.object(cli, "launch", side_effect=KeyboardInterrupt), \
+             redirect_stderr(stderr):
+            result = cli.main(["launch", "n8n-v2"])
+        self.assertEqual(result, 130)
+        self.assertIn("cancelled", stderr.getvalue())
+        self.assertNotIn("Traceback", stderr.getvalue())
+
+    def test_launch_generates_declared_secrets_before_config_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            (root / "config/core.env").touch()
+            settings = mock.Mock()
+            with mock.patch.object(cli, "ROOT", root), \
+                 mock.patch.object(cli, "settings_module", return_value=settings), \
+                 mock.patch.object(cli, "check_config", side_effect=[cli.CLIError("missing"), None]) as check, \
+                 mock.patch.object(cli, "script") as run_script:
+                cli.ensure_service_configuration("n8n-v2")
+        self.assertEqual(run_script.call_args_list[0].args,
+                         ("opendock-secrets.py", "n8n-v2"))
+        self.assertEqual(run_script.call_args_list[1].args,
+                         ("opendock-config.py", "n8n-v2"))
+        self.assertEqual(check.call_args_list, [
+            mock.call("n8n-v2", quiet=True),
+            mock.call("n8n-v2", quiet=True),
+        ])
+
     def test_help_shows_current_workflows_and_generic_route_examples(self):
         for args in ((), ("--help",), ("help",)):
             result = run_cli(*args)
@@ -81,6 +125,20 @@ class CLITests(unittest.TestCase):
         self.assertEqual(parsed.command, "purge")
         self.assertEqual(parsed.target, "example-service")
         self.assertTrue(parsed.dry_run)
+
+    def test_purge_preserves_actionable_child_error_without_python_wrapper(self):
+        stderr = StringIO()
+
+        def reject_infra(*_args, **_kwargs):
+            print("OpenDock remove: Unknown service: infra", file=sys.stderr)
+            return subprocess.CompletedProcess([], 1)
+
+        with mock.patch.object(cli.subprocess, "run", side_effect=reject_infra), \
+             redirect_stderr(stderr):
+            result = cli.main(["purge", "infra"])
+        self.assertEqual(result, 1)
+        self.assertEqual(stderr.getvalue().strip(), "OpenDock remove: Unknown service: infra")
+        self.assertNotIn("Command failed", stderr.getvalue())
 
     def test_docker_launch_sequence_passes_started_dependencies(self):
         route = {"hostname": "blog.example.com", "type": "docker", "target": "wordpress"}
