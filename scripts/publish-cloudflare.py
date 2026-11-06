@@ -116,8 +116,10 @@ def remove_cloudflare_route(hostname):
     """Remove only this hostname's Tunnel rule and its Tunnel CNAME, if present."""
     env = load_env()
     if not CLOUDFLARE_ENV.exists():
-        print("Cloudflare API settings are not configured; skipped Cloudflare cleanup.")
-        return
+        raise SystemExit(
+            "Cloudflare setup is required to remove public route records. "
+            "Run './opendock setup cloudflare' first."
+        )
     cf_env = dict(env)
     cf_env.update(parse_env_file(CLOUDFLARE_ENV))
     required_cloudflare_env(cf_env)
@@ -345,6 +347,29 @@ def sync_dns(client, zone_id, env, routes):
     return statuses
 
 
+def find_dns_conflicts(client, zone_id, env, routes):
+    """Preflight DNS names so known conflicts do not follow Tunnel mutations."""
+    tunnel_target = f"{env['CLOUDFLARE_TUNNEL_ID']}.cfargotunnel.com"
+    conflicts = []
+    for route in routes:
+        hostname = route["hostname"]
+        records = client.request(
+            "GET",
+            f"/zones/{zone_id}/dns_records",
+            query={"name": hostname},
+        ) or []
+        incompatible = [
+            record for record in records
+            if record.get("type") != "CNAME" or record.get("content") != tunnel_target
+        ]
+        if incompatible:
+            summary = ", ".join(
+                f"{record.get('type')} {record.get('content')}" for record in incompatible
+            )
+            conflicts.append((hostname, f"conflict ({summary})"))
+    return conflicts
+
+
 def print_statuses(title, statuses):
     print(title)
     if not statuses:
@@ -422,19 +447,17 @@ def main():
         remove_cloudflare_route(sys.argv[2].rstrip(".").lower())
         return
     env = load_env()
-    is_hostname = any(
-        route["hostname"] == TARGET for route in DOMAINS.resolve_routes()
-    )
+    resolved_routes = DOMAINS.resolve_routes()
+    is_hostname = any(route["hostname"] == TARGET for route in resolved_routes)
     services = [] if is_hostname else target_services(TARGET)
     stack_domain, routes = build_routes(env, services)
     print_publish_plan(stack_domain, routes)
 
     if not CLOUDFLARE_ENV.exists():
-        print()
-        print("Cloudflare API settings are not configured. Skipping API sync.")
-        print("Run './opendock setup cloudflare' to enable automatic publishing.")
-        print_open_links(routes)
-        return
+        raise SystemExit(
+            "Cloudflare setup is required for OpenDock public routes. "
+            "Run './opendock setup cloudflare' first."
+        )
 
     cf_env = {}
     cf_env.update(env)

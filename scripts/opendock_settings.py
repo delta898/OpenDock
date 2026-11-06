@@ -326,6 +326,19 @@ def compose_env_files(service=None):
     if LEGACY_ENV.is_file():
         files.append(LEGACY_ENV)
     if service:
+        platform_component = next(
+            (
+                component
+                for component in SERVICE_CATALOG.platform.components
+                if component.name == service
+            ),
+            None,
+        )
+        if platform_component is not None:
+            legacy_component = platform_component.directory / ".env"
+            if legacy_component.is_file():
+                files.append(legacy_component)
+            return list(dict.fromkeys(files))
         # A leftover private config from the old location must override common.env.
         legacy_service = CONFIG / "services" / f"{service}.env"
         if not SERVICE_CATALOG.is_extension(service) and legacy_service.is_file():

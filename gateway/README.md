@@ -2,7 +2,7 @@
 
 Caddy reverse proxy for the home server stack.
 
-This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy handles internal service routing from the Tunnel origin to Docker containers.
+This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudflare handles public DNS, public HTTPS, and browser HTTP-to-HTTPS redirects. Caddy handles internal HTTP service routing from the Tunnel origin to Docker containers. OpenDock generates HTTP-only Caddy sites in this mode, so Caddy does not request a second certificate from Let's Encrypt.
 
 ## Setup
 
@@ -10,10 +10,10 @@ This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudf
 ./opendock up gateway
 ```
 
-The bundled Homepage and Uptime Kuma routes are generated from `STACK_DOMAIN`
-and their service subdomains when `domains.conf` is absent. Optional service
-packages provide their Caddy handlers after installation. Reference snippets
-can live next to service route files with the `.caddy.example` suffix.
+Routes are generated from `domains.conf`. Installed service packages provide
+their Caddy handlers; OpenDock generates a global handler-import file before
+the generated hostname routes. Reference snippets can live next to service
+route files with the `.caddy.example` suffix.
 
 ## Layout
 
@@ -23,21 +23,27 @@ caddy/
 └── conf.d/
     ├── www.domain.com.caddy.example
     ├── global.caddy
-    ├── homepage.caddy
-    ├── uptime-kuma.caddy
-    └── homepage.caddy
+    ├── yy-opendock-service-handlers.caddy  (generated)
+    └── zz-opendock-routes.caddy            (generated)
 ```
 
 - `Caddyfile` loads all `conf.d/*.caddy` files.
-- Automatic HTTP-to-HTTPS redirects are disabled globally so Cloudflare Tunnel can use `http://localhost:80` as the origin without redirect loops.
+- Automatic HTTP-to-HTTPS redirects are disabled globally. OpenDock publishes
+  managed Tunnel hostnames to its configured Caddy origin, defaulting to
+  `http://localhost:80`.
 - `global.caddy` contains reusable snippets.
-- Per-service `conf.d/<service>.caddy` files define proxy behavior for Docker services.
+- `yy-opendock-service-handlers.caddy` imports routing snippets from installed
+  package releases at Caddyfile top level. OpenDock generates it; do not edit it.
 - `conf.d/zz-opendock-routes.caddy` is generated from `domains.conf` and should not be edited.
 - `*.caddy.example` files are reference snippets and are not loaded by Caddy.
 
-The per-service Caddy files define reusable proxy snippets. Caddy host blocks
-are generated from `domains.conf`; the route examples below illustrate the
-resulting host-to-upstream behavior.
+Direct public TLS termination at Caddy is not part of the current generated-route
+mode. It needs explicit exposure-mode support, port forwarding, and ACME
+reachability; removing the `auto_https` option alone is insufficient.
+
+Service package routing files define reusable proxy snippets. Caddy host
+blocks are generated from `domains.conf`; the route examples below illustrate
+the resulting host-to-upstream behavior.
 
 ## Optional Service Routes
 
@@ -64,10 +70,6 @@ The WordPress package provides `routing/wordpress.caddy`:
 }
 
 http://blog.example.com {
-    import wordpress_proxy
-}
-
-https://blog.example.com {
     import wordpress_proxy
 }
 ```
@@ -100,44 +102,6 @@ Use `./opendock route add <hostname> static` to serve files from the read-only m
 host. Then `./opendock launch <hostname>` applies the route. Caddy serves the files
 directly without a separate container or runtime.
 
-## Homepage Route
-
-The repository includes `caddy/conf.d/homepage.caddy` as the active Homepage route:
-
-```caddy
-(homepage_proxy) {
-    import common_proxy
-    import security_headers
-    import block_bots
-
-    reverse_proxy homepage:3000
-}
-
-http://home.example.com {
-    import homepage_proxy
-}
-
-https://home.example.com {
-    import homepage_proxy
-}
-```
-
-By default, Homepage is published as:
-
-```text
-https://home.<STACK_DOMAIN>
-```
-
-Set the main domain in `config/core.env` and the service hostname in `services/bundles/homepage/.env`:
-
-```sh
-# config/core.env
-STACK_DOMAIN=example.com
-
-# services/bundles/homepage/.env
-HOMEPAGE_SUBDOMAIN=home
-```
-
 ### n8n Route
 
 The n8n package provides `routing/n8n.caddy`:
@@ -152,10 +116,6 @@ The n8n package provides `routing/n8n.caddy`:
 }
 
 http://n8n.example.com {
-    import n8n_proxy
-}
-
-https://n8n.example.com {
     import n8n_proxy
 }
 ```
@@ -242,44 +202,6 @@ JELLYFIN_SUBDOMAIN=media
 
 Use Jellyfin for movies, shows, music, and music videos. Use Immich for photo backup and photo library management.
 
-## Uptime Kuma Route
-
-The repository includes `caddy/conf.d/uptime-kuma.caddy` as the active Uptime Kuma route:
-
-```caddy
-(uptime_kuma_proxy) {
-    import common_proxy
-    import security_headers
-    import block_bots
-
-    reverse_proxy uptime-kuma:3001
-}
-
-http://uptime.example.com {
-    import uptime_kuma_proxy
-}
-
-https://uptime.example.com {
-    import uptime_kuma_proxy
-}
-```
-
-By default, Uptime Kuma is published as:
-
-```text
-https://uptime.<STACK_DOMAIN>
-```
-
-Set the main domain in `config/core.env` and the service hostname in `services/bundles/uptime-kuma/.env`:
-
-```sh
-# config/core.env
-STACK_DOMAIN=example.com
-
-# services/bundles/uptime-kuma/.env
-UPTIME_KUMA_SUBDOMAIN=uptime
-```
-
 ## Exposure Model
 
 The primary supported exposure model is:
@@ -288,15 +210,15 @@ The primary supported exposure model is:
 Browser
   -> Cloudflare DNS and HTTPS
   -> Cloudflare Tunnel
-  -> http://localhost:80
+  -> Caddy HTTP origin reachable from the connector
   -> Caddy
   -> Docker service
 ```
 
-The route files include both `http://...` and `https://...` site blocks:
-
-- `http://...` is used by Cloudflare Tunnel origin traffic.
-- `https://...` keeps direct HTTPS routing possible for advanced manual setups.
+Generated route files use HTTP-only Caddy site blocks. Cloudflare Tunnel
+terminates public TLS and forwards HTTP to Caddy. OpenDock publishes managed
+Tunnel hostnames to the configured origin, which defaults to
+`http://localhost:80`.
 
 Caddy's automatic HTTP-to-HTTPS redirect is intentionally disabled. If Caddy redirects Tunnel origin traffic from HTTP to HTTPS, Cloudflare Tunnel can enter a redirect loop.
 
@@ -307,12 +229,6 @@ When changing `config/core.env` or Caddy route files, reload or recreate the gat
 ```sh
 ./opendock down gateway
 ./opendock up gateway
-```
-
-For Cloudflare Tunnel, set the tunnel Service URL to:
-
-```text
-http://localhost:80
 ```
 
 Direct port forwarding is not the default supported path for this stack. If you use it anyway, forward port 443 to this server and open `https://<service>.<domain>` directly.

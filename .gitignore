@@ -31,5 +31,6 @@ services/supabase/functions.env
 # Per-host route configuration and static web roots.
 /domains.conf
 /gateway/caddy/conf.d/zz-opendock-routes.caddy
+/gateway/caddy/conf.d/yy-opendock-service-handlers.caddy
 /static-sites/*/**
 !/static-sites/*/README.md

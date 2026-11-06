@@ -10,8 +10,10 @@
 > under `services/extensions/<service-id>/releases/<version>`. The older
 > `services/bundles/` paths below describe migration residue in this checkout;
 > do not use them for new services. Package `update`, `search`, and `install`
-> have been exercised with the dev catalog. Package setup, launch, and
-> multi-domain instances remain unfinished.
+> have been exercised with the dev catalog. A Linux Uptime Kuma launch reached
+> its public first-run database page; choosing and configuring the database is
+> user-owned. Wizard completion, application readiness, purge, and
+> multi-domain instances remain unverified.
 
 This document describes the conventions used by OpenDock. It is intended for maintainers and advanced users who want to add or modify services.
 
@@ -23,7 +25,8 @@ This document describes the conventions used by OpenDock. It is intended for mai
 - Public routes should be discoverable from repository structure.
 - Cloudflare Tunnel is the default public exposure layer.
 - Beginner-facing setup should stay small: `./opendock setup`, then
-  `./opendock launch <hostname>`; Cloudflare is optional.
+  `./opendock launch <hostname>`; Cloudflare configuration is required before
+  public launch.
 
 ## Ubuntu Bootstrap
 
@@ -98,8 +101,6 @@ the catalog and sync workflow ignore that archive.
 Examples:
 
 ```text
-services/bundles/homepage/compose.yml
-services/bundles/uptime-kuma/compose.yml
 OpenDock-Services/services/extensions/wordpress/compose.yml
 OpenDock-Services/services/extensions/n8n/compose.yml
 ```
@@ -109,18 +110,19 @@ OpenDock-Services/services/extensions/n8n/compose.yml
 The common CLI and service-owned behavior boundary is documented in
 [Command and Service Ownership](command-architecture.md). When adding a command
 capability, use that contract to decide whether it belongs in the common
-workflow or under `services/bundles/<name>/`; do not add service-specific branches to
-the central dispatcher.
+workflow or under `OpenDock-Services/services/extensions/<name>/`; do not add
+service-specific branches to the central dispatcher.
 
-The service catalog discovers bundled services at runtime from:
+The active service catalog discovers only installed package releases listed in:
 
 ```text
-services/bundles/*/compose.yml
+services/extensions/installed.toml
 ```
 
-Flat directories under the local `archive/` are never scanned. New bundle
-services belong under `services/bundles/`; extensions become visible only
-after package installation registers them.
+Legacy bundle directories and `services/groups.conf` entries that reference
+uninstalled services are not active. New service source belongs in
+OpenDock-Services and becomes visible after package installation registers its
+release.
 
 This is why new services do not need CLI dispatcher changes.
 
@@ -128,9 +130,9 @@ Shared platform components such as `infra/` and `gateway/` have a separate
 catalog and descriptor. `infra/opendock.toml` owns the shared setting keys,
 setup fields, secret generator declarations, and dependency groups such as
 `mariadb` and `postgres`; `gateway/opendock.toml` owns gateway setting keys. A
-service declares only the shared groups it needs in
-`services/bundles/<service>/opendock.toml`; the common setup and secret coordinators
-resolve those declarations. Platform config ownership is also derived from the
+service declares only the shared groups it needs in its installed package
+descriptor; the common setup and secret coordinators resolve those declarations.
+Platform config ownership is also derived from the
 component descriptors. Shared concerns keep their configuration descriptor
 and tracked defaults together under `config/shared/`: `mail.toml` with
 `mail.env.default`, and `database.toml` with `database.env.default`. The TOML
@@ -150,11 +152,11 @@ owns the MariaDB service, shared dependency group, and database removal adapter.
 The contributor workflow is documented in [Adding a Service to OpenDock](adding-services.md).
 For an AI-assisted contribution, start from the [service contribution meta prompt](prompts/add-service.md).
 
-OpenDock treats a service as a small extension unit. The target contribution
-layout is:
+OpenDock treats a service as a small extension unit. The OpenDock-Services
+contribution layout is:
 
 ```text
-services/bundles/<stable-service-id>/
+OpenDock-Services/services/extensions/<stable-service-id>/
   opendock.toml          descriptor and capability/API versions
   compose.yml            runtime definition
   .env.default           tracked defaults and image versions
@@ -205,10 +207,8 @@ separate operation and must refuse while runtime resources remain. Removing a
 contribution from OpenDock source must not silently delete runtime data on a
 user's host.
 
-Removal is currently enabled for the two active bundled services: Homepage
-and Uptime Kuma. The optional service descriptors in OpenDock-Services declare
-their own removal contracts, but those services remain unavailable until
-installed. Declare service-owned bind data paths, private config
+Removal is available only for installed services whose descriptors declare an
+audited removal contract. Declare service-owned bind data paths, private config
 files, extra images, and labeled
 non-Compose containers under `[removal]` in the service descriptor. Private
 config files are backed up with restrictive permissions before deletion.
@@ -217,10 +217,9 @@ Every orphan container must be tied to a declared data path and is selected
 only when its mount source is inside that path. The common remover handles
 Compose containers, volumes, configured images, routes, and the service's
 private configuration. Removal contracts must account for shared database
-objects, user data, backups, and preservation boundaries. Both active bundle
-targets declare a contract. Uptime Kuma stores application data in a Compose
-named volume; Homepage has no persistent runtime volume, and its mounted YAML
-configuration is tracked source. Declaration and static validation do not
+objects, user data, backups, and preservation boundaries. Only installed
+services with an audited removal declaration are enabled. Uptime Kuma stores
+application data in a Compose named volume. Declaration and static validation do not
 replace the isolated-host acceptance pass below. Optional package descriptors
 own their own service-specific removal details in OpenDock-Services.
 
@@ -259,14 +258,15 @@ Group names are target aliases for multiple services. They are supported by setu
 
 `up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
 
-`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default` and each service's defaults from `services/bundles/<service>/.env.default`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env`, `infra/.env`, `gateway/.env`, and old `config/services/*.env` installations are migrated to their owners on initialization, with restrictive backups retained.
+`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default` and installed service defaults from each registered package release's `.env.default`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env`, `infra/.env`, `gateway/.env`, and old `config/services/*.env` installations are migrated to their owners on initialization, with restrictive backups retained.
 
 `launch <hostname>` is the primary workflow. It resolves exactly one route,
 starts `infra` and the mapped Docker service when the route is Docker-backed, or
 creates only the shared Docker network for a static route (not the database
 containers), then reloads/starts Caddy and publishes that hostname. The legacy service/group form remains supported; a service-name
 launch must fail before starting containers if that service maps to multiple
-hostnames. `launch all` remains the compatibility workflow for the full stack.
+hostnames. The target is required: use `launch all` explicitly to start the full
+installed stack; omitting the target must show usage instead of selecting all.
 
 After starting services, `launch` runs the optional `post_launch` capability
 only when the service descriptor declares it. The service's `opendock.py`
@@ -338,7 +338,8 @@ Secret generation rules:
 - `./opendock check-config` is read-only and never changes files.
 - `./opendock setup [target]` interactively fills user-facing values and generated secrets.
 - `./opendock secrets [target]` fills generated passwords and app secrets in their owner-specific configuration files.
-- `./opendock up <target>`, `./opendock up services`, and `./opendock launch` run the same generator before validation.
+- `./opendock up <target>`, `./opendock up services`, and
+  `./opendock launch <target>` run the same generator before validation.
 - Existing real values are kept. Empty or placeholder values are generated.
 - Before a configuration file is changed, its previous version is backed up under `backups/config/`.
 - Do not auto-generate external values such as `STACK_DOMAIN`, Cloudflare tokens, tunnel IDs, or SMTP credentials.
@@ -406,18 +407,19 @@ Docker service or applies a static route. Static roots use
 `static-sites/<hostname>/` and are served directly by Caddy. Cloudflare
 publishing locates the zone containing each hostname. All zones used by one
 Tunnel must be in the same Cloudflare account, and the API token needs DNS
-permissions for each zone. The legacy `./opendock launch <service>` form remains
+permissions for each zone. The launch target is required; use `all` explicitly
+to start every installed service. `./opendock launch <service>` remains
 available; if that service has multiple hostnames, it fails with hostname
 commands to avoid ambiguity.
 
 ## Caddy Route Convention
 
-Bundled route handlers live in each bundle under `routing/` and are declared
-by the service descriptor. Optional package handlers live beside the package
+Route handlers live in each installed package under `routing/` and are declared
+by the service descriptor. Package handlers live beside the package
 descriptor and are mounted read-only into Caddy from the active extension store.
 Reference snippets use `.caddy.example` and are not loaded by Caddy.
 
-Each public bundle declares `routing.handler_file` and
+Each public service declares `routing.handler_file` and
 `routing.caddy_handler` in `opendock.toml`.
 
 Each service Caddy file defines a reusable upstream snippet. Hostname site blocks
@@ -435,19 +437,28 @@ file is absent):
 
 ```
 
-The generated file creates both HTTP and HTTPS host blocks for every mapping.
+The generated file creates HTTP-only host blocks for every mapping. Cloudflare
+Tunnel terminates public TLS; its connector reaches Caddy over HTTP.
 
-Caddy globally disables automatic HTTP-to-HTTPS redirects. Cloudflare Tunnel uses `http://localhost:80` as its origin, and origin-side HTTPS redirects can create redirect loops. Public browser HTTP-to-HTTPS redirects are expected to happen at Cloudflare.
+Caddy globally disables automatic HTTP-to-HTTPS redirects. OpenDock publishes
+managed Tunnel hostnames to the configured Caddy origin, which defaults to
+`http://localhost:80`. Publishing updates managed hostname rules to that
+origin. Public browser HTTP-to-HTTPS redirects are expected to happen at
+Cloudflare.
 
-For direct Caddy exposure without Cloudflare Tunnel, remove the `auto_https disable_redirects` block from `gateway/caddy/Caddyfile` and forward both port 80 and 443 to the server. This restores Caddy's default HTTP-to-HTTPS redirect behavior.
+Direct public Caddy exposure without Cloudflare Tunnel is outside the supported
+OpenDock path. OpenDock routes public hostnames through its configured
+Cloudflare Tunnel.
 
 ## Publish Discovery
 
-When `domains.conf` is absent, `./opendock publish` discovers Docker services that have both:
+When `domains.conf` is absent, `./opendock publish` uses default routes from
+the installed service catalog. Routable packages declare:
 
 ```text
-services/bundles/<service-name>/compose.yml
-services/bundles/<service-name>/routing/<handler-file>
+services/extensions/installed.toml
+services/extensions/<service-id>/releases/<version>/opendock.toml
+services/extensions/<service-id>/releases/<version>/routing/<handler-file>
 ```
 
 The internal route map connects hostnames to Docker services or the matching
@@ -463,8 +474,9 @@ Inputs:
 ```text
 config/
 config/cloudflare.env
-services/bundles/*/compose.yml
-services/bundles/*/routing/*
+services/extensions/installed.toml
+services/extensions/<service-id>/releases/<version>/compose.yml
+services/extensions/<service-id>/releases/<version>/routing/*
 ```
 
 Required Cloudflare env values:

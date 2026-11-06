@@ -8,7 +8,9 @@ from pathlib import Path
 from opendock_groups import group_services, validate_services
 from opendock_catalog import ServiceCatalog, service_names
 from opendock_capabilities import ValidationContext, runtime_environment, validate_config
-from opendock_settings import CORE_PLACEHOLDERS, CORE_REQUIRED_KEYS, load_values
+from opendock_settings import (
+    CONFIG_SECTIONS, CORE_PLACEHOLDERS, CORE_REQUIRED_KEYS, load_values,
+)
 from opendock_storage import validate_mounts
 
 
@@ -44,7 +46,9 @@ def all_targets():
 
 def resolve_targets(target):
     if target == "all":
-        return all_targets()
+        return [*all_targets(), "cloudflare"]
+    if target in CONFIG_SECTIONS and target != "core":
+        return [target]
     if target == "services":
         return service_targets()
     if target in ("infra", "gateway"):
@@ -94,6 +98,29 @@ def is_placeholder(name, value, example_values):
 
 
 def check_target(target, common_values, example_values):
+    if target in CONFIG_SECTIONS:
+        fields = CONFIG_SECTIONS[target].get("setup", {}).get("fields", [])
+        required = {
+            field["name"] for field in fields
+            if field.get("required") is True
+            or field.get("kind") in {
+                "required-user", "secret-user", "initial-credential", "generated-secret"
+            }
+        }
+        missing = sorted(name for name in required if not common_values.get(name))
+        placeholders = sorted(
+            name for name in required
+            if common_values.get(name)
+            and is_placeholder(name, common_values.get(name, ""), example_values)
+        )
+        return {
+            "target": target,
+            "missing": missing,
+            "placeholders": placeholders,
+            "invalid": [],
+            "optional": {},
+        }
+
     directory = target_dir(target)
     compose = directory / "compose.yml"
     if not compose.is_file():

@@ -5,8 +5,9 @@
 > New service source belongs in OpenDock-Services and must follow the package
 > and capability contracts in [`product-distribution.md`](product-distribution.md),
 > [`catalog-and-package-contract.md`](catalog-and-package-contract.md), and
-> [`service-contract.md`](service-contract.md). Package setup and launch remain
-> in progress.
+> [`service-contract.md`](service-contract.md). The Uptime Kuma Linux launch
+> smoke check reached the public first-run database page; its database wizard,
+> application readiness, and multi-domain lifecycle remain unverified.
 
 The examples below describe how the current legacy Docker Compose catalog was
 implemented. Static routes are configured separately with `./opendock route add

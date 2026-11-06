@@ -11,9 +11,11 @@ guide](docs/command-architecture.md) for maintainers adding capabilities.
 
 There is no bundled-service product category. Services are distributed as
 packages from OpenDock-Services through a static catalog. The platform does
-not access that private source repository. The development catalog and package
-install path work; setup and launch are still being brought onto the new
-package and site-instance model. See [Product Architecture](docs/product-distribution.md)
+not access that private source repository. The development catalog, package
+setup, and first launch path are connected. The Uptime Kuma pilot has reached
+its first-run database screen through the public route; completing application
+setup and checking final app readiness remain outside the verified scope. See
+[Product Architecture](docs/product-distribution.md)
 for the target and implementation status.
 
 The platform checkout still contains legacy service files during migration;
@@ -32,7 +34,7 @@ Caddy
 - Linux or macOS with Python 3.11+ and Docker Compose
 - rsync and SSH for remote sync
 - For public hosting: a domain managed by Cloudflare and a Cloudflare Tunnel
-  connected to this server
+  connector that can reach this server's Caddy HTTP origin
 
 OpenDock includes an Ubuntu bootstrap script that installs prerequisites and clones this repository to `~/OpenDock` by default.
 
@@ -53,17 +55,21 @@ checksum before placing the release under `services/extensions/`. Installation
 does not configure or launch the service. Select the production catalog with
 `./opendock update --environment prod`.
 
-Uptime Kuma `0.1.0` has been published to the development catalog, and update,
-search, and install have been confirmed from a local OpenDock checkout. Setup,
-launch, multi-domain operation, and purge have not yet been verified with the
-new package model.
+Uptime Kuma `0.1.0` has been published to the development catalog. The user
+confirmed update, search, install, setup, and launch on Linux. Infra and Uptime
+Kuma containers became healthy, and the public route displayed Kuma's first-run
+database selection page. Choosing/configuring the database is the user's
+application setup; OpenDock does not create a Kuma database or account. Wizard
+completion, post-setup application readiness, purge, and multi-domain isolation
+remain unverified.
 
 ## Existing routing implementation
 
-The routing and platform behavior below describe the current checkout. They do
-not imply that package setup, launch, or multi-domain instance support is
-complete. OpenDock currently uses Cloudflare Tunnel as its default public
-entrypoint; Caddy routes Tunnel traffic to Docker services.
+The routing behavior below describes the current checkout. Uptime Kuma's
+first-launch path was verified through the first-run database page, but that
+does not establish full application readiness or multi-domain instance
+support. OpenDock uses Cloudflare Tunnel as its default public entrypoint;
+Caddy routes Tunnel traffic to Docker services.
 
 ### How OpenDock Routes Traffic
 
@@ -86,11 +92,14 @@ There are two kinds of routes:
   one explicitly with `./opendock route add <hostname> <service|static>`.
 
 `launch` accepts either a service name or a hostname.
-`./opendock launch homepage` starts the service at its default hostname.
+`./opendock launch uptime-kuma` starts the installed service at its default hostname.
 `./opendock launch home.example.com` applies a hostname that already has a
 route. An arbitrary hostname is not automatically assigned a service: add its
 route first. If one service has multiple hostnames, use the hostname form to
-choose which route to publish.
+choose which route to publish. The target is required; use
+`./opendock launch all` explicitly to start every installed service.
+When a host-local `domains.conf` already exists, `launch all` adds missing
+default routes for selected services after setup and preparation succeed.
 
 For a static route, OpenDock creates `static-sites/<hostname>/` and configures
 Caddy to serve files from it. Put an `index.html` and other site files there;
@@ -103,11 +112,10 @@ publishes configured Cloudflare routes. `up` is a direct Docker Compose
 operation for users who want to manage those steps themselves; it does not
 start prerequisites or publish routes.
 
-Cloudflare Tunnel is the default public entrypoint. To make publishing
-automatic, configure `cloudflare.env` with a token, tunnel ID, and access to
-the zones used by your routes. Without those API credentials, OpenDock can
-still apply local Caddy routes and print the routes to configure manually in
-Cloudflare.
+Cloudflare Tunnel is the required public entrypoint for public launch. Configure
+Cloudflare credentials and the tunnel ID through `./opendock setup cloudflare`;
+the connector must also be able to reach Caddy. Public launch stops before
+service state changes when the required Cloudflare settings are missing.
 After publishing, URLs are clickable in terminals that support OSC 8 links.
 In an interactive desktop terminal, OpenDock also offers to open one in the
 browser; headless SSH sessions only show the URL. In macOS Terminal, hold
@@ -116,14 +124,14 @@ Ctrl-click.
 
 ### Legacy platform setup reference
 
-For a typical Cloudflare Tunnel setup:
+For the current Cloudflare Tunnel setup:
 
-1. Put the domain in Cloudflare and connect a Cloudflare Tunnel to this server.
+1. Put the domain in Cloudflare and connect a Tunnel connector that can reach
+   this server's Caddy HTTP origin.
 2. Clone OpenDock and run `./opendock setup` to set the primary domain.
-3. Optionally configure Cloudflare API credentials for automatic DNS and
-   Tunnel updates; otherwise set up the public hostname in Cloudflare yourself.
-4. Install a service package from the catalog. Package setup and launch are not
-   yet supported by the new distribution flow.
+3. Run `./opendock setup cloudflare` for automatic Tunnel and DNS publication.
+4. Install a service package from the catalog, then use `./opendock setup
+   <service>` or `./opendock launch <service>`.
 
 For another hostname, first run
 `./opendock route add <hostname> <service|static>`, then
@@ -291,10 +299,11 @@ package. OpenDock validates configured paths before starting a service.
 
 Cloudflare Tunnel is the default public entrypoint for this stack.
 
-Without Cloudflare credentials, `./opendock publish` only prints the routes it would publish. Configure them with `./opendock setup cloudflare` to sync Tunnel hostnames and DNS records automatically.
-
-The initial `./opendock setup` offers Cloudflare setup as an optional step. You
-can skip it and configure it later:
+Cloudflare setup is required for OpenDock public routes. The initial
+`./opendock setup` configures Cloudflare along with the platform. Public
+`launch` checks these settings before changing service state; if needed, it
+opens the Cloudflare setup flow. `./opendock setup cloudflare` is also available
+to review or repair the settings directly.
 
 ```sh
 ./opendock setup cloudflare
@@ -308,6 +317,7 @@ Zone / DNS / Edit
 Account / Cloudflare Tunnel / Edit
 ```
 
+The connector must also be running and able to reach the OpenDock Caddy gateway.
 Then run:
 
 ```sh
@@ -316,10 +326,12 @@ Then run:
 
 `./opendock publish` locates the Cloudflare zone containing each configured hostname. It then:
 
-- adds or updates Cloudflare Tunnel public hostnames
+- adds or updates Cloudflare Tunnel public hostnames to use the configured
+  Caddy origin
 - creates missing DNS CNAME records
 - preserves existing tunnel rules
-- stops on DNS conflicts instead of overwriting unrelated records
+- checks for DNS conflicts before changing Tunnel or DNS state, then stops
+  instead of overwriting unrelated records
 
 All public hostnames point to the same local Caddy gateway:
 
@@ -337,19 +349,14 @@ uptime.<your-domain>  -> http://localhost:80
 <any-mapped-domain>   -> http://localhost:80
 ```
 
-Set each Cloudflare Tunnel public hostname's Service URL to `http://localhost:80`. Public users should still open `https://<service>.<your-domain>`.
+Cloudflare Tunnel hostnames use the configured Caddy origin, which defaults to
+`http://localhost:80`. Publishing updates the hostname rule to that origin.
+Public users should still open `https://<service>.<your-domain>`.
 
-## Without Cloudflare Tunnel
+## Public exposure requirement
 
-Cloudflare Tunnel is the default supported public exposure layer for this stack. If you choose to expose Caddy directly with port forwarding instead, Caddy becomes the public edge.
-
-In that case:
-
-- forward port 80 and 443 to the server
-- remove the `auto_https disable_redirects` block from `gateway/caddy/Caddyfile`
-- open services with `https://<service>.<your-domain>`
-
-Removing that block lets Caddy restore its default HTTP-to-HTTPS redirects. Do not remove it when using Cloudflare Tunnel, because Tunnel origin traffic uses `http://localhost:80` and can enter redirect loops.
+OpenDock supports public service routes through Cloudflare Tunnel. Direct
+public exposure of Caddy without Cloudflare is not a supported setup path.
 
 ## Common Commands
 
@@ -516,7 +523,7 @@ Committed defaults:
 
 ```text
 config/**/*.env.default
-services/bundles/*/.env.default
+services/extensions/<service-id>/releases/<version>/.env.default
 ```
 
 When you update the repository with `git pull`, OpenDock reads updated defaults from tracked `.env.default` files. Missing optional subdomain values use sensible defaults, and missing generated secrets are filled automatically before service startup. External values such as `STACK_DOMAIN` and Cloudflare credentials still require user input.
@@ -533,9 +540,6 @@ When you update the repository with `git pull`, OpenDock reads updated defaults 
 │       ├── Caddyfile
 │       └── conf.d/
 └── services/
-    ├── bundles/
-    │   ├── homepage/
-    │   └── uptime-kuma/
     └── extensions/       # installed packages; ignored by Git
 archive/                  # local legacy service copy; ignored and inactive
 ```

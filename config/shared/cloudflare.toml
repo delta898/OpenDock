@@ -1,21 +1,15 @@
 schema_version = 1
 section_id = "cloudflare"
 config_file = "config/cloudflare.env"
-setting_keys = ["OPENDOCK_CLOUDFLARE_SETUP_SKIPPED", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_TUNNEL_ID"]
-optional_prompt = "Enable automatic Cloudflare Tunnel and DNS publishing? You can skip this and configure it later with './opendock setup cloudflare'."
-skip_key = "OPENDOCK_CLOUDFLARE_SETUP_SKIPPED"
-
-[[setup.fields]]
-name = "OPENDOCK_CLOUDFLARE_SETUP_SKIPPED"
-kind = "defaulted-choice"
-default = "false"
-required = false
+setting_keys = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_TUNNEL_ID"]
 
 [[setup.fields]]
 name = "CLOUDFLARE_API_TOKEN"
 kind = "secret-user"
+required = true
 note = "Needs Zone:Read, DNS:Edit, and Account:Cloudflare Tunnel:Edit permissions."
 
 [[setup.fields]]
 name = "CLOUDFLARE_TUNNEL_ID"
 kind = "required-user"
+required = true

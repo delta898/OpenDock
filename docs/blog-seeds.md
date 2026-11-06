@@ -1121,7 +1121,58 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     `./opendock setup uptime-kuma`는 descriptor의 기본 subdomain 설정을 읽어 완료됐으며,
     기존 설정과 기본값만 사용해 별도 애플리케이션 인프라를 시작하지 않았다. Registry의
     서비스 ID, release 경로 버전, descriptor 버전이 불일치하지 않도록 catalog 검증도
-    강화했다. 실제 컨테이너 launch와 readiness는 아직 검증하지 않았다.
+    강화했다. 다음 단계에서 package launch를 기존 공통 lifecycle에 연결하고,
+    `docker compose up --wait --wait-timeout 180`으로 서비스 및 의존 infra의 실행 상태를
+    확인하도록 했다. Cloudflare 설정이 없을 때에는 local route는 있지만 DNS/Tunnel은
+    변경하지 않았다는 partial 상태를 분명히 출력한다. `docker compose config`와 설정
+    검증은 통과했지만 Docker daemon이 실행되지 않아 실제 컨테이너 launch는 검증하지
+    못했다. Uptime Kuma descriptor에는 Compose healthcheck/readiness hook이 없어 Compose의
+    실행 확인이 HTTP UI 준비까지 의미하지 않는다는 한계도 확인했다.
+  - 사용자가 `./dev_opendock launch uptime-kuma`를 실행하자 선언된 `infra` dependency가
+    `Unknown service: infra`로 실패했다. 추적 결과 Compose 인자 구성 자체가 아니라
+    settings의 `compose_env_files()`가 platform component도 service package로 조회하는
+    소유권 혼동이었다. platform descriptor에 등록된 component를 service catalog와
+    구분해 config/env 파일을 구성하도록 수정했고 `infra`, `gateway`, Uptime Kuma의
+    Compose config 렌더 및 infra config 검증을 통과했다. Docker daemon 실기동은 별도다.
+  - 이후 launch 로그에서 Uptime Kuma와 infra는 정상인데 Caddy가 반복 재시작하는 것을
+    확인했다. Caddy 로그는 extension routing 파일의 `(uptime_kuma_proxy)` 선언을
+    host site 블록 안에서 import해 `unrecognized directive`로 처리했다. 패키지 routing
+    파일은 Caddyfile 최상위에서 먼저 import하고, 생성 host route는 snippet 이름만
+    import하도록 renderer를 수정했다. 서비스별 legacy Caddy snippet도 platform에서
+    제거해 package handler와 중복되지 않게 했다. 이 수정은 로컬 renderer/config 검사까지
+    확인했으며 실제 Caddy reload는 사용자의 Linux 환경에서 재검증해야 한다.
+  - Caddy 문법 문제 수정 뒤 로그에서는 hostname 인증서 발급이 `tls-alpn-01` challenge로
+    실패했다. 기본 배포는 Cloudflare가 TLS를 종료하고 Tunnel이 Caddy의 HTTP origin으로
+    연결하는데, renderer가 `https://` site block도 만들어 Caddy에 별도 Let's Encrypt
+    인증서를 요청시킨 것이 원인이었다. 기본 Tunnel 라우트를 HTTP-only로 생성하고 직접
+    Caddy TLS는 별도 exposure mode가 필요하다고 문서화했다. 이후 사용자가 실제
+    Linux에서 Caddy origin의 `/`가 Uptime Kuma의 `/setup-database`로 302 redirect하고,
+    setup 정보와 JS/CSS asset이 정상 응답하는 것을 확인했다. 그런데 공개 HTTPS에서는
+    document와 JS가 빈 200 응답으로 보여 Safari·Chrome·Firefox 모두 빈 화면이었다.
+    Minibuntu에는 cloudflared 프로세스, systemd service, Docker container가 없었고,
+    실제 Tunnel connector는 notebuntu에 있었다. Connector가 있는 notebuntu에서
+    Minibuntu Caddy로 도달하도록 Tunnel origin을 바로잡자 화면이 표시됐다. 따라서 이
+    증상은 Uptime Kuma frontend나 browser보다 Cloudflare Tunnel의 origin 경로 문제였다.
+  - 이 운영 경험을 바탕으로 Cloudflare를 선택 사항으로 두면 local launch는 성공하지만
+    외부 공개는 되지 않는 상태가 생겨 초보 사용자가 혼란스러울 수 있다는 결론을 냈다.
+    `OPENDOCK_CLOUDFLARE_SETUP_SKIPPED`와 선택 설정 문구를 제거하고, 첫 system setup과
+    public launch 전에 Cloudflare 설정을 필수 검증하는 방향으로 바꿨다. `launch infra`는
+    내부 구성만 올리는 명령이라 예외다. API 설정이 있어도 별도 connector 실행과 origin
+    도달성은 보장되지 않으므로 사용자 가이드에서 이를 별도 전제 조건으로 설명한다.
+  - 후속 코드 리뷰에서 사용자는 Uptime Kuma의 DB/schema/user 자동 생성이 필요하지 않다고
+    바로잡았다. Kuma는 SQLite, embedded MariaDB, 외부 MariaDB/MySQL 중 앱 첫 실행에서
+    선택하므로 OpenDock은 공유 infra/network만 준비하고 DB 선택과 초기 설정은 사용자에게
+    남긴다. 문서에서도 “launch 완료”와 “앱 wizard/readiness 완료”를 구분했다.
+  - 같은 리뷰에서 installer가 package digest 외에 catalog의 host/API/schema 호환 범위와
+    descriptor 전체를 activation 전에 확인하지 않는 점을 보완했다. OpenDock 자체 버전
+    source는 아직 없으므로 그 compatibility range는 형식만 검사하고 실행 적용은 보류했다.
+    Registry를 먼저 읽고 검증한 뒤 stage release와 registry를 순서대로 활성화하며 registry
+    교체 실패 시 새 release를 롤백하도록 했다.
+  - 기존 `domains.conf`가 있을 때 `launch all`에서 빠진 서비스 기본 route를 한 번에 검증해
+    추가하도록 했고, setup/preparation 취소 전에 route가 저장되지 않도록 호출 순서를 조정했다.
+    Cloudflare publish는 설정된 origin을 기준으로 managed hostname 규칙을
+    갱신한다. 사용자의 별도 Tunnel connector 구성을 자동으로 추론하거나 보존하는 기능은
+    넣지 않았다. 알려진 DNS 충돌은 Tunnel 설정 변경 전에 확인한다.
 - 보존할 교훈:
   - 개발 저장소 접근 제어와 제품 entitlement는 같은 문제로 취급하지 않는다.
     소스 저장소를 private으로 만드는 것만으로 고객 설치·업데이트 경험이 완성되지 않는다.
@@ -1133,6 +1184,12 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   generated catalog validation, temporary-root install/service discovery, 실제 tag-triggered
   GitHub Actions dev R2 게시, 사용자가 수행한 `update → search → install`을 확인했다.
   이어서 현재 checkout에서 `list → check-config → setup`을 로컬 확인했다. Setup은
-  기본값 경로까지이며 app runtime을 시작하지 않았다. Package launch/readiness/purge,
+  기본값 경로까지이며 app runtime을 시작하지 않았다. 이후 사용자가 Minibuntu에서 infra와
+  Uptime Kuma container가 healthy인 것, Tunnel origin 수정 뒤 외부 HTTPS로 DB first-run
+  화면을 여는 것을 확인했다. DB wizard 완료와 post-setup app readiness/purge,
   domain별 instance lifecycle, 깨끗한 호스트, production publish, macOS 호스트 bootstrap 및
-  WSL2 지원은 검증되지 않았다.
+  WSL2 지원은 검증되지 않았다. 이번 후속 개선은 Python 정적 컴파일과 diff whitespace
+  검토만 했으며 실 Cloudflare/API, package 재설치, `launch all` route migration은 실행하지
+  않았다. 현재 구현은 catalog의 `supported_hosts` 값을 구조적으로 검증하지만, 그 값으로
+  현재 호스트의 설치 가능 여부를 차단하지 않는다. Uptime Kuma의 macOS 지원 여부는 공식
+  자료를 확인하지 않았으므로 미확정이며, 이 기록은 지원 제한으로 해석하면 안 된다.

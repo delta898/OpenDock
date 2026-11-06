@@ -8,8 +8,15 @@ The implemented distribution slice currently uses direct HTTPS GETs to public
 R2 objects: `update` fetches static catalog JSON, `search` searches the local
 cache (fetching only when absent), and `install` downloads the catalog-listed
 ZIP and verifies its SHA-256. There is no OpenDock API service in this path.
-This package flow does not yet implement the full setup/launch/site-instance
-model described below.
+Installed packages now enter the common `launch <service>` route: OpenDock
+checks configuration, starts declared shared prerequisites, prepares the
+service, waits for Compose's running/healthy condition, then applies gateway
+and Cloudflare publication. The user verified on Linux that the service and
+declared infra reached Compose healthy/running state and Uptime Kuma's public
+first-run database page loaded. This is a first-launch smoke check, not the
+full domain-scoped site-instance model below; database wizard completion and
+application-level readiness remain unverified. Kuma's database choice and
+provisioning are user-owned.
 
 ## Command layers
 
@@ -98,11 +105,27 @@ installed package:
 4. Run an incomplete declared setup hook, starting only its required shared
    prerequisites, then run optional idempotent `prepare`.
 5. Resolve runtime environment, start the selected Compose project, and wait
-   for common container health.
+   for Compose's running/healthy condition. A service without a healthcheck is
+   only confirmed running; application-level readiness requires a declared
+   readiness capability.
 6. Run optional `post_launch`, then optional application `readiness`.
-7. Apply the instance route and publish external tunnel/DNS changes when
-   configured.
-8. Report full or partial status and the action needed to complete publication.
+7. Apply the instance route and publish external tunnel/DNS changes.
+8. Report publication failures clearly; Cloudflare setup is required.
+
+**Current implementation note:** the package launch path uses `docker compose
+up -d --wait --wait-timeout 180` for the selected service and required shared
+infrastructure. It validates configuration and declared capabilities before
+starting those projects. Gateway startup uses the same Compose wait. Public
+launch requires Cloudflare settings before changing service or route state;
+external API failures during publication are reported as failures. Uptime
+Kuma's package does not declare a Compose healthcheck or application readiness
+hook, so Compose wait alone does not confirm its HTTP UI is ready. The user
+verified the first-run database page in the real environment.
+
+When a host-local `domains.conf` exists, `launch` adds missing default routes
+for the selected services in one validated write after setup and preparation
+complete. A cancelled setup therefore does not leave behind a newly added
+default route.
 
 The compound command composes common unit operations; it does not duplicate
 their implementation. It never installs or upgrades code implicitly. A missing

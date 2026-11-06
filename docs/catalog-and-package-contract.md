@@ -90,7 +90,7 @@ Illustrative shape (field spelling remains open):
 ```
 
 The client validates schema, IDs, versions, artifact key, digest shape,
-supported hosts, and size before using an entry. Artifact keys are resolved
+compatibility ranges, supported-host metadata, and size before using an entry. Artifact keys are resolved
 against the configured catalog origin and must remain under `packages/`; the
 catalog cannot direct the CLI to an arbitrary host. IDs are stable/lowercase
 and versions use SemVer. Display metadata is untrusted text: escape terminal
@@ -160,14 +160,21 @@ separate credentials and workflows.
   old cache automatically or use HTTP validators.
 - If no cache exists, `search` and `install` fetch the catalog once before
   continuing. The current client does not report cache age.
-- Current `install <service>` selects the newest stable version in the cached
-  catalog, downloads it, verifies checksum and package structure, then
-  registers the package. Compatibility selection is not implemented yet.
+- Current `install <service>` selects the newest stable release whose declared
+  host, descriptor-schema, and capability-API ranges include this client,
+  downloads it, verifies checksum, validates the descriptor through the common
+  catalog parser, then activates the release and registry together. A failed
+  registry write rolls back the staged release. The catalog's OpenDock version
+  range is syntax-checked but cannot yet be enforced because this CLI has no
+  product-version source; adding that source remains follow-up work.
 - Proposed `upgrade [service]` applies compatible newer package releases and
   preserves site-instance configuration and data; the command is not
   implemented yet.
-- The target release selector chooses the newest stable SemVer compatible
-  with the OpenDock version, capability API, and host target. Prereleases are
+- The target release selector should choose the newest stable SemVer compatible
+  with the OpenDock version, capability API, and host target. The current client
+  enforces capability API compatibility but does not gate installation by host
+  metadata; OpenDock-version selection is deferred until the platform publishes
+  its own version. Prereleases are
   excluded unless explicitly requested.
 - Catalog/download failure does not damage the current cache, installed code,
   or instance state. Catalog refresh never executes package hooks.
@@ -209,11 +216,18 @@ registry service ID/version/path match the installed descriptor. In the local
 checkout, `./opendock list services` listed Uptime Kuma,
 `./opendock check-config uptime-kuma` returned `OK`, and
 `./opendock setup uptime-kuma` completed using existing platform configuration
-and package defaults. Setup started no application containers. The CLI still
-lacks the proposed 24-hour refresh policy and `upgrade`;
-service launch, readiness, purge, domain-scoped instances, and multi-domain
-isolation are not implemented or verified. Do not treat package setup as proof
-of a full service lifecycle.
+and package defaults. Setup started no application containers. The user later
+verified on Minibuntu that infra and Uptime Kuma containers became healthy and
+the public Uptime Kuma first-run database page loaded after correcting the
+Tunnel origin on the separate connector host. Database selection and
+provisioning are deliberately left to the user: Kuma supports SQLite,
+embedded MariaDB, and external MariaDB/MySQL. OpenDock does not create a Kuma
+database or account. Wizard completion and post-setup application readiness
+remain unverified. Uptime Kuma declares neither a Compose healthcheck nor an
+application readiness hook. The CLI still lacks the proposed 24-hour refresh
+policy and `upgrade`; purge, domain-scoped instances, and multi-domain
+isolation are not implemented or verified. Do not treat the first-run page as
+proof of a full service lifecycle.
 
 ## Remaining implementation work
 

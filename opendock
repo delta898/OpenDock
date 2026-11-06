@@ -40,6 +40,7 @@ GROUPS = SERVICES / "groups.conf"
 SYNC_CONFIG = ROOT / ".sync.env.toml"
 CHECKED = {"up", "restart", "start", "build", "config"}
 LIFECYCLE = CHECKED | {"down", "stop", "ps", "pull"}
+COMPOSE_WAIT_TIMEOUT = 180
 EXCLUDES = (
     ".git/", ".sync.env", ".sync.env.toml", "common.env", "domains.conf",
     "archive/",
@@ -285,7 +286,7 @@ def compose(target, *args, capture=False, quiet=False):
                env=env, capture=capture, quiet=quiet)
 
 
-def lifecycle(command, target, *, already_started=()):
+def lifecycle(command, target, *, already_started=(), wait=False):
     for item in targets(target):
         if command == "up" and item in already_started:
             continue
@@ -301,8 +302,23 @@ def lifecycle(command, target, *, already_started=()):
             check_config(item, quiet=True)
             if command == "up" and item in services():
                 script("opendock-config.py", "--optional-only", item)
-        print(f"==> {item}: docker compose {command}", flush=True)
-        compose(item, command, *(["-d"] if command == "up" else []))
+        compose_args = ["-d"] if command == "up" else []
+        if command == "up" and wait:
+            compose_args.extend(["--wait", "--wait-timeout", str(COMPOSE_WAIT_TIMEOUT)])
+            print(
+                f"==> {item}: waiting for Docker Compose services to become "
+                "running or healthy",
+                flush=True,
+            )
+        else:
+            print(f"==> {item}: docker compose {command}", flush=True)
+        compose(item, command, *compose_args)
+        if command == "up" and wait:
+            print(
+                f"==> {item}: Compose start check passed "
+                "(healthchecks are honored when declared)",
+                flush=True,
+            )
 
 
 def post_launch(target):
@@ -366,6 +382,20 @@ def ensure_service_configuration(service):
         check_config(service, quiet=True)
 
 
+def ensure_cloudflare_configuration():
+    try:
+        check_config("cloudflare", quiet=True)
+    except CLIError:
+        if not sys.stdin.isatty():
+            raise CLIError(
+                "Cloudflare setup is required before public launch. "
+                "Run './opendock setup cloudflare' interactively first."
+            )
+        print("==> cloudflare: required configuration", flush=True)
+        script("opendock-config.py", "cloudflare")
+        check_config("cloudflare", quiet=True)
+
+
 def prepare_service_storage(service):
     settings = settings_module()
     values = settings.load_values(service=service, process_env=True)
@@ -393,7 +423,7 @@ def ensure_service_storage_configuration(service):
         script("opendock-config.py", "--storage-only", service)
 
 
-def start_service_dependencies(selected):
+def start_service_dependencies(selected, *, wait=False):
     started = set()
     for service in selected:
         definition = ServiceCatalog(ROOT).get(service)
@@ -402,7 +432,7 @@ def start_service_dependencies(selected):
                 continue
             if dependency == "infra":
                 print("==> infra: launch prerequisite", flush=True)
-            lifecycle("up", dependency)
+            lifecycle("up", dependency, wait=wait)
             started.add(dependency)
     return started
 
@@ -449,7 +479,7 @@ def launch_service_set(selected):
         ensure_service_storage_configuration(service)
     for service in selected:
         prepare_service_storage(service)
-    started = start_service_dependencies(selected)
+    started = start_service_dependencies(selected, wait=True)
     run_service_preparations(preparable)
     return started
 
@@ -459,18 +489,22 @@ def reload_gateway():
         return
     script("opendock-domains.py", "render")
     try:
-        names = run("docker", "ps", "--format", "{{.Names}}", capture=True)
+        status = run(
+            "docker", "inspect", "--format", "{{.State.Status}}", "caddy",
+            capture=True,
+        ).strip()
     except CLIError:
-        names = ""
-    if "caddy" in names.splitlines():
+        status = ""
+    if status == "running":
         print("==> gateway: caddy reload", flush=True)
         run("docker", "exec", "caddy", "caddy", "reload", "--config", "/etc/caddy/Caddyfile")
     else:
-        print("==> gateway: docker compose up", flush=True)
-        compose("gateway", "up", "-d")
+        print("==> gateway: start or recover Caddy", flush=True)
+        lifecycle("up", "gateway", wait=True)
 
 
 def publish(target):
+    check_config("cloudflare", quiet=True)
     run(ROOT / "scripts/publish-cloudflare.sh", target)
 
 
@@ -480,6 +514,7 @@ def launch(target):
     routes = domains.resolve_routes()
     route = next((r for r in routes if r["hostname"] == target.lower().rstrip(".")), None)
     if route and route["type"] == "static":
+        ensure_cloudflare_configuration()
         web_root = ROOT / "static-sites" / route["target"]
         web_root.mkdir(parents=True, exist_ok=True)
         print(f"Static site: {target}\nWeb root: {web_root}/\n"
@@ -489,14 +524,15 @@ def launch(target):
         except CLIError:
             print("==> network: create shared-net", flush=True)
             run("docker", "network", "create", "shared-net", quiet=True)
-        lifecycle("up", "gateway")
+        lifecycle("up", "gateway", wait=True)
         reload_gateway()
         publish(target)
         return
     if route:
         service = route["target"]
+        ensure_cloudflare_configuration()
         already_started = launch_service_set([service])
-        lifecycle("up", service, already_started=already_started)
+        lifecycle("up", service, already_started=already_started, wait=True)
         post_launch(service)
         reload_gateway()
         publish(target)
@@ -508,12 +544,6 @@ def launch(target):
     if len(matches) > 1:
         raise CLIError(f"'{target}' has multiple hostnames; use one of:\n" +
                        "\n".join(f"  ./opendock launch {host}" for host in matches))
-    if target in services() and not matches:
-        default = next((r for r in domains.default_routes()
-                        if r["type"] == "docker" and r["target"] == target), None)
-        if default:
-            print(f"==> route: add default hostname {default['hostname']}", flush=True)
-            script("opendock-domains.py", "add", default["hostname"], target)
     selected_services = service_targets_for(target)
     if (not selected_services and target not in ("all", "services", "infra", "gateway")
             and target not in groups()
@@ -521,12 +551,18 @@ def launch(target):
         raise CLIError(
             f"Service '{target}' is not installed. Install its OpenDock package first."
         )
+    if target != "infra":
+        ensure_cloudflare_configuration()
     already_started = launch_service_set(selected_services)
-    lifecycle("up", target, already_started=already_started)
+    if selected_services:
+        # Commit default routes only after setup prompts and service preparation
+        # complete, so a cancelled launch does not leave a route behind.
+        script("opendock-domains.py", "add-defaults", *selected_services)
+    lifecycle("up", target, already_started=already_started, wait=True)
     post_launch(target)
     if target != "infra":
         reload_gateway()
-    publish(target)
+        publish(target)
 
 
 def route(command, hostname=None, service=None):
@@ -875,25 +911,25 @@ def parser():
             item.add_argument("target", help="Service, group, infra, gateway, services, or all")
     for command in ("setup", "secrets", "check-config", "publish", "launch"):
         descriptions = {
-            "setup": "Configure a service or shared settings such as the optional SMTP relay.",
+            "setup": "Configure OpenDock, including required Cloudflare publishing settings, or configure a service.",
             "secrets": "Generate missing passwords, tokens, and application secrets.",
             "check-config": "Check required settings before changing or starting services.",
-            "publish": "Apply configured host routes to Caddy and, when configured, Cloudflare.",
+            "publish": "Apply configured host routes to Caddy and Cloudflare.",
             "launch": "Start a service, or apply and publish a hostname route. Declared first-run preparation runs automatically.",
         }
         examples = {
             "setup": ["./opendock setup", "./opendock setup <service>", "./opendock setup mail"],
             "secrets": ["./opendock secrets", "./opendock secrets <service>"],
-            "check-config": ["./opendock check-config", "./opendock check-config infra"],
+            "check-config": ["./opendock check-config", "./opendock check-config infra", "./opendock check-config cloudflare"],
             "publish": ["./opendock publish", "./opendock publish blog.example.com"],
-            "launch": ["./opendock launch <service>", "./opendock launch app.example.com"],
+            "launch": ["./opendock launch <service>", "./opendock launch app.example.com", "./opendock launch all"],
         }[command]
         target_help = {
             "setup": "Service, group, platform, shared config (such as mail), or all (default: all)",
             "secrets": "Service, group, or all (default: all)",
-            "check-config": "Service, group, infra, gateway, or all (default: all)",
+            "check-config": "Service, group, infra, gateway, cloudflare, or all (default: all)",
             "publish": "Hostname, service, group, or all (default: all)",
-            "launch": "Hostname, service, group, infra, gateway, or all (default: all)",
+            "launch": "Hostname, service, group, infra, gateway, or all (required)",
         }[command]
         item = sub.add_parser(
             command, help=descriptions[command], description=descriptions[command],
@@ -903,8 +939,11 @@ def parser():
                        if command == "setup" else "")),
             formatter_class=argparse.RawDescriptionHelpFormatter,
         )
-        item.add_argument("target", nargs="?", default="all",
-                          help=target_help)
+        if command == "launch":
+            item.add_argument("target", help=target_help)
+        else:
+            item.add_argument("target", nargs="?", default="all",
+                              help=target_help)
     purge_cmd = sub.add_parser(
         "purge", help="Delete a service's runtime resources",
         description="Plan and confirm deletion of one service's containers, data, images, settings, database objects, and routes. The service package remains installed.",

@@ -10,8 +10,10 @@
 > New product services are packages from OpenDock-Services. Do not create new
 > bundled services under `services/bundles/`; that path appears below only in
 > descriptions of the legacy implementation. The dev catalog `update`,
-> `search`, and `install` path has been used successfully. Package setup,
-> launch, and domain-scoped instance lifecycle are still in development.
+> `search`, `install`, and setup path are in use. The Uptime Kuma launch smoke
+> check reached its public first-run database page on Linux. Its database
+> choice remains user-owned; wizard completion, application readiness, and
+> domain-scoped instance lifecycle are not verified.
 
 This document defines which behavior belongs to the common OpenDock CLI and
 which behavior belongs to an individual service. The goal is to keep the user
@@ -102,12 +104,12 @@ workflow should invoke a capability through the narrow contract.
 
 OpenDock should behave like a small in-repository extension host:
 
-1. **Register by adding a service unit.** A bundle contribution adds
-   `services/bundles/<service-id>/compose.yml`; an optional service source lives
-   in the OpenDock-Services repository under `services/extensions/<service-id>/`.
-   Both use a versioned `opendock.toml` and only the optional capability
-   handlers they need. The catalog discovers and
-   validates it; maintainers do not edit a second central service list.
+1. **Register by installing a service package.** Source lives in the
+   OpenDock-Services repository under `services/extensions/<service-id>/`.
+   OpenDock discovers the installed release through
+   `services/extensions/installed.toml`. Each package has a versioned
+   `opendock.toml` and only the optional capability handlers it needs; no
+   second central service list is maintained.
 2. **Inspect before enabling behavior.** The catalog checks the stable ID,
    descriptor schema, declared capabilities, and required API version. An
    invalid or incompatible service fails with its own path and a corrective
@@ -311,22 +313,18 @@ handling; an unsupported declaration fails during discovery.
 
 ## Current code and migration targets
 
-The repository discovers only bundled services from
-`services/bundles/*/compose.yml`; old service trees are kept inactive in the
-local ignored `archive/`. Optional packages will enter discovery only through
-the explicit installation registry. Target, setup, configuration, secret,
-domain, and publishing helpers share the catalog. Setup fields and shared
-MariaDB/PostgreSQL setup dependencies live in service descriptors, while the
-common prompt and persistence workflow remains in `scripts/opendock-config.py`.
-After installation, `hermes/` declares `runtime_environment` and `prepare`; its Python
-capabilities own the Docker sandbox environment and idempotent model onboarding
-decision. Uptime Kuma demonstrates a service with no custom handler. Service
-commands are discovered from the resolved service directory's `commands/`; their help text and
-examples live in the same service's descriptor. Mastodon and Supabase declare
-`post_launch` and dispatch their application-specific helpers through their
-capability modules. Default hostname setting keys and Caddy snippet names are
-also declared as service routing metadata; the domain resolver no longer
-constructs them from service IDs.
+The repository discovers only package releases listed in
+`services/extensions/installed.toml`. Legacy bundle directories and service
+groups that name unavailable services are migration residue, not active
+services. Target, setup, configuration, secret, domain, and publishing helpers
+share the catalog. Setup fields and shared configuration dependencies live in
+service descriptors, while the common prompt and persistence workflow remains
+in `scripts/opendock-config.py`. Capability handlers are optional and limited
+to those registered by `ServiceCatalog.CAPABILITIES`; the current contract does
+not yet include service `setup` or application `readiness` hooks. Uptime Kuma
+has no custom handler and leaves its first-run database selection to the user.
+Service commands and default hostname/Caddy metadata are declared beside the
+package, not in a central per-service table.
 
 Some service-specific behavior remains to migrate:
 
@@ -341,20 +339,21 @@ Some service-specific behavior remains to migrate:
   owners come from component descriptors, and core/shared setup fields and file
   owners come from `config/core.toml` and `config/shared/*.toml`.
 - Removal uses a shared planner and service-declared `[removal]` resources.
-  All bundled services declare their cleanup scope. Shared database object
-  removal is delegated to adapter modules declared by the infra descriptor;
-  end-to-end removal on a clean isolated host remains outstanding.
+  Only installed services with an audited cleanup contract can be removed.
+  Shared database object removal is delegated to adapter modules declared by
+  the infra descriptor; end-to-end removal on a clean isolated host remains
+  outstanding.
 - Sync exclusion rules in the common CLI cover generic runtime paths such as
   data, backups, environment files, and static-site content.
 
 Some shared registries are legitimate: OpenDock still needs a single common
-source for platform-owned settings, group membership, and core capability
-validation. `services/groups.conf` is a platform-level operator grouping, not a
-service implementation registry. The goal is not to eliminate central metadata;
-it is to stop central code from encoding each service's application-specific
-behavior. Bundled service discovery begins with
-`services/bundles/*/compose.yml`; an adjacent versioned descriptor supplies
-optional capabilities. Core modules consume the
+source for platform-owned settings, optional operator groups, and core
+capability validation. `services/groups.conf` may define local group aliases,
+but the tracked file does not name product services. The goal is to stop
+central code from encoding each service's application-specific behavior.
+Installed service discovery begins with
+`services/extensions/installed.toml`; each package release supplies its
+versioned descriptor and optional capabilities. Core modules consume the
 catalog interface and do not maintain another hand-edited service list.
 
 ## Capability contract shape

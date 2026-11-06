@@ -38,8 +38,8 @@ maintainer source, not a customer access mechanism.
   optional capabilities supply application-specific facts and procedures.
 - The common path is zero-config where safe: infer machine-owned values,
   generate secrets, and perform declared prerequisites. Ask only for choices
-  that cannot be inferred safely. Failed external publication is a partial
-  state, not a successful public launch.
+  that cannot be inferred safely. Cloudflare configuration is required before
+  public launch; external publication failures must be reported clearly.
 
 ## Distribution and trust boundary
 
@@ -52,7 +52,12 @@ private GitHub. No GitHub token is shipped to a user's machine.
 The initial catalog is static JSON. The CLI performs search locally; no Worker
 or search API is required. R2 has distinct development and production
 environments. The CLI verifies a downloaded package's SHA-256 against the
-catalog before extraction.
+catalog before extraction, then validates compatibility metadata and the
+complete service descriptor before activating the release. The client enforces
+descriptor-schema and capability-API compatibility. It validates supported-host
+metadata but does not use that metadata to block installation. It cannot yet
+enforce the catalog's OpenDock version range because the platform has no
+explicit version source.
 
 The client read path is direct HTTPS object download, not a request to an
 OpenDock application API:
@@ -214,7 +219,8 @@ package installation:
 - The development wrapper selects the dev catalog, and the catalog URL is
   configured through the platform settings interface. A local
   `config/shared/cloudflare.toml` metadata error found during `update` was
-  corrected by registering the skip key under its owning Cloudflare section.
+  corrected by removing the obsolete Cloudflare skip setting and making the
+  Cloudflare setup fields required.
 - The installed release is discovered by `ServiceCatalog` through
   `services/extensions/installed.toml`. On the current checkout,
   `./opendock list services` lists Uptime Kuma and
@@ -227,7 +233,18 @@ package installation:
   the package release that was installed.
 
 This confirms catalog fetch, local search, checksum-verified download, package
-discovery, config validation, and metadata-driven setup. It does **not** verify
-service launch, readiness, upgrades, purge, domain-scoped instances, or
-production publishing. Legacy service files remain in the OpenDock checkout
-during the migration and are not the product model for new service work.
+discovery, config validation, and metadata-driven setup. The generic package
+launch path is now connected to configuration checks, declared shared
+prerequisites, service preparation, Compose startup waits, gateway routing, and
+required Cloudflare publication. Cloudflare settings are checked before
+starting public services. Local Compose configuration validation passed. The
+user later verified on Minibuntu that infra and Uptime Kuma became healthy and
+the public first-run database page loaded after correcting the Tunnel origin
+on the separate connector host. Kuma's database choice and setup are
+intentionally user-owned; OpenDock does not create its schema or account. The
+database wizard and post-setup app readiness remain unverified. Uptime Kuma has
+no declared Compose healthcheck or application readiness hook. Upgrades, purge, domain-scoped
+instances, multi-domain isolation, and production publishing remain
+unimplemented or unverified. Legacy service files remain in the OpenDock
+checkout during the migration and are not the product model for new service
+work.
