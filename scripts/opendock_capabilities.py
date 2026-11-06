@@ -105,10 +105,10 @@ _MODULES: dict[str, ModuleType] = {}
 CAPABILITY_HANDLERS = {
     "runtime_environment": "runtime_environment",
     "prepare": "prepare",
+    "post_start": "post_start",
     "plan_secrets": "plan_secrets",
     "generate_secrets": "generate_secrets",
     "validate_config": "validate_config",
-    "post_launch": "post_launch",
 }
 
 
@@ -234,16 +234,16 @@ def prepare(context: ServiceContext) -> PreparationResult:
     return result
 
 
-def post_launch(context: ServiceContext) -> None:
-    """Call an explicitly declared, service-owned post-launch capability."""
+def post_start(context: ServiceContext) -> None:
+    """Call a declared action after Compose starts, before route publication."""
     service = context.service
-    if not has_capability(service, "post_launch"):
+    if not has_capability(service, "post_start"):
         return
     module = _module_for(service)
-    handler = getattr(module, "post_launch", None)
+    handler = getattr(module, "post_start", None)
     if not callable(handler):
         raise CapabilityError(
-            f"Service {service.name!r} declares post_launch but does not implement it."
+            f"Service {service.name!r} declares post_start but does not implement it."
         )
     try:
         result = handler(context)
@@ -251,11 +251,11 @@ def post_launch(context: ServiceContext) -> None:
         raise
     except Exception as exc:
         raise CapabilityError(
-            f"Service {service.name!r} post-launch operation failed: {exc}"
+            f"Service {service.name!r} post-start operation failed: {exc}"
         ) from exc
     if result is not None:
         raise CapabilityError(
-            f"Service {service.name!r} post_launch must return None."
+            f"Service {service.name!r} post_start must return None."
         )
 
 

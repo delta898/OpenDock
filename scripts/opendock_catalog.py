@@ -59,6 +59,11 @@ class ServiceDefinition:
         return tuple(setup.get("optional_config", ()))
 
     @property
+    def lifecycle_messages(self) -> Mapping[str, str]:
+        lifecycle = self.descriptor.get("lifecycle", {})
+        return lifecycle.get("messages", {})
+
+    @property
     def removal(self) -> Mapping[str, object]:
         return self.descriptor.get("removal", {})
 
@@ -368,7 +373,7 @@ class ServiceCatalog:
     # are implemented. Unknown declarations must fail instead of being ignored.
     CAPABILITIES = frozenset({
         "runtime_environment", "prepare", "plan_secrets", "generate_secrets",
-        "validate_config", "post_launch",
+        "validate_config", "post_start",
     })
     BUILTIN_GENERATORS = frozenset({"url-safe", "alphanumeric", "hex"})
 
@@ -546,7 +551,7 @@ class ServiceCatalog:
             set(descriptor) - {
                 "schema_version", "service_id", "version", "display_name", "capability_api_version",
                 "capabilities", "dependencies", "commands", "setup", "routing", "removal",
-                "storage",
+                "storage", "lifecycle",
             }
         )
         if unknown_descriptor_fields:
@@ -579,6 +584,41 @@ class ServiceCatalog:
             raise CatalogError(
                 f"Service descriptor {path} declares unsupported capabilities: {', '.join(unknown)}"
             )
+
+        lifecycle = descriptor.get("lifecycle", {})
+        if not isinstance(lifecycle, dict):
+            raise CatalogError(f"Service descriptor {path} has invalid [lifecycle] metadata.")
+        unknown_lifecycle = sorted(set(lifecycle) - {"messages"})
+        if unknown_lifecycle:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported lifecycle fields: "
+                + ", ".join(unknown_lifecycle)
+            )
+        messages = lifecycle.get("messages", {})
+        if not isinstance(messages, dict):
+            raise CatalogError(
+                f"Service descriptor {path} has invalid [lifecycle.messages] metadata."
+            )
+        message_stages = {
+            "pre_prepare", "post_prepare", "pre_start", "post_start",
+            "pre_launch", "post_launch",
+        }
+        unknown_messages = sorted(set(messages) - message_stages)
+        if unknown_messages:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported lifecycle message stages: "
+                + ", ".join(unknown_messages)
+            )
+        for stage, message in messages.items():
+            if (
+                not isinstance(message, str)
+                or not message.strip()
+                or len(message) > 2000
+                or any(ord(character) < 32 and character not in "\n\t" for character in message)
+            ):
+                raise CatalogError(
+                    f"Service descriptor {path} has an invalid {stage} lifecycle message."
+                )
 
         api_version = descriptor.get("capability_api_version")
         if capabilities:

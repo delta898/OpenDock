@@ -688,8 +688,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   `services/hermes/opendock.toml`, `services/wordpress/opendock.toml`,
   `services/supabase/opendock.toml`, `services/mastodon/opendock.py`,
   `services/supabase/opendock.py`, `scripts/opendock-service.py`,
-  `services/mastodon/opendock-post-launch.py`,
-  `services/supabase/opendock-post-launch.py`
+  `services/extensions/mastodon/opendock-post-start.py`,
+  `services/extensions/supabase/opendock-post-start.py`
 - 주제: `서비스가 늘어도 CLI dispatcher가 비대해지지 않게 하려면`
 - 독자 질문: 공통 명령의 일관성을 유지하면서 setup, launch, remove의 서비스별
   차이를 어디에 두어야 하는가?
@@ -732,7 +732,7 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - Hermes는 `services/hermes/opendock.toml`과 `opendock.py`를 통해
     `runtime_environment` 및 `prepare` capability를 선언한다. 중첩 Docker sandbox의
     환경값과 first-run model onboarding 판정을 서비스 소유 코드로 이동했다.
-    Mastodon/Supabase post-launch 작업도 descriptor가 `post_launch`를 선언하고
+    Mastodon/Supabase 후속 작업도 descriptor가 `post_start`를 선언하고
     서비스 capability handler를 거치도록 바꿨다. helper 파일명만으로 자동 실행되는
     경로는 제거했다.
   - 기본 hostname은 서비스 ID에서 `<SERVICE>_SUBDOMAIN`과 Caddy snippet 이름을
@@ -751,6 +751,20 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     같은 coordinator를 사용한다. Supabase의 초기 functions.env 준비도 해당 서비스의
     `prepare` capability로 옮겼다. 이 구조는 신뢰된 checkout의 Python 코드이며
     보안 sandbox가 아니라는 경계도 문서에 기록했다.
+  - 사용자가 실제 n8n 첫 launch에서 OpenDock이 완료 링크를 출력한 뒤에도
+    Cloudflare gateway 오류, `/get`, setup 화면이 차례로 나타나며 오래 걸리는 것을
+    관찰했다. Compose `--wait`는 컨테이너 실행/선언된 healthcheck까지만 확인하므로
+    애플리케이션 bootstrap 완료와 같지 않다는 점을 기준으로 삼았다. 단계 이름을
+    `prepare`(설정·비밀값·저장소·공유 prerequisite·서비스 준비), `start`(서비스 Compose
+    기동 확인), `launch`(gateway와 public route 게시)로 분리했다. Descriptor에는
+    선택적 `[lifecycle.messages]`의 `pre_prepare`/`post_prepare`, `pre_start`/`post_start`,
+    `pre_launch`/`post_launch` 여섯 메시지 지점을 두고, 선언되지 않은 지점은 출력하지
+    않는다. 실행 action은 `prepare`와 Compose 기동 후 route 게시 전의 `post_start`로
+    구분한다. 이전 `post_launch` action 이름은 pre-release라 호환 alias 없이 없앴다.
+    n8n v2/v3는 `pre_start`에서 느린 첫 구동을 예고하고 `post_launch`에서 route 게시 뒤에도
+    bootstrap이 계속될 수 있음을 알린다. Uptime Kuma는 별도 hook/message가 없어도
+    descriptor가 유효한 단순 서비스 예로 남는다. 앱별 readiness는 별도 판정 방식과
+    timeout 계약이 필요하므로 다음 단계로 미뤘다.
   - Hermes 제거 기능은 중앙 전용 코드에서 공통 제거기로 전환하고, `[removal]`
     descriptor에 `data/sandboxes`, 추가 sandbox 이미지, 컨테이너 label과 소유 mount
     path를 선언한다. 공통 제거기는 이 선언을 확인해 Compose 자원,
@@ -841,6 +855,14 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     descriptor만 있으면 중앙 CLI 분기 없이 catalog가 검색한다는 점, 공개 Caddy route에는
     gateway snippet이 필요하고 미지원 shared group/capability는 플랫폼 변경이라는 경계를
     명시했다. 실제 신규 서비스를 이 guide/prompt만으로 완성한 기여자 검증은 아직 없다.
+  - lifecycle 계약 업데이트는 `codex/service-lifecycle-hooks`와
+    `codex/service-lifecycle-messages` feature branch에서 작업 중이다. OpenDock의
+    `test_cli.py` 14개, `test_lifecycle_contract.py` 4개, `test_distribution.py` 8개와
+    OpenDock-Services의 release pipeline 7개 테스트가 통과했다. n8n-v2/v3 0.1.1 package를
+    임시 디렉터리에 빌드해 descriptor validator로 검사했고, Uptime Kuma의 hook 없는
+    descriptor와 Mastodon/Supabase `post_start` handler를 확인했다. 사용자가 관찰한 느린
+    n8n bootstrap은 실환경에서 발생한 현상이나, 새 안내 메시지는 아직 배포해 확인하지
+    않았다. 코드도 아직 commit/push/CI publish되지 않았다.
   - 사용자가 `./opendock setup hermes`에서 기본값에 Enter를 눌렀는데도
     `HERMES_SUBDOMAIN`이 변경된 것으로 표시됐다. 기본값 migration 직후 setup이
     이미 실효값인 tracked default를 private `.env`에 다시 쓰는 경로로 판단해,
@@ -865,7 +887,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   깨끗한 데이터의 첫 onboarding, 모든 서비스 removal 후의 깨끗한 환경 전체 실행,
     Linux/macOS 양쪽 동작도 미검증이다. 이번 infra descriptor 이동은 정적
     구문/차이 검토까지만 했으며 setup/secrets 실행과 설정 migration 영향은
-    아직 검증하지 않았다.
+    아직 검증하지 않았다. 이후 lifecycle hook 후속 작업은 로컬 unit test와 n8n package
+    build/descriptor validation까지 통과했지만, 실제 dev package publish 및 새 안내 문구의
+    사용자 환경 확인은 남아 있다.
 
 ## OD-018. 여러 사용자가 쓸 Notion 대안을 홈서버에 고르기
 

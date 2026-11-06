@@ -1,11 +1,12 @@
 """Checks for the public CLI without starting Docker or contacting Cloudflare."""
 
 import importlib.util
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -30,15 +31,17 @@ class CLITests(unittest.TestCase):
     def test_launch_auto_installs_and_sets_up_a_catalog_package(self):
         destination = ROOT / "services/extensions/n8n-v2/releases/0.1.0"
         catalog = {"services": [{"service_id": "n8n-v2"}]}
+        output = StringIO()
         with mock.patch.dict("os.environ", {"OPENDOCK_PACKAGE_ENVIRONMENT": "dev"}), \
              mock.patch.object(cli, "fetch_catalog", return_value=(catalog, Path("cache"))) as fetch, \
              mock.patch.object(cli, "install_package", return_value=destination) as install, \
              mock.patch.object(cli.sys.stdin, "isatty", return_value=True), \
-             mock.patch.object(cli, "script") as run_setup:
-            cli.install_package_for_launch("n8n-v2")
+             redirect_stdout(output):
+            result = cli.install_package_for_launch("n8n-v2")
         fetch.assert_called_once_with("dev")
         install.assert_called_once_with("dev", "n8n-v2", catalog, ROOT)
-        run_setup.assert_called_once_with("opendock-config.py", "n8n-v2")
+        self.assertIsNone(result)
+        self.assertIn("continuing through prepare and launch", output.getvalue())
 
     def test_keyboard_interrupt_exits_cleanly(self):
         stderr = StringIO()
@@ -67,6 +70,43 @@ class CLITests(unittest.TestCase):
         self.assertEqual(check.call_args_list, [
             mock.call("n8n-v2", quiet=True),
             mock.call("n8n-v2", quiet=True),
+        ])
+
+    def test_lifecycle_dispatch_prints_only_declared_messages(self):
+        catalog = mock.Mock()
+        catalog.get.side_effect = [
+            SimpleNamespace(
+                display_name="Example service",
+                lifecycle_messages={"pre_start": "This may take a while."},
+            ),
+            SimpleNamespace(display_name="Plain service", lifecycle_messages={}),
+        ]
+        output = StringIO()
+        with mock.patch.object(cli, "ServiceCatalog", return_value=catalog), \
+             redirect_stdout(output):
+            cli.show_lifecycle_messages(["example", "plain"], "pre_start")
+        self.assertEqual(output.getvalue(), "==> Example service: This may take a while.\n")
+
+    def test_prepare_messages_bracket_setup_prerequisites_and_prepare_action(self):
+        events = []
+        catalog = mock.Mock()
+        catalog.get.return_value = SimpleNamespace(storage_mounts=())
+        with mock.patch.object(cli, "ServiceCatalog", return_value=catalog), \
+             mock.patch.object(cli, "validate_service_capabilities", side_effect=lambda _service: events.append("validate")), \
+             mock.patch.object(cli, "has_capability", return_value=False), \
+             mock.patch.object(cli, "show_lifecycle_messages", side_effect=lambda _items, stage: events.append(stage)), \
+             mock.patch.object(cli, "ensure_service_configuration", side_effect=lambda _service: events.append("setup")), \
+             mock.patch.object(cli, "script", side_effect=lambda *args: events.append("optional-setup")), \
+             mock.patch.object(cli, "ensure_service_storage_configuration", side_effect=lambda _service: events.append("storage-config")), \
+             mock.patch.object(cli, "prepare_service_storage", side_effect=lambda _service: events.append("storage-check")), \
+             mock.patch.object(cli, "start_service_dependencies", side_effect=lambda _items, **_kwargs: events.append("dependencies") or {"infra"}), \
+             mock.patch.object(cli, "run_service_preparations", side_effect=lambda _items: events.append("prepare-action")):
+            started = cli.launch_service_set(["example-service"])
+        self.assertEqual(started, {"infra"})
+        self.assertEqual(events, [
+            "validate", "pre_prepare", "setup", "optional-setup",
+            "storage-config", "storage-check", "dependencies",
+            "prepare-action", "post_prepare",
         ])
 
     def test_help_shows_current_workflows_and_generic_route_examples(self):
@@ -146,9 +186,10 @@ class CLITests(unittest.TestCase):
              mock.patch.object(cli, "ensure_cloudflare_configuration") as cloudflare, \
              mock.patch.object(cli, "launch_service_set", return_value={"infra"}) as start_deps, \
              mock.patch.object(cli, "lifecycle") as lifecycle, \
-             mock.patch.object(cli, "post_launch") as post_launch, \
+             mock.patch.object(cli, "run_post_start_actions") as post_start, \
              mock.patch.object(cli, "reload_gateway") as gateway, \
-             mock.patch.object(cli, "publish") as publish:
+             mock.patch.object(cli, "publish") as publish, \
+             mock.patch.object(cli, "show_lifecycle_messages") as messages:
             domains.return_value.resolve_routes.return_value = [route]
             cli.launch("blog.example.com")
         start_deps.assert_called_once_with(["wordpress"])
@@ -156,9 +197,15 @@ class CLITests(unittest.TestCase):
         lifecycle.assert_called_once_with(
             "up", "wordpress", already_started={"infra"}, wait=True
         )
-        post_launch.assert_called_once_with("wordpress")
+        post_start.assert_called_once_with("wordpress")
         gateway.assert_called_once()
         publish.assert_called_once_with("blog.example.com")
+        self.assertEqual(messages.call_args_list, [
+            mock.call(["wordpress"], "pre_start"),
+            mock.call(["wordpress"], "post_start"),
+            mock.call(["wordpress"], "pre_launch"),
+            mock.call(["wordpress"], "post_launch"),
+        ])
 
     def test_sync_dry_run_includes_worktree_files_and_previews_pruning(self):
         with tempfile.TemporaryDirectory() as temp_dir:

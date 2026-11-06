@@ -175,7 +175,7 @@ discovering plugins].
 | `list`, `info` | Discover services, groups, targets; render consistent output | Declare display metadata or service-specific status details when needed |
 | `setup`, `secrets`, `check-config` | Prompt and secret UX, config loading/writing, validation engine, safe file permissions, common errors | Declare fields, defaults, validation rules, secret relationships, and service-specific setup steps |
 | `up`, `down`, `start`, `stop`, `restart`, `pull`, `build`, `config`, `ps`, `logs` | Resolve targets, validate where applicable, invoke Compose consistently, report failures | Declare Compose project; provide a hook only when the ordinary Compose operation is insufficient |
-| `launch` | Order the workflow: configuration check, shared prerequisites, service preparation, Compose start, gateway reload, route publication | Declare prerequisites and supported pre-launch/onboarding or post-launch operations |
+| `launch` | Order the workflow: configuration check, shared prerequisites, service preparation, Compose start, gateway reload, route publication | Declare prerequisites and optional pre-start/post-start operations |
 | `route`, `publish` | Own hostname mapping format, Caddy rendering, Cloudflare integration, common validation and output | Declare default hostname and upstream information; do not implement a parallel route manager |
 | `purge` | Resolve one service, request confirmation, show a plan, execute common cleanup primitives, report results | Declare owned resources and preservation boundaries; provide custom cleanup for resources Compose cannot safely identify |
 | `service <name> <command>` | Discover commands, provide common help/dispatch and environment context | Implement optional service-specific operations under that service directory |
@@ -287,8 +287,27 @@ The first contract is intentionally small and lives in these files:
   `capability_api_version`.
 - A service's `opendock.py` implements only the procedures named by its
   descriptor. API version 1 supports `runtime_environment(context)`,
-  `prepare(context)`, `plan_secrets(context)`,
+  `prepare(context)`, `post_start(context)`, `plan_secrets(context)`,
   `generate_secrets(context)`, and `validate_config(context)`.
+
+The common lifecycle has optional informational message points and optional
+typed action capabilities:
+
+| Point | Kind | Exact position |
+| --- | --- | --- |
+| `[lifecycle.messages].pre_prepare` | Descriptor message | After target resolution and before setup, secret, storage, or prerequisite preparation |
+| `[lifecycle.messages].post_prepare` | Descriptor message | After setup/configuration, storage validation, shared prerequisites, and service preparation succeed |
+| `prepare(context)` | Service action | After shared prerequisites start, before the service Compose project starts |
+| `[lifecycle.messages].pre_start` | Descriptor message | Immediately before starting the service Compose project |
+| `post_start(context)` | Service action | After Compose reports running/healthy, before gateway reload and public route publication |
+| `[lifecycle.messages].post_start` | Descriptor message | After Compose startup and the `post_start` action succeed |
+| `[lifecycle.messages].pre_launch` | Descriptor message | Immediately before gateway reload and public route publication |
+| `[lifecycle.messages].post_launch` | Descriptor message | After gateway reload and route publication succeed |
+
+Undeclared points are skipped. The `post_launch` name is reserved for the
+message after the complete public launch; action code after Compose startup is
+declared as `post_start(context)`. Application-level readiness is a separate
+future point and is not implemented yet.
 
 `RuntimeContext` gives the service identity and Docker socket path.
 `ServiceContext` gives the service identity, read-only values owned by that
@@ -367,11 +386,18 @@ The shared contract should be deliberately small and explicit:
 - **Configuration capabilities:** optional validation and secret-bundle
   generation. They receive the selected service's values and return issues or
   values; the common settings store performs writes and secure file handling.
-- **Lifecycle capabilities:** API v1 supports optional `prepare` and
-  `post_launch` operations. `prepare` runs only after common configuration
-  checks and shared prerequisites. It must be idempotent and report
-  `not_needed`, `completed`, or a structured failure. Health reporting is not
-  implemented yet.
+- **Lifecycle phases:** `prepare` covers setup, configuration, storage and
+  shared prerequisites; `start` starts the service Compose project and waits
+  for its declared health condition; `launch` publishes the public route.
+  Optional `[lifecycle.messages]` stages are `pre_prepare`, `post_prepare`,
+  `pre_start`, `post_start`, `pre_launch`, and `post_launch`. The common
+  dispatcher prints only declared messages. Post-stage messages appear only
+  after that phase succeeds and never affect the result.
+- **Lifecycle actions:** API v1 supports optional `prepare` before service
+  Compose start and `post_start` after Compose reports running/healthy but
+  before route publication. Both are service-scoped actions; the common layer
+  retains setup validation, shared prerequisite ordering, Compose, and route
+  publication. Application readiness checks are not implemented.
 - **Removal contract:** the service descriptor declares service-owned data
   paths, extra images, database/role setting keys, and labeled non-Compose
   containers that must mount those paths. The shared remover applies declared

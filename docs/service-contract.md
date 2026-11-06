@@ -161,8 +161,8 @@ handler = "opendock.py:prepare"
 [capabilities.readiness]
 handler = "opendock.py:readiness"
 
-[capabilities.post_launch]
-handler = "opendock.py:post_launch"
+[capabilities.post_start]
+handler = "opendock.py:post_start"
 
 [capabilities.validate_config]
 handler = "opendock.py:validate_config"
@@ -268,14 +268,32 @@ handler. Capability names below are generic and contain no service IDs:
 | `runtime_environment` | Before Compose rendering for an instance | Optional. Returns validated computed environment values. Prefer declarative runtime fields when possible; never return values for another instance. |
 | `setup` | `setup <service> --domain <domain>` and incomplete setup inside `launch` | Optional. Performs setup requiring actual platform resources, such as creating an instance-owned database/schema. Configuration-only services omit it. Declared `requires` adapters start first. Idempotent and non-interactive. |
 | `prepare` | `launch`, after config/setup checks, before target runtime start | Optional. Idempotent, non-interactive per-instance preparation required before start. Must not repeat an upstream interactive wizard merely to review settings. |
-| `post_launch` | `launch`, after runtime starts and basic container health passes | Optional. Performs a declared app-specific post-start action. Must be idempotent and report incomplete state; it cannot bypass common route publication. |
-| `readiness` | `launch`, after any post-launch action | Optional. Checks final application-level readiness and returns a typed ready/not-ready result. It does not change global routes or claim success while unhealthy. |
+| `post_start` | `launch`, after Compose starts and before route publication | Optional. Performs a declared app-specific post-start action. Must be idempotent and report incomplete state; it cannot bypass common route publication. |
+| `readiness` | Future `launch` stage, after post-start actions and before route publication | Planned, not currently supported. It will check application readiness and return a typed ready/not-ready result without changing global routes. |
 | `upgrade` | Explicit `upgrade` when a service migration procedure is declared | Optional. Receives from/to package versions and the selected instance. Must declare reversibility and recovery guidance. The platform does not promise rollback after an irreversible data migration. |
 | `purge` | `purge`, only after the common removal plan is displayed and confirmed | Optional. Removes only descriptor-declared resources using scoped adapters. Cannot broaden the confirmed plan. |
 
+The supported launch hooks run at distinct points:
+
+| Hook point | Type | Runs when | If absent |
+| --- | --- | --- | --- |
+| `lifecycle.messages.pre_prepare` | Informational message | After target resolution and before setup, secret, storage, or prerequisite preparation | No message is printed |
+| `lifecycle.messages.post_prepare` | Informational message | After setup/configuration, storage validation, shared prerequisites, and `prepare` action succeed | No message is printed |
+| `prepare` | Action capability | After shared prerequisites start, before the service Compose project starts | No action runs |
+| `lifecycle.messages.pre_start` | Informational message | Immediately before starting the service Compose project | No message is printed |
+| `post_start` | Action capability | After Compose reports running/healthy, before gateway and route publication | No action runs |
+| `lifecycle.messages.post_start` | Informational message | After Compose start and the `post_start` action succeed | No message is printed |
+| `lifecycle.messages.pre_launch` | Informational message | Immediately before gateway reload and public route publication | No message is printed |
+| `lifecycle.messages.post_launch` | Informational message | After gateway reload and public route publication succeed | No message is printed |
+| `readiness` | Planned action capability | Not implemented; intended after `post_start`, before route publication | Not available yet |
+
+Compose startup success does not mean the application is ready unless its
+Compose health check actually measures that readiness. A service's
+`messages.post_launch` must not claim otherwise.
+
 This preserves useful operations already exercised by the current repository
 (`runtime_environment`, secret planning/generation, config validation,
-`prepare`, and `post_launch`) while adding the missing setup, readiness,
+`prepare`, and post-start actions) while adding the missing setup, readiness,
 upgrade, and purge contracts. It does not preserve their current signatures or
 implementation paths. A new optional capability can be additive within API
 major 1; changing an existing capability's meaning requires a new API major.
@@ -286,6 +304,25 @@ common coordinator treats that capability ID as opaque, expands related keys
 through optional `plan_secrets`, asks `generate_secrets` for values, validates
 that the returned keys are declared for the capability, and securely persists
 them. Core does not add service-specific generator branches.
+
+Lifecycle messages do not require executable capability code. A service may
+declare any subset of the six `[lifecycle.messages]` stages. The common
+dispatcher prints a pre-stage message just before that phase and a post-stage
+message only after success. Messages are informational and cannot change the
+workflow result. Action stages remain optional capabilities: `prepare` handles
+service preparation after shared prerequisites, and `post_start` handles
+app-specific work after Compose startup but before public route publication.
+A service with no declaration or capability is skipped without a placeholder
+handler.
+
+The three phases have fixed meanings: **prepare** resolves required setup,
+secrets, storage, shared prerequisites, and service preparation; **start**
+starts the service Compose project and waits for its declared health condition;
+**launch** applies gateway configuration and publishes the public route. If no
+Compose healthcheck measures application readiness, successful `start` only
+means the container is running. A service may not imply app readiness in its
+messages unless it declares a readiness mechanism; that capability is planned
+but not implemented yet.
 
 ### `setup` and prerequisite behavior
 
@@ -390,13 +427,20 @@ containers, or execute capabilities.
    generators and optional `plan_secrets`/`generate_secrets` capabilities.
 3. Ask optional `validate_config` for issues; block before runtime changes if
    required values are invalid.
-4. Complete incomplete `setup`, including only declared infrastructure
-   prerequisites, then run optional `prepare`.
-5. Resolve optional `runtime_environment`, render Compose, and start the target
-   project; wait for common health checks.
-6. Run optional `post_launch`, then check optional application `readiness`.
-7. Apply the descriptor-owned route; publish external tunnel/DNS only if
-   configured. Report partial state precisely when public exposure is absent.
+4. Print optional `lifecycle.messages.pre_prepare`; complete incomplete
+   `setup`, generate required secrets, and validate storage/configuration.
+5. Start declared shared prerequisites, run optional `prepare`, then print
+   optional `lifecycle.messages.post_prepare`.
+6. Print optional `lifecycle.messages.pre_start`, resolve optional
+   `runtime_environment`, render Compose, and start the target project; wait
+   for its running/health condition.
+7. Run optional `post_start`, then print optional
+   `lifecycle.messages.post_start`. A future readiness hook will run here
+   before the route is published.
+8. Print optional `lifecycle.messages.pre_launch`, apply the descriptor-owned
+   route, and publish external tunnel/DNS. After successful publication, print
+   optional `lifecycle.messages.post_launch`. Report partial state precisely
+   when public exposure is absent.
 
 Core owns ordering, Compose, gateway, route publication, and output. The
 service hook owns only application-specific decisions/operations.

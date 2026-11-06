@@ -26,7 +26,7 @@ from opendock_capabilities import (
     ComposeOperations,
     ServiceContext,
     has_capability,
-    post_launch as run_service_post_launch,
+    post_start as run_service_post_start,
     prepare as prepare_service,
     runtime_environment as service_runtime_environment,
     validate_service_capabilities,
@@ -323,14 +323,14 @@ def lifecycle(command, target, *, already_started=(), wait=False):
             )
 
 
-def post_launch(target):
+def run_post_start_actions(target):
     selected = services() if target in ("all", "services") else (
         [] if target in ("infra", "gateway") else targets(target))
     for item in selected:
         definition = ServiceCatalog(ROOT).get(item)
-        if has_capability(definition, "post_launch"):
-            print(f"==> {item}: post-launch", flush=True)
-            run_service_post_launch(service_context(item))
+        if has_capability(definition, "post_start"):
+            print(f"==> {item}: post-start action", flush=True)
+            run_service_post_start(service_context(item))
 
 
 def service_context(service):
@@ -406,8 +406,7 @@ def install_package_for_launch(service):
             f"Package installed. Run './opendock setup {service}' interactively, "
             f"then './opendock launch {service}'."
         )
-    print(f"==> {service}: setup", flush=True)
-    script("opendock-config.py", service)
+    print(f"==> {service}: continuing through prepare and launch", flush=True)
 
 
 def ensure_cloudflare_configuration():
@@ -475,6 +474,14 @@ def run_service_preparations(selected):
             print(f"==> {service}: {result.message}", flush=True)
 
 
+def show_lifecycle_messages(selected, stage):
+    for service in selected:
+        definition = ServiceCatalog(ROOT).get(service)
+        message = definition.lifecycle_messages.get(stage)
+        if message:
+            print(f"==> {definition.display_name}: {message}", flush=True)
+
+
 def prepare_service_set(selected, *, configure_missing=False):
     for service in selected:
         validate_service_capabilities(ServiceCatalog(ROOT).get(service))
@@ -493,6 +500,7 @@ def prepare_service_set(selected, *, configure_missing=False):
 def launch_service_set(selected):
     for service in selected:
         validate_service_capabilities(ServiceCatalog(ROOT).get(service))
+    show_lifecycle_messages(selected, "pre_prepare")
     # Configuration is a prerequisite for every service. Service preparation
     # hooks add application-specific work, but must not gate common setup.
     for service in selected:
@@ -509,6 +517,7 @@ def launch_service_set(selected):
         prepare_service_storage(service)
     started = start_service_dependencies(selected, wait=True)
     run_service_preparations(preparable)
+    show_lifecycle_messages(selected, "post_prepare")
     return started
 
 
@@ -560,10 +569,14 @@ def launch(target):
         service = route["target"]
         ensure_cloudflare_configuration()
         already_started = launch_service_set([service])
+        show_lifecycle_messages([service], "pre_start")
         lifecycle("up", service, already_started=already_started, wait=True)
-        post_launch(service)
+        run_post_start_actions(service)
+        show_lifecycle_messages([service], "post_start")
+        show_lifecycle_messages([service], "pre_launch")
         reload_gateway()
         publish(target)
+        show_lifecycle_messages([service], "post_launch")
         return
     if "." in target:
         raise CLIError(f"No route is configured for hostname: {target}\n"
@@ -590,11 +603,15 @@ def launch(target):
         # Commit default routes only after setup prompts and service preparation
         # complete, so a cancelled launch does not leave a route behind.
         script("opendock-domains.py", "add-defaults", *selected_services)
+    show_lifecycle_messages(selected_services, "pre_start")
     lifecycle("up", target, already_started=already_started, wait=True)
-    post_launch(target)
+    run_post_start_actions(target)
+    show_lifecycle_messages(selected_services, "post_start")
     if target != "infra":
+        show_lifecycle_messages(selected_services, "pre_launch")
         reload_gateway()
         publish(target)
+        show_lifecycle_messages(selected_services, "post_launch")
 
 
 def route(command, hostname=None, service=None):
