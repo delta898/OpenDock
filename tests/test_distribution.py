@@ -16,7 +16,7 @@ class DistributionTests(unittest.TestCase):
     def catalog(self, **release_overrides):
         release = {
             "version": "1.0.0",
-            "artifact": "packages/uptime-kuma/1.0.0/opendock-service.zip",
+            "artifact": "packages/example-service/1.0.0/opendock-service.zip",
             "sha256": "a" * 64,
             "size_bytes": 12,
             **release_overrides,
@@ -25,8 +25,8 @@ class DistributionTests(unittest.TestCase):
             "catalog_schema_version": 1,
             "catalog_revision": "test",
             "services": [{
-                "service_id": "uptime-kuma",
-                "display_name": "Uptime Kuma",
+                "service_id": "example-service",
+                "display_name": "Example Service",
                 "summary": "Monitoring",
                 "tags": ["monitoring"],
                 "releases": [release],
@@ -35,10 +35,10 @@ class DistributionTests(unittest.TestCase):
 
     def test_accepts_catalog_with_service_scoped_artifact(self):
         catalog = validate_catalog(json.dumps(self.catalog()).encode())
-        self.assertEqual(catalog["services"][0]["service_id"], "uptime-kuma")
+        self.assertEqual(catalog["services"][0]["service_id"], "example-service")
 
     def test_rejects_artifact_path_escape(self):
-        raw = json.dumps(self.catalog(artifact="packages/uptime-kuma/../../evil.zip")).encode()
+        raw = json.dumps(self.catalog(artifact="packages/example-service/../../evil.zip")).encode()
         with self.assertRaises(DistributionError):
             validate_catalog(raw)
 
@@ -60,7 +60,6 @@ class DistributionTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 with self.assertRaises(DistributionError):
                     _safe_extract(archive, Path(directory))
-
 
 if __name__ == "__main__":
     unittest.main()

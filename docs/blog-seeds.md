@@ -1193,3 +1193,35 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   않았다. 현재 구현은 catalog의 `supported_hosts` 값을 구조적으로 검증하지만, 그 값으로
   현재 호스트의 설치 가능 여부를 차단하지 않는다. Uptime Kuma의 macOS 지원 여부는 공식
   자료를 확인하지 않았으므로 미확정이며, 이 기록은 지원 제한으로 해석하면 안 된다.
+
+## OD-021. n8n 3.x early access를 기본 self-hosted 서비스에 바로 채택하지 않기
+
+- 상태: `seed`
+- 관련 문서: `OpenDock-Services/services/extensions/n8n-v2/README.md`,
+  `OpenDock-Services/services/extensions/n8n-v2/.env.default`,
+  `OpenDock-Services/services/extensions/n8n-v3/README.md`
+- 주제: `새 메이저 버전보다 안정 채널과 데이터 migration 경계를 먼저 확인하기`
+- 독자 질문: 새 메이저 버전이 공개됐을 때 self-hosted 기본 이미지를 즉시 올릴지,
+  별도 서비스 ID로 분리할지 어떤 근거로 결정할까?
+- 참고할 사항:
+  - 이 작업 중 사용자가 n8n 3.x 채택과 2.x/3.x 별도 service를 제안했다. 공식
+    release/docs를 확인한 시점에 3.0은 early access로 표기됐고, 안정 release 목록은
+    2.46.6까지 확인됐다.
+  - 공식 3.0 breaking changes 문서는 migration report 사용을 권하고, 여러 legacy node
+    제거, binary storage 경로 변경, 보안/config 기본값 변화 등을 기록한다. 서비스는
+    workflows, credentials, encryption key를 named volume과 private config에 보관하므로,
+    일반 launch에서 기존 volume을 새 major에 넘기는 것은 데이터/동작 영향이 있다.
+  - 구현 판단은 stable `n8n` package를 2.46.6으로 고정하고, 3.x를 별도 service ID로
+    복제하지 않는 것이다. 하지만 사용자는 두 major를 분리 실행하는 방향을 선택해 stable
+    `n8n-v2`와 early access `n8n-v3`로 나눴다. 둘은 각각 `n8n-v2`/`n8n-v3`
+    hostname, package ID,
+    container, named volume, encryption key를 사용한다. 별도 ID는 단순 version alias가 아니라
+    독립 데이터 경계를 제공한다.
+  - 근거: 공식 `v30-breaking-changes.md`, official release notes, n8n Docker image tags;
+    `OpenDock-Services/services/extensions/n8n-v2/.env.default`와
+    `OpenDock-Services/services/extensions/n8n-v3/.env.default`의 image pin 및 README 경고.
+  - 검증 구분: 공식 페이지에서 early-access status와 migration scope를 확인했다. 실제 n8n
+    2.x/3.x 컨테이너, workflow migration, restore/rollback은 아직 검증되지 않았다.
+  - 글에서는 “새 major를 피해야 한다”는 일반 규칙으로 단순화하지 말고, 릴리스 채널,
+    service data ownership, migration tooling, rollback 가능성을 확인해 기본값과 실험 경로를
+    나누는 판단 과정을 보존한다.
