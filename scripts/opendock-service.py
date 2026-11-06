@@ -8,9 +8,10 @@ from opendock_catalog import ServiceCatalog
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-SERVICES_DIR = ROOT_DIR / "services"
+
+
 def service_dir(name):
-    return SERVICES_DIR / name
+    return ServiceCatalog(ROOT_DIR).get(name).directory
 
 
 def command_dir(name):
@@ -130,6 +131,7 @@ def main():
     env["OPENDOCK_ROOT"] = str(ROOT_DIR)
     env["OPENDOCK_SERVICE"] = target
     env["OPENDOCK_SERVICE_COMMAND"] = command
+    env["OPENDOCK_SERVICE_DIR"] = str(service_dir(target))
 
     result = subprocess.run([str(script), *extra_args], cwd=ROOT_DIR, env=env)
     return result.returncode

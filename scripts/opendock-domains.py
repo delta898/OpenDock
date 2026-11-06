@@ -92,7 +92,6 @@ def resolve_routes():
 def validate_routes(routes):
     seen = {}
     catalog = ServiceCatalog(ROOT)
-    caddy_files = tuple((ROOT / "gateway" / "caddy" / "conf.d").glob("*.caddy"))
     for route in routes:
         hostname = route["hostname"].lower()
         if not HOST_RE.fullmatch(hostname):
@@ -110,10 +109,8 @@ def validate_routes(routes):
                 raise SystemExit(
                     f"Service {service.name} does not declare public routing metadata."
                 )
-            handler_found = any(
-                f"({handler})" in path.read_text() for path in caddy_files
-            )
-            if not handler_found:
+            handler_file = catalog.routing_file(service)
+            if handler_file is None or not handler_file.is_file() or f"({handler})" not in handler_file.read_text():
                 raise SystemExit(f"Missing Caddy handler {handler} for service {service.name}.")
         else:
             if route["target"] != hostname.rstrip("."):
@@ -213,7 +210,15 @@ def render_routes(routes):
         hostname = route["hostname"]
         if route["type"] == "docker":
             service = catalog.get(route["target"])
-            handler = f"import {service.routing['caddy_handler']}"
+            handler_path = catalog.routing_file(service)
+            if catalog.is_extension(service.name):
+                relative = handler_path.relative_to(service.directory).as_posix()
+                active_release = service.directory.relative_to(
+                    ROOT / "services" / "extensions"
+                ).as_posix()
+                handler = f"import /etc/opendock/extensions/{active_release}/{relative}"
+            else:
+                handler = f"import {service.routing['caddy_handler']}"
         else:
             handler = "\n".join(
                 [

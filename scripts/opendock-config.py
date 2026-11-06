@@ -58,12 +58,14 @@ def resolve_sections(target):
         services = service_targets()
     elif target in platform_components or target in CONFIG_FIELDS:
         services = []
-    elif (ROOT_DIR / "services" / target / "compose.yml").is_file():
+    elif target in catalog.names:
         services = [target]
     else:
         group = group_services(target)
         if not group:
-            raise SystemExit(f"Unknown target or missing compose.yml: {target}")
+            raise SystemExit(
+                f"Service '{target}' is not installed. Install its OpenDock package first."
+            )
         validate_services(group)
         services = group
 
@@ -86,6 +88,8 @@ def resolve_sections(target):
     )
     if target in SETTINGS.CONFIG_SECTIONS and target != "core":
         sections.append(target)
+    if target == "all":
+        sections.append("cloudflare")
 
     for service in services:
         sections.append(service)
@@ -126,6 +130,12 @@ def offer_optional_configs(config_ids, values, *, selected):
     updates = {}
     for config_id in config_ids:
         if config_id in selected or not optional_config_needed(config_id, values):
+            continue
+        if not sys.stdin.isatty():
+            print(
+                f"Skipping optional {config_id} setup in non-interactive mode. "
+                f"Run './opendock setup {config_id}' to configure it later."
+            )
             continue
         prompt = SETTINGS.CONFIG_OPTIONAL_PROMPTS[config_id]
         answer = input(

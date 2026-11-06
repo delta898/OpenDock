@@ -66,7 +66,7 @@ def domains_module():
 
 
 def compose_prefix(service):
-    directory = ROOT / "services" / service
+    directory = ServiceCatalog(ROOT).get(service).directory
     command = ["docker", "compose", "--project-directory", directory]
     for env_file in compose_env_files(service):
         command += ["--env-file", env_file]
@@ -191,8 +191,9 @@ def routes_for_removal(domains):
 
 
 def owned_path(service, relative):
-    service_root = (ROOT / "services" / service).resolve()
-    current = ROOT / "services" / service
+    service_directory = ServiceCatalog(ROOT).get(service).directory
+    service_root = service_directory.resolve()
+    current = service_directory
     for part in Path(relative).parts:
         current = current / part
         if current.is_symlink():
@@ -201,7 +202,9 @@ def owned_path(service, relative):
     try:
         resolved.relative_to(service_root)
     except ValueError as exc:
-        raise RemovalError(f"Declared removal path escapes services/{service}: {relative}") from exc
+        raise RemovalError(
+            f"Declared removal path escapes {service_directory.relative_to(ROOT)}: {relative}"
+        ) from exc
     return current
 
 
@@ -256,12 +259,16 @@ def build_plan(service):
             "This service must declare its resource ownership before it can be removed."
         )
     service_dir = definition.directory
-    service_config = service_dir / ".env"
+    extension_service = service_dir.is_relative_to(ROOT / "services" / "extensions")
+    service_config = (
+        CONFIG / "extensions" / f"{service}.env"
+        if extension_service else service_dir / ".env"
+    )
     legacy_service_config = CONFIG / "services" / f"{service}.env"
     domains = domains_module()
     if CONFIG.is_symlink() or service_dir.is_symlink():
         raise RemovalError(f"Refusing to inspect {service} configuration through a symlink.")
-    if service_config.is_symlink() or legacy_service_config.is_symlink():
+    if service_config.is_symlink() or (not extension_service and legacy_service_config.is_symlink()):
         raise RemovalError(f"Refusing to edit {service} configuration through a symlink.")
     if LEGACY_ENV.is_symlink():
         raise RemovalError("Refusing to migrate legacy config through a symlink.")
@@ -372,6 +379,7 @@ def build_plan(service):
 def print_plan(plan):
     definition = plan["service"]
     name = definition.name
+    service_path = definition.directory.relative_to(ROOT).as_posix()
     print(f"Complete removal plan for {definition.display_name}:")
     print(f"  Stop and remove {definition.display_name} Compose containers")
     if plan["compose_ids"]:
@@ -381,7 +389,7 @@ def print_plan(plan):
     print(f"  Remove {definition.display_name} service-specific containers:")
     if plan["orphan_containers"]:
         for item in plan["orphan_containers"]:
-            print(f"    {item['name']} ({item['image']}; services/{name}/{item['path']}/)")
+            print(f"    {item['name']} ({item['image']}; {service_path}/{item['path']}/)")
     else:
         print("    (none found in declared service data paths)")
     print(f"  Remove {definition.display_name} Compose named volumes:")
@@ -393,8 +401,8 @@ def print_plan(plan):
     print(f"  Remove {definition.display_name} public routes and Cloudflare Tunnel/DNS entries:")
     for route in plan["routes"] or [{"hostname": "(none configured)"}]:
         print(f"    {route['hostname']}")
-    if not (ROOT / "cloudflare.env").is_file():
-        print("    Cloudflare API cleanup unavailable; cloudflare.env is absent")
+    if not (ROOT / "config" / "cloudflare.env").is_file():
+        print("    Cloudflare API cleanup unavailable; Cloudflare setup is not configured")
     if plan["shared_database"]:
         database = plan["shared_database"]
         print(
@@ -404,10 +412,10 @@ def print_plan(plan):
         print(f"    database: {database['database']}")
         print(f"    role: {database['role']}")
     for relative in plan["data_paths"]:
-        print(f"  Delete declared service data: services/{name}/{relative}/")
+        print(f"  Delete declared service data: {service_path}/{relative}/")
         for preserved in plan["preserve_paths"]:
             if Path(preserved).is_relative_to(Path(relative)):
-                print(f"    Preserve: services/{name}/{preserved}")
+                print(f"    Preserve: {service_path}/{preserved}")
     for item in plan.get("external_storage", []):
         state = "" if item["exists"] else " (not present)"
         print(
@@ -417,9 +425,14 @@ def print_plan(plan):
     if plan["config_files"]:
         print(f"  Remove additional private configuration for {definition.display_name}:")
         for relative in plan["config_files"]:
-            print(f"    services/{name}/{relative}")
+            print(f"    {service_path}/{relative}")
         print("    A permission-restricted backup will be retained.")
-    print(f"  Remove {definition.display_name} settings from services/{name}/.env:")
+    settings_location = (
+        f"config/extensions/{definition.name}.env"
+        if service_path.startswith("services/extensions/")
+        else f"{service_path}/.env"
+    )
+    print(f"  Remove {definition.display_name} settings from {settings_location}:")
     for key in plan["configured_keys"] or ["(none configured)"]:
         print(f"    {key}")
     if plan["remove_service_config"]:
@@ -455,7 +468,11 @@ def remove_shared_database(plan):
 
 
 def backup_service_config(service, service_config):
-    relative = service_config.relative_to(ROOT / "services" / service)
+    definition = ServiceCatalog(ROOT).get(service)
+    try:
+        relative = service_config.relative_to(definition.directory)
+    except ValueError:
+        relative = Path(service_config.name)
     backup_dir = ROOT / "backups" / "config" / "services" / service / relative.parent
     backup_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
@@ -466,7 +483,11 @@ def backup_service_config(service, service_config):
 
 
 def remove_service_config(service):
-    service_config = ROOT / "services" / service / ".env"
+    definition = ServiceCatalog(ROOT).get(service)
+    if definition.directory.is_relative_to(ROOT / "services" / "extensions"):
+        service_config = CONFIG / "extensions" / f"{service}.env"
+    else:
+        service_config = definition.directory / ".env"
     if not service_config.is_file():
         return
     if service_config.is_symlink():
@@ -484,7 +505,7 @@ def remove_additional_config_file(service, relative):
     backup = backup_service_config(service, path)
     path.unlink()
     print(
-        f"Removed services/{service}/{relative}; "
+        f"Removed {ServiceCatalog(ROOT).get(service).directory.relative_to(ROOT)}/{relative}; "
         f"restricted backup: {backup.relative_to(ROOT)}"
     )
 
@@ -543,9 +564,11 @@ def remove_declared_data(service, relative, preserve_paths=()):
     preserve = {owned_path(service, item) for item in preserve_paths}
     remove_path_preserving(path, preserve)
     if preserve:
-        print(f"Removed services/{service}/{relative} except declared preserved paths.")
+        service_path = ServiceCatalog(ROOT).get(service).directory.relative_to(ROOT)
+        print(f"Removed {service_path}/{relative} except declared preserved paths.")
     else:
-        print(f"Removed services/{service}/{relative}/")
+        service_path = ServiceCatalog(ROOT).get(service).directory.relative_to(ROOT)
+        print(f"Removed {service_path}/{relative}/")
 
 
 def remove_external_storage(items):
@@ -605,13 +628,13 @@ def remove_resources(plan):
             print(f"Kept image {image}: {detail}")
         else:
             print(f"Removed image {image}")
-    print(f"{definition.display_name} removal complete. Run './opendock launch {service}' to set it up again.")
+    print(f"{definition.display_name} runtime purged; its service definition remains installed. Run './opendock setup {service}' to review settings, then './opendock launch {service}' to start it again.")
 
 
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) not in (1, 2) or (len(args) == 2 and args[1] != "--dry-run"):
-        print("Usage: ./opendock remove <service> [--dry-run]", file=sys.stderr)
+        print("Usage: ./opendock purge <service> [--dry-run]", file=sys.stderr)
         return 2
     service = args[0]
     try:

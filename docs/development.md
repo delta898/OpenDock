@@ -1,5 +1,18 @@
 # Development Notes
 
+> These notes describe the current implementation. The greenfield product
+> target is in [`product-distribution.md`](product-distribution.md) and its
+> linked contracts. Treat existing paths and commands below as references, not
+> backward-compatibility requirements.
+
+> **Current product rule:** there is no bundle category. New service source is
+> developed in OpenDock-Services, published to the static catalog, and installed
+> under `services/extensions/<service-id>/releases/<version>`. The older
+> `services/bundles/` paths below describe migration residue in this checkout;
+> do not use them for new services. Package `update`, `search`, and `install`
+> have been exercised with the dev catalog. Package setup, launch, and
+> multi-domain instances remain unfinished.
+
 This document describes the conventions used by OpenDock. It is intended for maintainers and advanced users who want to add or modify services.
 
 ## Design Goals
@@ -55,7 +68,7 @@ The script intentionally does not:
 
 - run `apt upgrade`
 - initialize or edit the owner-specific files under `config/`
-- create or edit `cloudflare.env`
+- create or edit `config/cloudflare.env` (use `./opendock setup cloudflare`)
 - create a Cloudflare Tunnel
 - run `./opendock launch`
 
@@ -70,21 +83,25 @@ infra/      shared infrastructure
 gateway/    Caddy reverse proxy
 ```
 
-Application services live under:
+Bundled service definitions live under:
 
 ```text
-services/<service-name>/compose.yml
+services/bundles/<service-id>/compose.yml
 ```
+
+Optional package source lives in the sibling OpenDock-Services repository at
+`services/extensions/<service-id>/`. Installed package releases are registered
+under OpenDock's `services/extensions/` directory after installation. Previous
+service directories are kept only in a local, gitignored `archive/` folder;
+the catalog and sync workflow ignore that archive.
 
 Examples:
 
 ```text
-services/wordpress/compose.yml
-services/n8n/compose.yml
-services/homepage/compose.yml
-services/nextcloud/compose.yml
-services/immich/compose.yml
-services/jellyfin/compose.yml
+services/bundles/homepage/compose.yml
+services/bundles/uptime-kuma/compose.yml
+OpenDock-Services/services/extensions/wordpress/compose.yml
+OpenDock-Services/services/extensions/n8n/compose.yml
 ```
 
 ## CLI Target Discovery
@@ -92,14 +109,18 @@ services/jellyfin/compose.yml
 The common CLI and service-owned behavior boundary is documented in
 [Command and Service Ownership](command-architecture.md). When adding a command
 capability, use that contract to decide whether it belongs in the common
-workflow or under `services/<name>/`; do not add service-specific branches to
+workflow or under `services/bundles/<name>/`; do not add service-specific branches to
 the central dispatcher.
 
-The service catalog discovers services at runtime by scanning:
+The service catalog discovers bundled services at runtime from:
 
 ```text
-services/*/compose.yml
+services/bundles/*/compose.yml
 ```
+
+Flat directories under the local `archive/` are never scanned. New bundle
+services belong under `services/bundles/`; extensions become visible only
+after package installation registers them.
 
 This is why new services do not need CLI dispatcher changes.
 
@@ -108,7 +129,7 @@ catalog and descriptor. `infra/opendock.toml` owns the shared setting keys,
 setup fields, secret generator declarations, and dependency groups such as
 `mariadb` and `postgres`; `gateway/opendock.toml` owns gateway setting keys. A
 service declares only the shared groups it needs in
-`services/<service>/opendock.toml`; the common setup and secret coordinators
+`services/bundles/<service>/opendock.toml`; the common setup and secret coordinators
 resolve those declarations. Platform config ownership is also derived from the
 component descriptors. Shared concerns keep their configuration descriptor
 and tracked defaults together under `config/shared/`: `mail.toml` with
@@ -133,13 +154,17 @@ OpenDock treats a service as a small extension unit. The target contribution
 layout is:
 
 ```text
-services/<stable-service-id>/
+services/bundles/<stable-service-id>/
   opendock.toml          descriptor and capability/API versions
   compose.yml            runtime definition
   .env.default           tracked defaults and image versions
   commands/              optional user-invoked service commands
   opendock.py            optional typed capability handlers
 ```
+
+Optional service packages use the same contribution shape under
+`OpenDock-Services/services/extensions/<stable-service-id>/` and add a
+`routing/` directory when they need service-specific Caddy handlers.
 
 The descriptor is the service's registration record. The catalog discovers it
 alongside the Compose project; contributors should not add service-specific
@@ -173,14 +198,17 @@ contract may be declared; unsupported declarations fail during catalog
 loading. When adding a service, include a descriptor and its setup schema even
 if the descriptor has no custom capability.
 
-Runtime cleanup and code registration are separate lifecycles. `remove
+Runtime cleanup and code registration are separate lifecycles. `purge
 <service>` removes declared runtime resources while keeping the service
-available in the checkout. Removing a contribution from OpenDock source must
-not silently delete runtime data on a user's host.
+available in the checkout. Uninstalling an extension's package code is a
+separate operation and must refuse while runtime resources remain. Removing a
+contribution from OpenDock source must not silently delete runtime data on a
+user's host.
 
-Removal is currently enabled for every bundled service: Hermes, Homepage,
-Immich, Jellyfin, Mastodon, Mattermost, n8n, Nextcloud, Supabase, Uptime Kuma,
-and WordPress. Declare service-owned bind data paths, private config
+Removal is currently enabled for the two active bundled services: Homepage
+and Uptime Kuma. The optional service descriptors in OpenDock-Services declare
+their own removal contracts, but those services remain unavailable until
+installed. Declare service-owned bind data paths, private config
 files, extra images, and labeled
 non-Compose containers under `[removal]` in the service descriptor. Private
 config files are backed up with restrictive permissions before deletion.
@@ -189,31 +217,16 @@ Every orphan container must be tied to a declared data path and is selected
 only when its mount source is inside that path. The common remover handles
 Compose containers, volumes, configured images, routes, and the service's
 private configuration. Removal contracts must account for shared database
-objects, user data, backups, and preservation boundaries. All current service
-targets now declare a contract, but declaration and static validation do not
-replace the isolated-host acceptance pass below. Uptime Kuma has no bind paths
-or shared database objects;
-its persistent application data is held in its Compose-managed named volume,
-which complete removal deletes after confirmation.
-Homepage has no persistent runtime volume; its mounted YAML configuration is
-tracked source and remains in place during removal.
-n8n stores its workflows, credentials, encryption keys, and execution data in
-its Compose named volume, which complete removal deletes after confirmation.
-Immich complete removal deletes both its service-local database and uploaded
-photo/video library paths, along with the Compose-managed ML cache volume.
-Supabase complete removal deletes its database and storage paths plus local
-Edge Function secrets; the secret file is backed up with restrictive
-permissions, while tracked configuration and function source are preserved.
-Jellyfin complete removal deletes the user media library after showing its path;
-tracked directory placeholders beneath that path remain in the checkout.
-Mastodon, Mattermost, Nextcloud, and WordPress declare their own database and
-role names. The common remover checks for collisions with other services and
-drops only those objects, leaving the shared database containers, volumes, and
-unrelated databases intact.
+objects, user data, backups, and preservation boundaries. Both active bundle
+targets declare a contract. Uptime Kuma stores application data in a Compose
+named volume; Homepage has no persistent runtime volume, and its mounted YAML
+configuration is tracked source. Declaration and static validation do not
+replace the isolated-host acceptance pass below. Optional package descriptors
+own their own service-specific removal details in OpenDock-Services.
 
 The final acceptance pass must use a clean, isolated host. For each service,
 configure and launch it, repeat launch to confirm idempotence, inspect its
-removal plan, remove it, and
+purge plan, purge it, and
 confirm that its declared resources are gone while shared infrastructure and
 unrelated services remain. This full pass remains outstanding; removal support
 must not be described as end-to-end verified until it passes.
@@ -225,7 +238,7 @@ all       infra + gateway + every service
 services  every service under services/
 infra     shared infrastructure only
 gateway   Caddy only
-<name>    one service under services/<name>/
+<name>    one service resolved by ID from the catalog
 ```
 
 Purpose-based service groups live in:
@@ -246,7 +259,7 @@ Group names are target aliases for multiple services. They are supported by setu
 
 `up`, `start`, `restart`, `build`, and `config` stay close to Docker Compose behavior for the requested target.
 
-`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default` and each service's defaults from `services/<service>/.env.default`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env`, `infra/.env`, `gateway/.env`, and old `config/services/*.env` installations are migrated to their owners on initialization, with restrictive backups retained.
+`setup` is the interactive OpenDock setup workflow. It reads platform defaults from `config/**/*.env.default` and each service's defaults from `services/bundles/<service>/.env.default`. It asks only for user-facing values, keeps existing values when the user presses Enter, fills missing generated secrets without printing them, and writes private overrides only when needed. Changed files are backed up under `backups/config/`. Existing `common.env`, `infra/.env`, `gateway/.env`, and old `config/services/*.env` installations are migrated to their owners on initialization, with restrictive backups retained.
 
 `launch <hostname>` is the primary workflow. It resolves exactly one route,
 starts `infra` and the mapped Docker service when the route is Docker-backed, or
@@ -269,7 +282,7 @@ Do not create initial app accounts in OpenDock when the service provides a first
 ./opendock service <service> <command>
 ```
 
-Commands live at `services/<service>/commands/<command>` and must be executable. `./opendock service <service>` lists executable commands for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, and `OPENDOCK_SERVICE_COMMAND` to the command process.
+Commands live beside the resolved service definition under `commands/<command>` and must be executable. `./opendock service <service>` lists executable commands for that service. The dispatcher passes `OPENDOCK_ROOT`, `OPENDOCK_SERVICE`, `OPENDOCK_SERVICE_COMMAND`, and `OPENDOCK_SERVICE_DIR` to the command process.
 
 Supabase Edge Function user secrets follow the same local-template pattern as
 other OpenDock configuration. `./opendock launch supabase` creates the ignored
@@ -355,7 +368,7 @@ STACK_DOMAIN=example.com
 ```
 
 Routable services declare their subdomain setting key and Caddy handler in
-`services/<service>/opendock.toml`. The default value remains in that service's
+`services/bundles/<service>/opendock.toml`. The default value remains in that service's
 `.env.default`. For example:
 
 ```env
@@ -399,20 +412,13 @@ commands to avoid ambiguity.
 
 ## Caddy Route Convention
 
-Active route files live under:
-
-```text
-gateway/caddy/conf.d/<service-name>.caddy
-```
-
+Bundled route handlers live in each bundle under `routing/` and are declared
+by the service descriptor. Optional package handlers live beside the package
+descriptor and are mounted read-only into Caddy from the active extension store.
 Reference snippets use `.caddy.example` and are not loaded by Caddy.
 
-Each public service should have:
-
-```text
-services/<service-name>/compose.yml
-gateway/caddy/conf.d/<service-name>.caddy
-```
+Each public bundle declares `routing.handler_file` and
+`routing.caddy_handler` in `opendock.toml`.
 
 Each service Caddy file defines a reusable upstream snippet. Hostname site blocks
 are generated from `domains.conf` (or the default domain convention when that
@@ -440,8 +446,8 @@ For direct Caddy exposure without Cloudflare Tunnel, remove the `auto_https disa
 When `domains.conf` is absent, `./opendock publish` discovers Docker services that have both:
 
 ```text
-services/<service-name>/compose.yml
-gateway/caddy/conf.d/<service-name>.caddy
+services/bundles/<service-name>/compose.yml
+services/bundles/<service-name>/routing/<handler-file>
 ```
 
 The internal route map connects hostnames to Docker services or the matching
@@ -456,9 +462,9 @@ Inputs:
 
 ```text
 config/
-cloudflare.env
-services/*/compose.yml
-gateway/caddy/conf.d/*.caddy
+config/cloudflare.env
+services/bundles/*/compose.yml
+services/bundles/*/routing/*
 ```
 
 Required Cloudflare env values:
@@ -487,9 +493,9 @@ Some services cannot be expressed as a single container. Supabase, for example, 
 
 For multi-container services:
 
-- Keep all containers in a single `services/<name>/compose.yml`.
+- Keep all containers in a single `services/bundles/<name>/compose.yml`.
 - Use a shared `shared-net` external network so all containers can reach each other and the Caddy gateway.
-- Pin versions in `services/<name>/.env.default` as with single-container services.
+- Pin versions in `services/bundles/<name>/.env.default` as with single-container services.
 - Route all public traffic through one gateway container (e.g. Kong) rather than exposing each container through Caddy separately.
 - The Caddy route file should proxy to the internal gateway container only.
 
@@ -500,8 +506,8 @@ When a service uses Kong as an internal gateway (db-less declarative mode), Kong
 Kong does not natively expand environment variables inside its declarative config file. To inject values at container start without writing credentials to a committed file, use a shell entrypoint script:
 
 ```
-services/<name>/config/kong-entrypoint.sh   # mounted read-only into the container
-services/<name>/config/kong.yml             # template with $PLACEHOLDER markers
+services/bundles/<name>/config/kong-entrypoint.sh   # mounted read-only into the container
+services/bundles/<name>/config/kong.yml             # template with $PLACEHOLDER markers
 ```
 
 The entrypoint script uses `awk` to substitute placeholders with container environment variable values, writes the result to `/tmp/kong.yml` (writable by the Kong user), then starts Kong with `KONG_DECLARATIVE_CONFIG=/tmp/kong.yml`.
@@ -519,13 +525,13 @@ Key points:
 Add service files:
 
 ```text
-services/<service-name>/compose.yml
-services/<service-name>/.env
-services/<service-name>/README.md
-gateway/caddy/conf.d/<service-name>.caddy
+services/bundles/<service-name>/compose.yml
+services/bundles/<service-name>/.env.default
+services/bundles/<service-name>/README.md
+services/bundles/<service-name>/routing/<handler-file>
 ```
 
-Add defaults to `services/<service>/.env.default` and keep local overrides in the ignored `services/<service>/.env`:
+Add defaults to `services/bundles/<service>/.env.default` and keep local overrides in the ignored `services/bundles/<service>/.env`:
 
 ```env
 PLEX_SUBDOMAIN=media
@@ -607,8 +613,8 @@ For changed Compose projects:
 ```
 
 OpenDock resolves tracked platform defaults, their private owner files, then
-the selected service's `services/<service>/.env.default` and private
-`services/<service>/.env` override, followed by process environment. Direct
+the selected service's `services/bundles/<service>/.env.default` and private
+`services/bundles/<service>/.env` override, followed by process environment. Direct
 `docker compose config` calls must pass the applicable files in that same order.
 
 For Caddy changes:

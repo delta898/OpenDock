@@ -10,6 +10,7 @@ services:
       - shared-net
     volumes:
       - ./caddy:/etc/caddy:ro
+      - ../services/extensions:/etc/opendock/extensions:ro
       - ../static-sites:/srv/static-sites:ro
       - caddy_data:/data
       - caddy_config:/config

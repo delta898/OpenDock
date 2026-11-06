@@ -249,8 +249,7 @@ EOF
 	  # Set STACK_DOMAIN when prompted. Local passwords and app secrets are generated automatically.
 
   # Optional Cloudflare API sync:
-  cp cloudflare.env.example cloudflare.env
-  nano cloudflare.env
+  ./opendock setup cloudflare
 
   ./opendock check-config
   ./opendock launch <hostname>

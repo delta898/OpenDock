@@ -17,7 +17,7 @@ from opendock_settings import load_values
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
-CLOUDFLARE_ENV = ROOT_DIR / "cloudflare.env"
+CLOUDFLARE_ENV = ROOT_DIR / "config" / "cloudflare.env"
 ORIGIN_SERVICE_URL = os.environ.get("ORIGIN_SERVICE_URL", "http://localhost:80")
 API_BASE = "https://api.cloudflare.com/client/v4"
 DOMAIN_SPEC = importlib.util.spec_from_file_location(
@@ -116,7 +116,7 @@ def remove_cloudflare_route(hostname):
     """Remove only this hostname's Tunnel rule and its Tunnel CNAME, if present."""
     env = load_env()
     if not CLOUDFLARE_ENV.exists():
-        print("cloudflare.env not found; skipped Cloudflare cleanup.")
+        print("Cloudflare API settings are not configured; skipped Cloudflare cleanup.")
         return
     cf_env = dict(env)
     cf_env.update(parse_env_file(CLOUDFLARE_ENV))
@@ -431,8 +431,8 @@ def main():
 
     if not CLOUDFLARE_ENV.exists():
         print()
-        print("cloudflare.env not found. Skipping Cloudflare API sync.")
-        print("Copy cloudflare.env.example to cloudflare.env to enable automatic publishing.")
+        print("Cloudflare API settings are not configured. Skipping API sync.")
+        print("Run './opendock setup cloudflare' to enable automatic publishing.")
         print_open_links(routes)
         return
 

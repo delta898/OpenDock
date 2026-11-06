@@ -239,8 +239,15 @@ def owner_path(key):
         return PLATFORM_SETTING_OWNERS[key]
     for service, prefix in SERVICE_PREFIXES.items():
         if key.startswith(prefix):
-            return Path("services") / service / ".env"
+            return _service_config_path(service)
     raise ValueError(f"No configuration owner is registered for key: {key}")
+
+
+def _service_config_path(service):
+    definition = SERVICE_CATALOG.get(service)
+    if SERVICE_CATALOG.is_extension(service):
+        return Path("config") / "extensions" / f"{service}.env"
+    return definition.directory.relative_to(ROOT) / ".env"
 
 
 def config_paths(service=None, examples=False):
@@ -263,7 +270,8 @@ def config_paths(service=None, examples=False):
     for name in selected:
         if name not in SERVICE_PREFIXES or not examples:
             continue
-        paths.append(ROOT / "services" / name / ".env.default")
+        definition = SERVICE_CATALOG.get(name)
+        paths.append(definition.directory / ".env.default")
     return [ROOT / path if not path.is_absolute() else path for path in paths]
 
 
@@ -281,18 +289,20 @@ def load_values(service=None, *, examples=False, process_env=False, legacy=True)
             if service in (None, component.name):
                 values.update(parse_env(component.directory / ".env"))
     if service in SERVICE_PREFIXES:
-        values.update(parse_env(CONFIG / "services" / f"{service}.env"))
+        values.update(parse_env(ROOT / _service_config_path(service)))
     elif service is None:
         for name in SERVICE_NAMES:
-            values.update(parse_env(CONFIG / "services" / f"{name}.env"))
+            values.update(parse_env(ROOT / _service_config_path(name)))
     for path in config_paths(service):
         values.update(parse_env(path))
     if service in SERVICE_PREFIXES:
-        values.update(parse_env(ROOT / "services" / service / ".env"))
+        if not SERVICE_CATALOG.is_extension(service):
+            values.update(parse_env(SERVICE_CATALOG.get(service).directory / ".env"))
     elif service is None:
         # Current service-local overrides have the highest file precedence.
         for name in SERVICE_NAMES:
-            values.update(parse_env(ROOT / "services" / name / ".env"))
+            if not SERVICE_CATALOG.is_extension(name):
+                values.update(parse_env(SERVICE_CATALOG.get(name).directory / ".env"))
     if process_env:
         values.update(os.environ)
     return values
@@ -302,8 +312,9 @@ def load_local_values(service):
     """Load private values owned by one service, without tracked defaults."""
     if service not in SERVICE_PREFIXES:
         raise ValueError(f"Unknown service configuration owner: {service}")
-    values = parse_env(CONFIG / "services" / f"{service}.env")
-    values.update(parse_env(ROOT / "services" / service / ".env"))
+    values = parse_env(ROOT / _service_config_path(service))
+    if not SERVICE_CATALOG.is_extension(service):
+        values.update(parse_env(SERVICE_CATALOG.get(service).directory / ".env"))
     return values
 
 
@@ -317,9 +328,13 @@ def compose_env_files(service=None):
     if service:
         # A leftover private config from the old location must override common.env.
         legacy_service = CONFIG / "services" / f"{service}.env"
-        if legacy_service.is_file():
+        if not SERVICE_CATALOG.is_extension(service) and legacy_service.is_file():
             files.append(legacy_service)
-        local = ROOT / "services" / service / ".env"
+        definition = SERVICE_CATALOG.get(service)
+        if SERVICE_CATALOG.is_extension(service):
+            local = ROOT / _service_config_path(service)
+        else:
+            local = definition.directory / ".env"
         if local.is_file():
             files.append(local)
     return files
@@ -395,7 +410,7 @@ def initialize():
     if CONFIG.is_symlink():
         raise ValueError(f"Refusing to initialize config through a symlink: {CONFIG}")
     CONFIG.mkdir(parents=True, exist_ok=True)
-    for directory in (CONFIG / "shared", CONFIG / "services"):
+    for directory in (CONFIG / "shared", CONFIG / "services", CONFIG / "extensions"):
         if directory.is_symlink():
             raise ValueError(f"Refusing to initialize config through a symlink: {directory}")
     for path in config_paths(examples=False):
@@ -403,7 +418,7 @@ def initialize():
         if path.is_symlink():
             raise ValueError(f"Refusing to initialize config through a symlink: {path}")
     for name in SERVICE_NAMES:
-        local = ROOT / "services" / name / ".env"
+        local = ROOT / _service_config_path(name)
         if local.is_symlink():
             raise ValueError(f"Refusing to initialize config through a symlink: {local}")
 
@@ -459,6 +474,8 @@ def migrate_legacy_service_configs():
     incoming = {}
     origin = {}
     for service in SERVICE_NAMES:
+        if SERVICE_CATALOG.is_extension(service):
+            continue
         source = legacy_dir / f"{service}.env"
         if not source.is_file():
             continue
@@ -467,7 +484,8 @@ def migrate_legacy_service_configs():
         sources.append(source)
         for key, value in parse_env(source).items():
             relative = owner_path(key)
-            if relative.parts[:2] == ("services", service):
+            service_relative = SERVICE_CATALOG.get(service).directory.relative_to(ROOT)
+            if relative.parts[:len(service_relative.parts)] == service_relative.parts:
                 pass
             elif (
                 SHARED_SETTING_GROUPS.get(key)
@@ -529,8 +547,11 @@ def migrate_legacy_service_defaults():
     legacy_defaults = json.loads(migration_file.read_text()) if migration_file.is_file() else {}
     cleaned = []
     for service in SERVICE_NAMES:
-        local = ROOT / "services" / service / ".env"
-        defaults = ROOT / "services" / service / ".env.default"
+        if SERVICE_CATALOG.is_extension(service):
+            continue
+        service_directory = SERVICE_CATALOG.get(service).directory
+        local = service_directory / ".env"
+        defaults = service_directory / ".env.default"
         if local.is_symlink():
             raise ValueError(f"Refusing to migrate service config through a symlink: {local}")
         if not local.is_file() or not defaults.is_file():

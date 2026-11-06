@@ -1,5 +1,18 @@
 # OpenDock Command and Service Ownership
 
+> This document describes the current implementation's command/capability
+> model. For the greenfield product target—including separate service packages,
+> a static R2 catalog, and site instances—see
+> [`product-distribution.md`](product-distribution.md) and its linked
+> contracts. Use this document as implementation reference, not as a
+> backward-compatibility requirement.
+
+> New product services are packages from OpenDock-Services. Do not create new
+> bundled services under `services/bundles/`; that path appears below only in
+> descriptions of the legacy implementation. The dev catalog `update`,
+> `search`, and `install` path has been used successfully. Package setup,
+> launch, and domain-scoped instance lifecycle are still in development.
+
 This document defines which behavior belongs to the common OpenDock CLI and
 which behavior belongs to an individual service. The goal is to keep the user
 command surface consistent while allowing new services to add their own setup,
@@ -11,11 +24,12 @@ CLI dispatcher.
 The CLI owns **workflow orchestration and shared platform behavior**. A service
 owns **knowledge and operations that are unique to that service**.
 
-For example, `./opendock launch hermes` remains a common command. OpenDock
-resolves the target, checks configuration, starts shared prerequisites, calls
-Hermes' declared first-run preparation when needed, starts the Compose project,
-and applies the common route. Hermes owns the rule for deciding whether its
-model onboarding is complete and how to run that onboarding.
+For example, after installing Hermes, `./opendock launch hermes` remains a
+common command. OpenDock resolves the target, checks configuration, starts
+shared prerequisites, calls Hermes' declared first-run preparation when
+needed, starts the Compose project, and applies the common route. Hermes owns
+the rule for deciding whether its model onboarding is complete and how to run
+that onboarding.
 
 This keeps zero-config behavior in the common path without teaching the central
 CLI the internal details of every application.
@@ -88,28 +102,31 @@ workflow should invoke a capability through the narrow contract.
 
 OpenDock should behave like a small in-repository extension host:
 
-1. **Register by adding a service unit.** A contribution adds
-   `services/<service-id>/compose.yml` and a versioned `opendock.toml`, plus
-   only the optional capability handlers it needs. The catalog discovers and
+1. **Register by adding a service unit.** A bundle contribution adds
+   `services/bundles/<service-id>/compose.yml`; an optional service source lives
+   in the OpenDock-Services repository under `services/extensions/<service-id>/`.
+   Both use a versioned `opendock.toml` and only the optional capability
+   handlers they need. The catalog discovers and
    validates it; maintainers do not edit a second central service list.
 2. **Inspect before enabling behavior.** The catalog checks the stable ID,
    descriptor schema, declared capabilities, and required API version. An
    invalid or incompatible service fails with its own path and a corrective
    message; it is not silently treated as a partial service.
-3. **Dispatch through common commands.** `setup`, `launch`, and `remove` remain
+3. **Dispatch through common commands.** `setup`, `launch`, and `purge` remain
    the common user interface. The workflow selects a declared capability and
    invokes it with a scoped context. A service cannot replace the common
    command or bypass its policy.
-4. **Remove runtime state explicitly.** `./opendock remove <service>` is the
-   service's runtime cleanup lifecycle, not plugin deregistration. Removing a
+4. **Purge runtime state explicitly.** `./opendock purge <service>` deletes
+   the service's declared runtime resources and settings, not package code.
+   Purging is a destructive reset; removing a
    service directory from the repository must never trigger cleanup as a side
-   effect. Conversely, runtime removal leaves the service definition available
+   effect. Conversely, purging runtime state leaves the service definition available
    so it can be launched again.
-5. **Deregister through source ownership.** For the current bundled-service
-   model, deregistration means removing the service contribution through the
-   normal repository change/review process. A future separately installed
-   extension ecosystem would need explicit install/enable/disable commands and
-   a package source; that is outside this design.
+5. **Deregister package code explicitly.** `install` and `uninstall` are
+   opposites for optional package code and its catalog registration. An
+   extension must be purged before it can be uninstalled; uninstall preserves
+   no runtime resources because purge already removed them. Bundled services
+   are deregistered through the normal repository change/review process.
 
 This distinction prevents an absent code contribution from being confused with
 permission to delete the user's running data.
@@ -158,7 +175,7 @@ discovering plugins].
 | `up`, `down`, `start`, `stop`, `restart`, `pull`, `build`, `config`, `ps`, `logs` | Resolve targets, validate where applicable, invoke Compose consistently, report failures | Declare Compose project; provide a hook only when the ordinary Compose operation is insufficient |
 | `launch` | Order the workflow: configuration check, shared prerequisites, service preparation, Compose start, gateway reload, route publication | Declare prerequisites and supported pre-launch/onboarding or post-launch operations |
 | `route`, `publish` | Own hostname mapping format, Caddy rendering, Cloudflare integration, common validation and output | Declare default hostname and upstream information; do not implement a parallel route manager |
-| `remove` | Resolve one service, request confirmation, show a plan, execute common cleanup primitives, report results | Declare owned resources and preservation boundaries; provide custom cleanup for resources Compose cannot safely identify |
+| `purge` | Resolve one service, request confirmation, show a plan, execute common cleanup primitives, report results | Declare owned resources and preservation boundaries; provide custom cleanup for resources Compose cannot safely identify |
 | `service <name> <command>` | Discover commands, provide common help/dispatch and environment context | Implement optional service-specific operations under that service directory |
 | `sync` | Own remote selection, transport, copy/prune policy, dry-run and reporting | Declare files/directories that must be preserved or excluded only when service-specific behavior is necessary |
 
@@ -173,9 +190,9 @@ service's resources or global settings.
 
 ## Service capability contract
 
-Service-owned behavior must be discoverable from `services/<name>/`; adding a
-service must not require a new `if name == ...` branch or a service registry in
-the CLI dispatcher.
+Service-owned behavior must be discoverable from the catalog's resolved service
+definition; adding a service must not require a new `if name == ...` branch or
+a service registry in the CLI dispatcher.
 
 Use declarative metadata for facts and common operations can interpret safely:
 
@@ -229,7 +246,7 @@ should be aligned with this contract rather than expanded independently.
 ## Common invocation and safety
 
 - Keep familiar top-level commands: `./opendock setup <service>`,
-  `./opendock launch <service>`, and `./opendock remove <service>`.
+  `./opendock launch <service>`, and `./opendock purge <service>`.
 - The common layer determines ordering and prints progress. A service hook
   reports its outcome and returns a status; it does not independently launch
   shared infrastructure, publish public routes, or bypass common checks.
@@ -261,12 +278,12 @@ The first contract is intentionally small and lives in these files:
 - `scripts/opendock_capabilities.py` defines API version 1 contexts and typed
   results. The CLI and configuration checker load a service's `opendock.py`
   only when they need one of that service's declared capabilities.
-- `services/<name>/opendock.toml` declares `schema_version`, `service_id`,
+- A service's `opendock.toml` declares `schema_version`, `service_id`,
   optional `display_name`, shared platform `dependencies`, implemented
   `capabilities`, optional `setup.fields`, optional command help metadata, and
   optional `[removal]` resource ownership. Capabilities also require
   `capability_api_version`.
-- `services/<name>/opendock.py` implements only the procedures named by its
+- A service's `opendock.py` implements only the procedures named by its
   descriptor. API version 1 supports `runtime_environment(context)`,
   `prepare(context)`, `plan_secrets(context)`,
   `generate_secrets(context)`, and `validate_config(context)`.
@@ -294,16 +311,17 @@ handling; an unsupported declaration fails during discovery.
 
 ## Current code and migration targets
 
-The repository discovers Compose services from `services/*/compose.yml` through
-`scripts/opendock_catalog.py`; every current service now has a validated
-descriptor. Target, setup, configuration, secret, domain, and publishing
-helpers share that discovery function. Setup fields and shared MariaDB/
-PostgreSQL setup dependencies now live in service descriptors, while the
+The repository discovers only bundled services from
+`services/bundles/*/compose.yml`; old service trees are kept inactive in the
+local ignored `archive/`. Optional packages will enter discovery only through
+the explicit installation registry. Target, setup, configuration, secret,
+domain, and publishing helpers share the catalog. Setup fields and shared
+MariaDB/PostgreSQL setup dependencies live in service descriptors, while the
 common prompt and persistence workflow remains in `scripts/opendock-config.py`.
-`services/hermes/` declares `runtime_environment` and `prepare`; its Python
+After installation, `hermes/` declares `runtime_environment` and `prepare`; its Python
 capabilities own the Docker sandbox environment and idempotent model onboarding
 decision. Uptime Kuma demonstrates a service with no custom handler. Service
-commands are discovered from `services/<name>/commands/`; their help text and
+commands are discovered from the resolved service directory's `commands/`; their help text and
 examples live in the same service's descriptor. Mastodon and Supabase declare
 `post_launch` and dispatch their application-specific helpers through their
 capability modules. Default hostname setting keys and Caddy snippet names are
@@ -334,8 +352,9 @@ source for platform-owned settings, group membership, and core capability
 validation. `services/groups.conf` is a platform-level operator grouping, not a
 service implementation registry. The goal is not to eliminate central metadata;
 it is to stop central code from encoding each service's application-specific
-behavior. Service discovery begins with `services/*/compose.yml`; an adjacent
-versioned descriptor supplies optional capabilities. Core modules consume the
+behavior. Bundled service discovery begins with
+`services/bundles/*/compose.yml`; an adjacent versioned descriptor supplies
+optional capabilities. Core modules consume the
 catalog interface and do not maintain another hand-edited service list.
 
 ## Capability contract shape

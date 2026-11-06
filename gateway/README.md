@@ -10,8 +10,10 @@ This stack treats Cloudflare Tunnel as the default public exposure layer. Cloudf
 ./opendock up gateway
 ```
 
-The default WordPress, Nextcloud, Immich, Jellyfin, n8n, Uptime Kuma, and Homepage routes are generated from `STACK_DOMAIN` and the service subdomains when `domains.conf` is absent.
-Reference snippets can live next to service route files with the `.caddy.example` suffix.
+The bundled Homepage and Uptime Kuma routes are generated from `STACK_DOMAIN`
+and their service subdomains when `domains.conf` is absent. Optional service
+packages provide their Caddy handlers after installation. Reference snippets
+can live next to service route files with the `.caddy.example` suffix.
 
 ## Layout
 
@@ -22,12 +24,8 @@ caddy/
     ├── www.domain.com.caddy.example
     ├── global.caddy
     ├── homepage.caddy
-    ├── immich.caddy
-    ├── jellyfin.caddy
-    ├── n8n.caddy
-    ├── nextcloud.caddy
     ├── uptime-kuma.caddy
-    └── wordpress.caddy
+    └── homepage.caddy
 ```
 
 - `Caddyfile` loads all `conf.d/*.caddy` files.
@@ -41,9 +39,15 @@ The per-service Caddy files define reusable proxy snippets. Caddy host blocks
 are generated from `domains.conf`; the route examples below illustrate the
 resulting host-to-upstream behavior.
 
-## WordPress Route
+## Optional Service Routes
 
-The repository includes `caddy/conf.d/wordpress.caddy` as the active WordPress route:
+The following examples describe handlers supplied by packages in
+OpenDock-Services. They are not active in a fresh OpenDock checkout. Install
+the corresponding package before using its route or service ID.
+
+### WordPress Route
+
+The WordPress package provides `routing/wordpress.caddy`:
 
 ```caddy
 (wordpress_proxy) {
@@ -74,13 +78,13 @@ By default, WordPress is published as:
 https://blog.<STACK_DOMAIN>
 ```
 
-Set the main domain in `config/core.env` and the service hostname in `services/wordpress/.env`:
+Set the main domain in `config/core.env` and the service hostname in the package-owned configuration:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# services/wordpress/.env
+# config/extensions/wordpress.env
 WORDPRESS_SUBDOMAIN=blog
 ```
 
@@ -124,19 +128,19 @@ By default, Homepage is published as:
 https://home.<STACK_DOMAIN>
 ```
 
-Set the main domain in `config/core.env` and the service hostname in `services/homepage/.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/bundles/homepage/.env`:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# services/homepage/.env
+# services/bundles/homepage/.env
 HOMEPAGE_SUBDOMAIN=home
 ```
 
-## n8n Route
+### n8n Route
 
-The repository includes `caddy/conf.d/n8n.caddy` as the active n8n route:
+The n8n package provides `routing/n8n.caddy`:
 
 ```caddy
 (n8n_proxy) {
@@ -162,21 +166,21 @@ By default, n8n is published as:
 https://n8n.<STACK_DOMAIN>
 ```
 
-Set the main domain in `config/core.env` and the service hostname in `services/n8n/.env`:
+Set the main domain in `config/core.env` and the service hostname in the package-owned configuration:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# services/n8n/.env
+# config/extensions/n8n.env
 N8N_SUBDOMAIN=n8n
 ```
 
 n8n uses those values to generate `WEBHOOK_URL` automatically.
 
-## Nextcloud Route
+### Nextcloud Route
 
-The repository includes `caddy/conf.d/nextcloud.caddy` as the active Nextcloud route.
+The Nextcloud package provides `routing/nextcloud.caddy`.
 
 By default, Nextcloud is published as:
 
@@ -184,21 +188,21 @@ By default, Nextcloud is published as:
 https://cloud.<STACK_DOMAIN>
 ```
 
-Set the main domain in `config/core.env` and the service hostname in `services/nextcloud/.env`:
+Set the main domain in `config/core.env` and the service hostname in the package-owned configuration:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# services/nextcloud/.env
+# config/extensions/nextcloud.env
 NEXTCLOUD_SUBDOMAIN=cloud
 ```
 
 Nextcloud also uses those values for trusted domains and reverse proxy overwrite settings.
 
-## Immich Route
+### Immich Route
 
-The repository includes `caddy/conf.d/immich.caddy` as the active Immich route.
+The Immich package provides `routing/immich.caddy`.
 
 By default, Immich is published as:
 
@@ -206,19 +210,19 @@ By default, Immich is published as:
 https://photos.<STACK_DOMAIN>
 ```
 
-Set the main domain in `config/core.env` and the service hostname in `services/immich/.env`:
+Set the main domain in `config/core.env` and the service hostname in the package-owned configuration:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# services/immich/.env
+# config/extensions/immich.env
 IMMICH_SUBDOMAIN=photos
 ```
 
-## Jellyfin Route
+### Jellyfin Route
 
-The repository includes `caddy/conf.d/jellyfin.caddy` as the active Jellyfin route.
+The Jellyfin package provides `routing/jellyfin.caddy`.
 
 By default, Jellyfin is published as:
 
@@ -226,13 +230,13 @@ By default, Jellyfin is published as:
 https://media.<STACK_DOMAIN>
 ```
 
-Set the main domain in `config/core.env` and the service hostname in `services/jellyfin/.env`:
+Set the main domain in `config/core.env` and the service hostname in the package-owned configuration:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# services/jellyfin/.env
+# config/extensions/jellyfin.env
 JELLYFIN_SUBDOMAIN=media
 ```
 
@@ -266,13 +270,13 @@ By default, Uptime Kuma is published as:
 https://uptime.<STACK_DOMAIN>
 ```
 
-Set the main domain in `config/core.env` and the service hostname in `services/uptime-kuma/.env`:
+Set the main domain in `config/core.env` and the service hostname in `services/bundles/uptime-kuma/.env`:
 
 ```sh
 # config/core.env
 STACK_DOMAIN=example.com
 
-# services/uptime-kuma/.env
+# services/bundles/uptime-kuma/.env
 UPTIME_KUMA_SUBDOMAIN=uptime
 ```
 

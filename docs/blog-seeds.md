@@ -570,7 +570,7 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     앱이 관리하는 상태와 사용자가 보관한 콘텐츠가 섞일 수 있어 무조건 삭제할
     대상으로 취급하지 않는다. route와 static site 콘텐츠도 별도 소유권이다.
   - 사용자는 provisioning 명령의 대응 동작으로 설정·컨테이너·이미지·볼륨
-    제거를 원했고, 기본 `remove <service>`를 전체 제거로 해석하되 확인을
+    제거를 원했고, 기본 `purge <service>`를 전체 제거로 해석하되 확인을
     의무화하는 안을 선택했다. `stop`과 `down`은 기존의 좁은 범위 작업으로
     유지하고, 전체 제거 전 서비스 소유 자원 목록을 보여주는 방향이다.
     이 계약은 새 서비스뿐 아니라 명령 출시 전에 현재 서비스 모두에 소급
@@ -977,3 +977,153 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   테스트는 실행하지 않았고, Docker Compose rendering, 기본 경로 자동 준비, 지정 경로 연결,
   Linux와 macOS Docker 환경의 mount 처리, 경로 누락 시 동작, 외장 경로를 포함한 `remove`는
   아직 확인되지 않았다. 사용자의 실제 디스크에서의 검증도 대기 중이다.
+
+## OD-020. OpenDock 서비스 배포를 private ZIP에서 정적 카탈로그로 다시 설계하기
+
+- 상태: `seed`
+- 관련 문서: `docs/product-distribution.md`
+- 주제: `고객 계정 서버 없이 시작하는 self-hosted 서비스 배포: private ZIP 가설에서 정적 R2 카탈로그로`
+- 독자 질문: 공개 플랫폼과 유료 선택 서비스를 분리하고 싶을 때, 구매 권한 서버를
+  처음부터 구축하지 않고 고객이 실제로 설치할 수 있는 배포 흐름을 어떻게 시작할까?
+- 참고할 사항:
+  - 사용자는 OpenDock을 상품화하면서 플랫폼과 선택 서비스를 분리하고, 플랫폼 및
+    기본 bundle은 공개 GitHub 저장소, n8n·WordPress·Hermes Agent용 통합 파일은
+    별도 프로젝트로 관리하는 방향을 제안했다.
+  - 논의에서는 구매 계정이 여러 private GitHub 저장소에 접근하는 방식과 별도
+    인증·배포 서버를 두는 방식도 비교했다. 별도 배포 서비스는 장기적인 목표가 될 수
+    있지만, 첫 판매를 위해 반드시 먼저 구축해야 하는지는 재검토했다.
+  - 초기 가설은 판매처를 특정 플랫폼에 묶지 않고, 판매 채널이 버전이 명시된 서비스
+    ZIP을 전달하며 고객이 OpenDock 명령으로 가져오는 구조다. GitHub은 개발 원본을
+    관리하고 ZIP은 고객용 배포물이 되는 역할 분리를 둔다.
+  - 패키지에는 서비스 descriptor, Compose 및 통합 코드, capability API 호환성,
+    릴리스 노트와 무결성 정보가 필요하다고 제안했다. 비밀값, 사용자 데이터,
+    `.env`는 패키지에서 제외하고 업데이트가 고객 설정과 데이터를 보존해야 한다.
+  - 상세 설계에서는 설치 패키지를 서비스 하나로 제한하고, 확장 코드를
+    `extensions/services/<id>/releases/<version>/`에 불변 보관하며 활성 버전은
+    로컬 registry로 선택하도록 정리했다. private 설정은 release 디렉터리와 분리해
+    `config/extensions/<id>.env`에 두고, 기존/bundled 서비스 ID 덮어쓰기와 임의
+    service discovery를 거부한다.
+  - ZIP 내부 manifest에 ZIP 전체 해시를 넣으면 자기참조가 생기므로 manifest는
+    payload별 크기와 SHA-256을 서명하고, CLI는 전체 ZIP digest를 로컬 등록 정보로
+    기록하는 구조로 구체화했다. 서명된 파일 목록을 추출 전에 스트리밍 검증하고,
+    stage → immutable release rename → registry 원자 교체 순으로 설치/업데이트한다.
+    이전 release와 고객 state를 자동 삭제하지 않는 대신 실패 시 고아 stage/release가
+    남을 수 있어 복구 경로가 필요하다.
+  - capability 코드는 CLI와 같은 로컬 권한으로 실행되므로 압축 해제 검증은 코드
+    샌드박스를 제공하지 않는다는 trust boundary를 명시했다. 서명 형식과 검증 라이브러리,
+    신뢰 키 배포·회전, 실제 파일 형식은 아직 결정/구현되지 않았다.
+  - 저장소 경계는 독립된 `OpenDock`과 `OpenDock-Services`로 두고 submodule은
+    사용하지 않는 방향으로 구체화했다. 플랫폼은 공통 CLI와 baseline bundle 및 package
+    lifecycle을, 서비스 repo는 선택 통합의 canonical source와 ZIP 릴리스를 소유한다.
+    n8n·WordPress·Hermes는 문서에 나온 초기 후보일 뿐, 유료/core 구분과 이관 순서는
+    아직 확정되지 않았다. 패키지 설치 경로가 준비되기 전까지 bundled 구현을 삭제하지
+    않는 단계적 이관 원칙을 기록했다.
+  - 현재 descriptor/Compose 구성을 비교해 n8n을 파일럿 후보로 추천했다. n8n은 단일
+    Compose 앱과 named volume, SMTP opt-in, routing 메타데이터로 공통 package lifecycle을
+    점검할 수 있고, WordPress의 shared database/custom command 및 Hermes의
+    runtime/prepare capability보다 서비스별 migration 변수가 적다. 이는 코드 실행이나
+    고객 환경 검증 결과가 아니라 저장소 구현을 기준으로 한 설계 판단이다.
+  - 사용자는 `services/extensions/`와 `services/bundles/`로 분류하는 구조를 제안했고,
+    이를 채택하는 방향으로 설계 문서를 갱신했다. OpenDock-Services에는 추적된 서비스
+    파일만 `services/extensions/{n8n,wordpress,hermes}/`로 복사했으며, 로컬 `.env`는
+    복사 대상에서 제외했다. OpenDock의 기존 서비스 경로/실행 코드는 아직 이전하지
+    않았으므로 설치 경로와 catalog/config migration은 구현 단계에서 함께 처리해야 한다.
+  - WordPress multisite helper가 `scripts/wp-multisite.py`에 있어 서비스 ZIP만으로
+    명령이 완결되지 않는 점을 확인했다. helper를 서비스 `commands/` 아래로 옮기고
+    공통 dispatcher가 `OPENDOCK_SERVICE_DIR`을 전달하도록 바꾸는 로컬 코드 변경을 했다.
+    이 경로 변경은 테스트하지 않았다.
+  - 확장 후보 10개의 service-owned tracked files와 Caddy handler snippets를
+    OpenDock-Services에 복사했다. 초기 파일 이관에서 `gateway/caddy/conf.d/*.caddy`가
+    Compose/service 디렉터리 바깥에 있어 패키지 ZIP에는 routing 파일을 명시적으로
+    포함해야 한다는 누락을 확인했다. 상세 설계는 active release의 routing handler만
+    import하고 uninstalled source나 이전 release는 경로 게시에 사용하지 않도록 했다.
+  - 사용자는 OpenDock 번들을 Homepage와 Uptime Kuma로 한정하고 Nextcloud도 확장으로
+    두는 안을 선택했다. Nextcloud는 일반 사용자 가치가 높지만 shared database와 데이터
+    관리를 baseline에서 분리해 기본 footprint를 작게 가져가는 판단이다.
+  - 이 선택에 따라 Homepage와 Uptime Kuma의 추적 디렉터리와 private `.env`를
+    `services/bundles/`로 이동했다. 기존 `.env` 두 개는 값 출력 없이 0600 제한 백업을
+    만든 뒤 같은 파일로 함께 이동했다. catalog discovery, Compose/config/remove 경로를
+    descriptor에서 해석하도록 바꾸고 flat legacy 디렉터리도 이관 중 임시로 인식하게 했다.
+    코드 경로 실행과 실제 launch/remove는 아직 테스트하지 않았다.
+  - extension 설치 경로를 repository 아래에 둘 경우 원격 `sync`의 destination-prune가
+    registry와 package releases를 지울 수 있음을 발견해 `services/extensions/`를 sync
+    제외 및 prune 보호 대상으로 추가했다. 서비스 수명주기 분리만으로는 운영용 sync가
+    보존 경계를 자동으로 알지 못한다.
+  - 이후 사용자는 기존 extension 디렉터리를 새 core discovery에서 제외하고 로컬
+    `archive/`에 임시 보존해 새 구조를 독립적으로 검증하기로 했다. 10개 서비스 트리와
+    10개 Caddy snippet을 이동했으며 archive는 Gitignore, catalog, sync/prune에서
+    제외된다. private 설정과 사용자 데이터는 삭제하지 않았다. 새 core catalog는
+    `services/bundles/*/compose.yml`만 찾는다.
+  - 사용자는 `install → setup → launch`로 패키지 흐름을 검증하려 한다. `setup` 없이
+    `launch`해도 공통 설정부터 확인해야 한다는 UX에 합의했다. launch의 설정 확인이
+    prepare capability 유무에 묶여 있던 코드를 고쳐, 모든 선택 서비스가 설정 확인을
+    거친 뒤 필요한 준비 훅으로 진행하게 했다. CLI 설치 명령과 실제 package install은
+    아직 남아 있다.
+  - 이후 제품 방향을 원점에서 재검토했다. paid/free 분류와 entitlement를 초기 범위에서
+    제외하고, 플랫폼 배포에 서비스 bundle을 포함하지 않으며, 모든 앱을 동일한
+    catalog service로 취급하기로 했다. 따라서 앞서 제안한 bundle/extension 분류와
+    유료 ZIP 판매 흐름은 현재 설계의 기준이 아니다.
+  - 별도 Worker/API 대신 정적 JSON 카탈로그를 R2에서 제공하고, CI만 private
+    OpenDock-Services와 R2 write 권한을 갖는 흐름을 합의했다. CLI는 카탈로그를
+    내려받아 로컬 검색하고, 패키지 SHA-256을 카탈로그 값과 비교한다. 서명은 키 운영
+    복잡도 때문에 우선 미루되 catalog와 package를 함께 바꿀 수 있는 공격자에 대해서는
+    게시자 진위 보장을 제공하지 않는다는 한계를 기록했다.
+  - 패키지와 실행 인스턴스를 분리한다. WordPress package 하나를 설치한 뒤 A 도메인과
+    B 도메인에 별도의 설정·컨테이너·데이터를 갖는 인스턴스를 운영하며, 모든 지원
+    서비스가 같은 모델을 사용할 수 있어야 한다. Linux 우선, macOS 다음, WSL2 이후로
+    OS 지원 순서도 정했다.
+  - 기존 `scripts/opendock_capabilities.py`의 runtime environment, secret plan/generate,
+    config validation, prepare 사례와 `post_launch` 흐름을 확인했다. 새 API v1 초안은
+    필요한 동작을 보존하되 setup/readiness/upgrade/purge 계약을 추가하고, 함수 시그니처와
+    컨텍스트를 새로 정의한다. descriptor가 setup hook과 필요한 infra adapter를 명시할
+    때만 setup/launch가 실제 공유 인프라에 접근한다.
+  - 도메인은 서비스 하나가 소유하는 값이 아니라 플랫폼이 등록하는 공용 base domain으로
+    모델링했다. 한 도메인에 서로 다른 서비스 인스턴스가 붙을 수 있고, 라우트 hostname은
+    충돌을 검사한다. v1에서는 `(service_id, domain)`마다 인스턴스 하나를 두며, CLI의
+    `--domain`은 이 쌍으로 인스턴스를 선택한다.
+  - 새 설계 문서는 `docs/product-distribution.md`,
+    `docs/catalog-and-package-contract.md`, `docs/service-contract.md`,
+    `docs/command-model.md`에 기록했다. 기존 코드는 호환성 기준이 아니라 참고 자료로
+    취급하고, 이전 branch 변경을 새 방향과 충돌하는 부분, 재사용할 개념, archive
+    보존물로 분류했다.
+  - 후속 steering에서 사용자는 bundle을 완전히 없애고 모든 앱을 OpenDock-Services에서
+    별도 패키지로 설치하는 방향을 확정했다. 첫 수직 파일럿은 Homepage가 아니라 Uptime
+    Kuma로 정정했고, CI tag/수동 release가 dev R2에 ZIP과 정적 catalog를 게시하는
+    경로를 준비했다. 일반 Git push만으로 모든 변경을 자동 배포하지 않고 명시적인
+    release version을 사용한다.
+  - OpenDock에 `update`, `search`, `install` CLI와 `scripts/opendock_distribution.py`를
+    추가했다. catalog schema/ID/version/key/digest/크기를 검증하고, ZIP 전체 SHA-256을
+    검사한 다음 경로 traversal, 중복 ZIP entry, symlink를 거부하고 staging에서
+    `services/extensions/<id>/releases/<version>`로 활성화한다. 로컬 설치 registry는
+    서명 키 ID를 요구하지 않는다. 실행 코드 import 없이 descriptor를 읽어 설치를
+    등록한다.
+  - 첫 임시 설치 통합 검증은 registry release 경로 prefix 비교 버그를 찾아냈다.
+    비교 길이를 경로 구성요소 수에 맞춘 뒤, 가짜 다운로드 응답을 사용해 package
+    install부터 `ServiceCatalog` discovery까지 성공했다. 이는 실제 R2 또는 Docker
+    환경 검증과 구분해야 한다.
+  - OpenDock-Services에 Uptime Kuma 원본, 자체 routing handler, deterministic ZIP
+    builder, catalog 갱신 스크립트, dev 전용 GitHub Actions workflow를 추가했다. 로컬에서
+    ZIP을 만들고 생성 catalog를 OpenDock validator로 검사한 뒤 `uptime-kuma/v0.1.0`을
+    tag push했다. GitHub Actions run `42201031065`가 package upload와 catalog-last 게시를
+    성공으로 완료했다.
+  - 공개 catalog URL도 반복해서 shell에 export하지 않도록 core 설정 소유권에 등록하고,
+    사용자가 `dev` 선택을 매번 기억하지 않아도 되도록 개발용 `dev_opendock` wrapper가
+    distribution 명령에 `--environment dev`를 고정해서 붙이게 했다. 운영 URL은 core 설정
+    파일에서 별도로 선택한다. R2 공개 URL은 이 문서에 기록하지 않는다. 사용자가 실제
+    OpenDock checkout에서 `./dev_opendock update`를 실행해 1개 서비스 catalog를 캐시했고,
+    `search uptime`에서 Uptime Kuma `0.1.0`을 찾은 뒤 `install uptime-kuma`로
+    `services/extensions/uptime-kuma/releases/0.1.0`에 설치했다. 이로써 dev R2 fetch와
+    package install은 사용자 환경에서 확인됐다. Package setup, launch, purge 및
+    domain별 instance 동작은 아직 검증하지 않았다.
+- 보존할 교훈:
+  - 개발 저장소 접근 제어와 제품 entitlement는 같은 문제로 취급하지 않는다.
+    소스 저장소를 private으로 만드는 것만으로 고객 설치·업데이트 경험이 완성되지 않는다.
+  - 판매 검증을 시작하기 전에 인증 서버를 구축할 필요가 있는지, 실제 운영 부담이
+    생길 때 자동화해도 되는지 구분한다.
+  - ZIP 배포는 가벼운 첫 경로지만 버전 호환, 안전한 압축 해제, 업데이트 시 local
+    state 보존, 환불 이후 재다운로드 정책을 명시해야 한다.
+- 검증 상태: 설계 문서, catalog client의 local unit test, ZIP/package build,
+  generated catalog validation, temporary-root install/service discovery, 실제 tag-triggered
+  GitHub Actions dev R2 게시, 사용자 환경의 `update → search → install`을 확인했다.
+  Package setup/launch/purge, domain별 instance lifecycle, 깨끗한 호스트, production publish,
+  macOS 호스트 bootstrap 및 WSL2 지원은 검증되지 않았다.

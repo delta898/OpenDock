@@ -1,0 +1,21 @@
+schema_version = 1
+service_id = "uptime-kuma"
+display_name = "Uptime Kuma"
+capability_api_version = 1
+capabilities = []
+dependencies = ["infra"]
+
+[[setup.fields]]
+name = "UPTIME_KUMA_SUBDOMAIN"
+kind = "defaulted-choice"
+default = "uptime"
+
+[removal]
+# All persistent Uptime Kuma application data is in the Compose named volume.
+# There are no service-owned host bind paths or shared database objects.
+data_paths = []
+
+[routing]
+subdomain_key = "UPTIME_KUMA_SUBDOMAIN"
+handler_file = "../../../gateway/caddy/conf.d/uptime-kuma.caddy"
+caddy_handler = "uptime_kuma_proxy"

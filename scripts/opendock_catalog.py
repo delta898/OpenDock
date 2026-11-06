@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Discover Compose-backed services without maintaining a central name list."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 import os
 from pathlib import Path
@@ -353,7 +355,7 @@ class PlatformCatalog:
 
 
 class ServiceCatalog:
-    """Read-only catalog derived from services/<name>/compose.yml."""
+    """Read-only catalog derived from separately installed service packages."""
 
     DESCRIPTOR_NAME = "opendock.toml"
     DESCRIPTOR_VERSION = 1
@@ -379,6 +381,7 @@ class ServiceCatalog:
             for group in component.shared_groups
         )
         self.services_dir = self.root / "services"
+        self.extension_registry = self.services_dir / "extensions" / "installed.toml"
         self._services = self._discover()
         self._by_name = {service.name: service for service in self._services}
         self._validate_dependencies()
@@ -412,23 +415,105 @@ class ServiceCatalog:
             return ()
 
         found = []
-        for compose_file in sorted(self.services_dir.glob("*/compose.yml")):
-            directory = compose_file.parent
-            descriptor_file = directory / self.DESCRIPTOR_NAME
-            if not descriptor_file.is_file():
-                raise CatalogError(
-                    f"Service {directory.name!r} is missing its descriptor: "
-                    f"{descriptor_file.relative_to(self.root)}."
-                )
-            descriptor = self._load_descriptor(descriptor_file, directory.name)
-            found.append(ServiceDefinition(
-                name=directory.name,
-                directory=directory,
-                compose_file=compose_file,
-                descriptor_file=descriptor_file,
-                descriptor=MappingProxyType(descriptor),
-            ))
+        found.extend(self._discover_installed_extensions())
+        names = [service.name for service in found]
+        duplicates = sorted(name for name in set(names) if names.count(name) > 1)
+        if duplicates:
+            raise CatalogError(
+                "Duplicate installed service IDs: "
+                + ", ".join(duplicates)
+            )
         return tuple(found)
+
+    def _discover_installed_extensions(self) -> list[ServiceDefinition]:
+        """Discover only releases named by the local extension registry."""
+        registry_path = self.services_dir / "extensions" / "installed.toml"
+        if not registry_path.exists():
+            return []
+        if registry_path.is_symlink():
+            raise CatalogError(f"Refusing to read extension registry through a symlink: {registry_path}")
+        if tomllib is None:
+            raise CatalogError("Reading the extension registry requires Python 3.11 or newer.")
+        try:
+            with registry_path.open("rb") as stream:
+                registry = tomllib.load(stream)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise CatalogError(f"Invalid extension registry {registry_path}: {exc}") from exc
+        if set(registry) != {"schema_version", "extensions"} or registry.get("schema_version") != 1:
+            raise CatalogError(f"Unsupported extension registry schema: {registry_path}")
+        entries = registry.get("extensions")
+        if not isinstance(entries, list):
+            raise CatalogError(f"Extension registry {registry_path} must contain [[extensions]] entries.")
+        found = []
+        seen = set()
+        extension_root = (self.services_dir / "extensions").resolve()
+        for entry in entries:
+            if not isinstance(entry, dict) or set(entry) != {"service_id", "version", "release_path", "sha256", "installed_at"}:
+                raise CatalogError(f"Invalid entry in extension registry {registry_path}.")
+            service_id = entry["service_id"]
+            version = entry["version"]
+            relative = entry["release_path"]
+            digest = entry["sha256"]
+            installed_at = entry["installed_at"]
+            if (not isinstance(service_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", service_id)
+                    or service_id in seen):
+                raise CatalogError(f"Invalid or duplicate service_id in extension registry: {service_id!r}.")
+            if not isinstance(version, str) or not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+_-]*", version):
+                raise CatalogError(f"Invalid release version for extension {service_id!r}.")
+            if not isinstance(relative, str):
+                raise CatalogError(f"Invalid release path for extension {service_id!r}.")
+            if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest):
+                raise CatalogError(f"Invalid package digest for extension {service_id!r}.")
+            if not isinstance(installed_at, str) or not installed_at:
+                raise CatalogError(f"Invalid package installation metadata for {service_id!r}.")
+            relative_path = PurePosixPath(relative)
+            expected_prefix = PurePosixPath("services/extensions") / service_id / "releases"
+            if (relative_path.is_absolute() or ".." in relative_path.parts
+                    or relative_path.parts[:len(expected_prefix.parts)] != expected_prefix.parts):
+                raise CatalogError(f"Unsafe release path for extension {service_id!r}.")
+            directory = (self.root / Path(*relative_path.parts)).resolve()
+            try:
+                directory.relative_to(extension_root / service_id / "releases")
+            except ValueError as exc:
+                raise CatalogError(f"Extension release path escapes its service store: {service_id!r}.") from exc
+            compose_file = directory / "compose.yml"
+            descriptor_file = directory / self.DESCRIPTOR_NAME
+            if not compose_file.is_file() or not descriptor_file.is_file():
+                raise CatalogError(f"Registered extension {service_id!r} has a missing active release.")
+            descriptor = self._load_descriptor(descriptor_file, service_id)
+            if descriptor.get("service_id") != service_id:
+                raise CatalogError(f"Extension release ID does not match registry entry {service_id!r}.")
+            found.append(ServiceDefinition(
+                name=service_id, directory=directory, compose_file=compose_file,
+                descriptor_file=descriptor_file, descriptor=MappingProxyType(descriptor),
+            ))
+            seen.add(service_id)
+        return found
+
+    def is_extension(self, name: str) -> bool:
+        definition = self.get(name)
+        try:
+            definition.directory.relative_to(self.services_dir / "extensions")
+            return True
+        except ValueError:
+            return False
+
+    def routing_file(self, service: ServiceDefinition) -> Path | None:
+        """Resolve the declared Caddy handler file for this service."""
+        routing = service.routing
+        if not routing:
+            return None
+        relative = PurePosixPath(routing.get("handler_file", ""))
+        if relative.is_absolute() or ".." in relative.parts or not relative.parts:
+            raise CatalogError(f"Service {service.name!r} has an unsafe routing handler_file.")
+        candidate = (service.directory / Path(*relative.parts)).resolve()
+        try:
+            candidate.relative_to(service.directory.resolve())
+        except ValueError as exc:
+            raise CatalogError(f"Service {service.name!r} routing handler escapes its directory.") from exc
+        if not candidate.is_file():
+            raise CatalogError(f"Missing declared routing handler: {candidate}")
+        return candidate
 
     def _load_descriptor(self, path: Path, service_id: str) -> dict[str, object]:
         if not path.is_file():
@@ -445,7 +530,7 @@ class ServiceCatalog:
 
         unknown_descriptor_fields = sorted(
             set(descriptor) - {
-                "schema_version", "service_id", "display_name", "capability_api_version",
+                "schema_version", "service_id", "version", "display_name", "capability_api_version",
                 "capabilities", "dependencies", "commands", "setup", "routing", "removal",
                 "storage",
             }
@@ -496,7 +581,7 @@ class ServiceCatalog:
         routing = descriptor.get("routing", {})
         if not isinstance(routing, dict):
             raise CatalogError(f"Service descriptor {path} has invalid [routing] metadata.")
-        unknown_routing = sorted(set(routing) - {"subdomain_key", "caddy_handler"})
+        unknown_routing = sorted(set(routing) - {"subdomain_key", "caddy_handler", "handler_file"})
         if unknown_routing:
             raise CatalogError(
                 f"Service descriptor {path} has unsupported routing fields: "
@@ -505,6 +590,7 @@ class ServiceCatalog:
         if routing:
             subdomain_key = routing.get("subdomain_key")
             caddy_handler = routing.get("caddy_handler")
+            handler_file = routing.get("handler_file")
             if not isinstance(subdomain_key, str) or not re.fullmatch(
                 r"[A-Z][A-Z0-9_]*", subdomain_key
             ):
@@ -513,6 +599,18 @@ class ServiceCatalog:
                 r"[a-z][a-z0-9_]*_proxy", caddy_handler
             ):
                 raise CatalogError(f"Service descriptor {path} has an invalid routing caddy_handler.")
+            if not isinstance(handler_file, str):
+                raise CatalogError(f"Service descriptor {path} must declare routing.handler_file.")
+            handler_path = Path(handler_file)
+            resolved_handler = (path.parent / handler_path).resolve()
+            allowed_roots = [path.parent.resolve()]
+            if not any(
+                resolved_handler == allowed or resolved_handler.is_relative_to(allowed)
+                for allowed in allowed_roots
+            ):
+                raise CatalogError(f"Service descriptor {path} has an unsafe routing.handler_file.")
+            if not resolved_handler.is_file():
+                raise CatalogError(f"Service descriptor {path} references a missing routing handler file.")
 
         commands = descriptor.get("commands", [])
         if not isinstance(commands, list):

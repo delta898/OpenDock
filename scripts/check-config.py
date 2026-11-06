@@ -31,7 +31,7 @@ def service_targets():
 def target_dir(target):
     if target in ("infra", "gateway"):
         return ROOT_DIR / target
-    return ROOT_DIR / "services" / target
+    return ServiceCatalog(ROOT_DIR).get(target).directory
 
 
 def all_targets():
@@ -50,8 +50,7 @@ def resolve_targets(target):
     if target in ("infra", "gateway"):
         return [target]
 
-    compose = ROOT_DIR / "services" / target / "compose.yml"
-    if compose.is_file():
+    if target in service_targets():
         return [target]
 
     group = group_services(target)
@@ -59,7 +58,7 @@ def resolve_targets(target):
         validate_services(group)
         return group
 
-    raise SystemExit(f"Unknown target or missing compose.yml: {target}")
+    raise SystemExit(f"Service '{target}' is not installed. Install its OpenDock package first.")
 
 
 def compose_variables(path):

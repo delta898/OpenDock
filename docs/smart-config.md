@@ -240,7 +240,9 @@ Global fields should be asked once, not once per service.
 
 The earlier central `CONFIG_FIELDS` sketch was superseded by scoped metadata:
 
-- Service setup fields live in `services/<service>/opendock.toml`.
+- Service setup fields live in the service descriptor: bundled services use
+  `services/bundles/<service>/opendock.toml`, while optional package source is
+  kept under `OpenDock-Services/services/extensions/<service>/opendock.toml`.
 - Shared infrastructure fields live in their platform descriptor, such as
   `infra/opendock.toml`.
 - Core settings live in `config/core.toml`; cross-service settings such as mail

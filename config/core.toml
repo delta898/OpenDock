@@ -1,7 +1,11 @@
 schema_version = 1
 section_id = "core"
 config_file = "config/core.env"
-setting_keys = ["STACK_DOMAIN"]
+setting_keys = [
+  "STACK_DOMAIN",
+  "OPENDOCK_DEV_CATALOG_BASE_URL",
+  "OPENDOCK_PROD_CATALOG_BASE_URL",
+]
 
 [[setup.fields]]
 name = "STACK_DOMAIN"

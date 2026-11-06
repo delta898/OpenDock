@@ -32,6 +32,7 @@ from opendock_capabilities import (
     validate_service_capabilities,
 )
 from opendock_catalog import ServiceCatalog
+from opendock_distribution import DistributionError, fetch_catalog, install as install_package, load_cached
 from opendock_storage import prepare_default_mounts, validate_mounts
 
 SERVICES = ROOT / "services"
@@ -41,11 +42,14 @@ CHECKED = {"up", "restart", "start", "build", "config"}
 LIFECYCLE = CHECKED | {"down", "stop", "ps", "pull"}
 EXCLUDES = (
     ".git/", ".sync.env", ".sync.env.toml", "common.env", "domains.conf",
+    "archive/",
     "config/.service-default-migration-v1", "config/.infra-default-migration-v1",
     "config/.gateway-default-migration-v1",
     "gateway/caddy/conf.d/zz-opendock-routes.caddy",
-    "cloudflare.env", "*.env",
+    "*.env",
     "services/*/data/", "**/data/", "services/*/backups/",
+    "services/bundles/*/backups/",
+    "services/extensions/",
     "backups/", ".DS_Store",
 )
 REMOTE_SYNC_PRUNE = r'''
@@ -58,13 +62,13 @@ if not isinstance(data, list) or not all(isinstance(item, str) for item in data)
     raise ValueError("invalid OpenDock sync file list")
 current = {os.fsdecode(bytes.fromhex(item)) for item in data}
 protected_files = {
-    ".sync.env", ".sync.env.toml", "common.env", "cloudflare.env", "domains.conf",
+    ".sync.env", ".sync.env.toml", "common.env", "domains.conf",
     "config/.service-default-migration-v1", "config/.infra-default-migration-v1",
     "config/.gateway-default-migration-v1",
     "gateway/caddy/conf.d/zz-opendock-routes.caddy",
 }
 # Keep these destination protections aligned with EXCLUDES and .gitignore.
-protected_dirs = {".git", "data", "backups"}
+protected_dirs = {".git", "archive", "data", "backups", "extensions"}
 
 def protected(rel):
     parts = rel.split(os.sep)
@@ -220,7 +224,7 @@ def targets(name):
         return ["infra"] + (["gateway"] if (ROOT / "gateway/compose.yml").exists() else []) + known
     if name == "services":
         if not known:
-            raise CLIError("No services found under services/*/compose.yml")
+            raise CLIError("No services found in the service catalog.")
         return known
     if name in ("infra", "gateway") or name in known:
         return [name]
@@ -257,7 +261,10 @@ def check_config(target, quiet=False):
 
 
 def compose(target, *args, capture=False, quiet=False):
-    directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
+    directory = (
+        ROOT / target if target in ("infra", "gateway")
+        else ServiceCatalog(ROOT).get(target).directory
+    )
     if not (directory / "compose.yml").is_file():
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
     settings = settings_module()
@@ -428,12 +435,16 @@ def prepare_service_set(selected, *, configure_missing=False):
 def launch_service_set(selected):
     for service in selected:
         validate_service_capabilities(ServiceCatalog(ROOT).get(service))
+    # Configuration is a prerequisite for every service. Service preparation
+    # hooks add application-specific work, but must not gate common setup.
+    for service in selected:
+        ensure_service_configuration(service)
+    for service in selected:
+        script("opendock-config.py", "--optional-only", service)
     preparable = [
         service for service in selected
         if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
     ]
-    for service in preparable:
-        ensure_service_configuration(service)
     for service in selected:
         ensure_service_storage_configuration(service)
     for service in selected:
@@ -504,6 +515,12 @@ def launch(target):
             print(f"==> route: add default hostname {default['hostname']}", flush=True)
             script("opendock-domains.py", "add", default["hostname"], target)
     selected_services = service_targets_for(target)
+    if (not selected_services and target not in ("all", "services", "infra", "gateway")
+            and target not in groups()
+            and target not in settings_module().SHARED_CONFIG_SECTIONS):
+        raise CLIError(
+            f"Service '{target}' is not installed. Install its OpenDock package first."
+        )
     already_started = launch_service_set(selected_services)
     lifecycle("up", target, already_started=already_started)
     post_launch(target)
@@ -596,7 +613,6 @@ def sync(name, dry_run=False):
         options.append("--dry-run")
     for value in EXCLUDES:
         options.append(f"--exclude={value}")
-    options.append("--include=cloudflare.env.example")
     run("rsync", *options, f"{ROOT}/", f"{remote}:{path}/",
         env=env, input_data=file_list)
     prune_output = remote_sync_prune(
@@ -611,7 +627,7 @@ def list_targets(kind=None):
     group_names = groups()
     if kind == "services":
         if not found:
-            raise CLIError("No services found under services/*/compose.yml")
+            raise CLIError("No services found in the service catalog.")
         print("\n".join(found))
     elif kind == "groups":
         if not GROUPS.is_file():
@@ -630,7 +646,10 @@ def list_targets(kind=None):
 
 
 def configured_images(target):
-    directory = ROOT / target if target in ("infra", "gateway") else SERVICES / target
+    directory = (
+        ROOT / target if target in ("infra", "gateway")
+        else ServiceCatalog(ROOT).get(target).directory
+    )
     compose_file = directory / "compose.yml"
     if not compose_file.is_file():
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
@@ -723,7 +742,10 @@ def print_guide():
         OpenDock — setup, run, and publish services
 
         Start here
-          ./opendock list                          See available services and groups
+          ./opendock search <words>                Find a service package
+          ./opendock install <service>             Install a service package
+          ./opendock update                        Refresh the service catalog
+          ./opendock list                          See installed services and groups
           ./opendock setup                         Configure your primary domain
           ./opendock launch <service>              Configure and start one service
 
@@ -764,8 +786,8 @@ def print_guide():
           ./opendock publish [target]              Sync routes without starting services
 
         Other
-          ./opendock remove <service>                 Remove all owned resources (confirms first)
-          ./opendock remove <service> --dry-run      Preview removal without changes
+          ./opendock purge <service>                  Delete service runtime resources (confirms first)
+          ./opendock purge <service> --dry-run       Preview purge without changes
           ./opendock service <service>              List service-specific commands
           ./opendock service <service> <command>    Run one service-specific command
           ./opendock sync <name> --dry-run          Preview deployment to a remote
@@ -802,6 +824,14 @@ def parser():
         help="Show the OpenDock product version and exit",
     )
     sub = p.add_subparsers(dest="command", required=True)
+    update_cmd = sub.add_parser("update", help="Refresh the service catalog")
+    update_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
+    search_cmd = sub.add_parser("search", help="Search available service packages")
+    search_cmd.add_argument("terms", nargs="*", help="Words to match in service metadata")
+    search_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
+    install_cmd = sub.add_parser("install", help="Install a service package from the catalog")
+    install_cmd.add_argument("service", help="Service ID from the catalog")
+    install_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
     sub.add_parser("help", help="Show the getting-started guide",
                    description="Show the common OpenDock workflows and examples.")
     l = sub.add_parser(
@@ -875,17 +905,17 @@ def parser():
         )
         item.add_argument("target", nargs="?", default="all",
                           help=target_help)
-    remove_cmd = sub.add_parser(
-        "remove", help="Remove a service and its owned resources",
-        description="Plan and confirm removal of one service's containers, data, images, and routes.",
-        epilog="Example: ./opendock remove <service> --dry-run",
+    purge_cmd = sub.add_parser(
+        "purge", help="Delete a service's runtime resources",
+        description="Plan and confirm deletion of one service's containers, data, images, settings, database objects, and routes. The service package remains installed.",
+        epilog="Example: ./opendock purge <service> --dry-run",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    remove_cmd.add_argument(
+    purge_cmd.add_argument(
         "target", help="Installed service that declares a removal contract"
     )
-    remove_cmd.add_argument("--dry-run", action="store_true",
-                            help="Show removal targets without changing anything")
+    purge_cmd.add_argument("--dry-run", action="store_true",
+                           help="Show purge targets without changing anything")
     logs = sub.add_parser(
         "logs", help="Follow logs for one service",
         description="Follow logs from one service, infra, or gateway target.",
@@ -970,6 +1000,31 @@ def main(argv=None):
         command = args.command
         if command == "help":
             print_guide()
+        elif command == "update":
+            catalog, path = fetch_catalog(args.environment)
+            print(f"Updated {args.environment} service catalog ({len(catalog['services'])} services).")
+            print(f"Cache: {path}")
+        elif command == "search":
+            catalog = load_cached(args.environment)
+            terms = [term.casefold() for term in args.terms]
+            matches = []
+            for service in catalog["services"]:
+                haystack = " ".join([
+                    service["service_id"], service["display_name"],
+                    str(service.get("summary", "")),
+                    " ".join(service.get("tags", [])),
+                ]).casefold()
+                if all(term in haystack for term in terms):
+                    versions = sorted((release["version"] for release in service["releases"]), reverse=True)
+                    matches.append((service, versions[0] if versions else "no releases"))
+            for service, version in matches:
+                print(f"{service['service_id']}\t{service['display_name']}\t{version}")
+            if not matches:
+                print("No matching services.")
+        elif command == "install":
+            catalog = load_cached(args.environment)
+            destination = install_package(args.environment, args.service, catalog, ROOT)
+            print(f"Installed {args.service} package at {destination.relative_to(ROOT)}.")
         elif command == "list":
             list_targets(args.kind)
         elif command == "info":
@@ -1002,7 +1057,7 @@ def main(argv=None):
             publish(args.target)
         elif command == "launch":
             launch(args.target)
-        elif command == "remove":
+        elif command == "purge":
             run(sys.executable, ROOT / "scripts" / "opendock-remove.py",
                 args.target, *( ["--dry-run"] if args.dry_run else [] ))
         elif command == "route":

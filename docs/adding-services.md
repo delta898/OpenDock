@@ -1,14 +1,25 @@
 # Adding a Service to OpenDock
 
-This guide is for adding a Docker Compose application to the bundled OpenDock
-catalog. Static routes are configured separately with `./opendock route add
+> **Do not use this guide to add a new service.** It documents the legacy
+> in-repository service implementation and its old `services/bundles/` layout.
+> New service source belongs in OpenDock-Services and must follow the package
+> and capability contracts in [`product-distribution.md`](product-distribution.md),
+> [`catalog-and-package-contract.md`](catalog-and-package-contract.md), and
+> [`service-contract.md`](service-contract.md). Package setup and launch remain
+> in progress.
+
+The examples below describe how the current legacy Docker Compose catalog was
+implemented. Static routes are configured separately with `./opendock route add
 <hostname> static`; they do not use a service descriptor. A non-Docker runtime
 needs a new platform contract and is outside this guide.
 
 ## What is discovered automatically?
 
-The service catalog scans `services/*/compose.yml`. Each discovered Compose
-directory must also contain a valid `opendock.toml`. With those files in place,
+The legacy service catalog scans `services/bundles/*/compose.yml`. Do not add
+new products there: the agreed product model has no bundle category and all
+services are installed from OpenDock-Services packages.
+Each discovered Compose directory must also contain a valid `opendock.toml`.
+With those files in place,
 OpenDock discovers the service for `list`, target resolution, Compose lifecycle
 commands, setup metadata, and descriptor-driven removal. The central `opendock`
 dispatcher does not need a service-specific branch for behavior already covered
@@ -28,15 +39,15 @@ metadata.
 
 | 위치 | 파일 | 역할 |
 | --- | --- | --- |
-| `services/<service-id>/` | `compose.yml` | 앱 컨테이너, Compose 서비스 이름, 내부 포트, 볼륨 정의 |
-| `services/<service-id>/` | `opendock.toml` | 서비스 등록, 설정 키, 기본 hostname, Caddy handler 이름, 제거 소유권 선언 |
-| `services/<service-id>/` | `.env.default` | 기본값과 Renovate가 추적할 image tag |
-| `services/<service-id>/` | `README.md` | 첫 실행, 데이터 위치, 업데이트와 제거 안내 |
-| `gateway/caddy/conf.d/` | `<service-id>.caddy` | Caddy reverse proxy와 서비스별 HTTP 동작 |
+| `services/bundles/<service-id>/` | `compose.yml` | 앱 컨테이너, Compose 서비스 이름, 내부 포트, 볼륨 정의 |
+| `services/bundles/<service-id>/` | `opendock.toml` | 서비스 등록, 설정 키, 기본 hostname, Caddy handler 이름, 제거 소유권 선언 |
+| `services/bundles/<service-id>/` | `.env.default` | 기본값과 Renovate가 추적할 image tag |
+| `services/bundles/<service-id>/` | `README.md` | 첫 실행, 데이터 위치, 업데이트와 제거 안내 |
+| `services/bundles/<service-id>/routing/` | `<service-id>.caddy` | Caddy reverse proxy와 서비스별 HTTP 동작 |
 
 세 위치 사이의 연결은 다음과 같습니다.
 
-1. `opendock.toml`의 `[routing].caddy_handler`가 Caddy snippet 이름을 가리킵니다.
+1. `opendock.toml`의 `[routing]`이 `handler_file`과 Caddy snippet 이름을 가리킵니다.
 2. `<service-id>.caddy`는 같은 이름의 snippet을 정의하고,
    `reverse_proxy <compose-service>:<internal-port>`를 사용합니다.
 3. `<compose-service>`는 `compose.yml`의 서비스 이름과 같아야 하며, 앱은
@@ -47,19 +58,20 @@ metadata.
 예를 들어 `example-app`의 연결은 다음처럼 맞춥니다.
 
 ```text
-services/example-app/compose.yml
+services/bundles/example-app/compose.yml
   Compose service: example-app
   Internal port: 8080
   Shared network: shared-net
 
-services/example-app/opendock.toml
+services/bundles/example-app/opendock.toml
+  routing.handler_file = "routing/example-app.caddy"
   routing.caddy_handler = "example_app_proxy"
   routing.subdomain_key = "EXAMPLE_APP_SUBDOMAIN"
 
-services/example-app/.env.default
+services/bundles/example-app/.env.default
   EXAMPLE_APP_SUBDOMAIN=example
 
-gateway/caddy/conf.d/example-app.caddy
+services/bundles/example-app/routing/example-app.caddy
   (example_app_proxy) { reverse_proxy example-app:8080 ... }
 ```
 
@@ -67,7 +79,7 @@ gateway/caddy/conf.d/example-app.caddy
 실제 연결이 실패할 수 있습니다. 서비스 추가 시 두 위치의 파일을 함께 검토하세요.
 
 ```text
-services/<service-id>/
+services/bundles/<service-id>/
   compose.yml             required; Docker Compose application
   opendock.toml           required; registration, setup, routing, removal
   .env.default            tracked non-secret defaults and image versions
@@ -76,7 +88,7 @@ services/<service-id>/
   commands/               optional; executable service-specific commands
   data/                   runtime data only when bind mounts are required
 
-gateway/caddy/conf.d/<service-id>.caddy  required when public Docker routing is enabled
+services/bundles/<service-id>/routing/<service-id>.caddy  required when public Docker routing is enabled
 ```
 
 Use a stable lowercase ID with hyphens, matching the directory and descriptor
@@ -86,7 +98,7 @@ variable prefix: `photo-stack` becomes `PHOTO_STACK_`.
 ## Declare the service
 
 Start from the smallest similar bundled service, such as
-`services/uptime-kuma/`. A minimal public service descriptor looks like this:
+`services/bundles/uptime-kuma/`. A minimal public service descriptor looks like this:
 
 ```toml
 schema_version = 1
@@ -133,7 +145,7 @@ bind mount with `bind.create_host_path: false`. `access` is `read-only` or
 The user can keep the default or set an absolute host path through
 `./opendock setup <service>`. OpenDock creates a missing checkout-local default
 directory during launch/up, but a custom path must already exist. It checks
-path existence and access, not the filesystem or disk type. `remove` shows and
+path existence and access, not the filesystem or disk type. `purge` shows and
 removes the configured data directory after confirmation. Use the same
 service-specific path contract for WordPress' complete webroot; do not assume
 it can safely expose only uploads without changing its current mount layout.
@@ -186,8 +198,8 @@ services:
 ## Routing and Caddy
 
 The `[routing]` section opts the service into a default hostname derived from
-`STACK_DOMAIN` and the declared subdomain field. Its `caddy_handler` must match
-a Caddy snippet name in `gateway/caddy/conf.d/<service-id>.caddy`. A typical
+`STACK_DOMAIN` and the declared subdomain field. Its `handler_file` must name a
+package-owned Caddy file and `caddy_handler` must match its snippet name. A typical
 snippet is:
 
 ```caddyfile
@@ -240,7 +252,7 @@ document what removal does to it.
 Most services need only Compose plus descriptor metadata. Do not add an empty
 `opendock.py` or a no-op hook. If the service needs application-aware behavior,
 declare only capabilities supported by API v1 and implement each declared
-handler in `services/<service-id>/opendock.py`:
+handler in `services/bundles/<service-id>/opendock.py`:
 
 ```python
 OPENDOCK_CAPABILITY_API_VERSION = 1
@@ -256,7 +268,7 @@ recursively. The local Python handler is trusted repository code, not a
 sandbox.
 
 Service commands are also optional. Put executable commands in
-`services/<service-id>/commands/<name>` and declare matching `[[commands]]`
+`services/bundles/<service-id>/commands/<name>` and declare matching `[[commands]]`
 metadata. The catalog requires every declared command to have an executable
 file. Keep these operations service-specific; do not add a top-level CLI
 command for one application.
@@ -282,7 +294,7 @@ For a service with routing, check that `route show` recognizes its default
 hostname, then add a separate test hostname and inspect the route before
 launching. A real `launch` can start containers and publish Cloudflare routes;
 do this only in an environment where those effects are intended. Exercise
-`remove <service-id> --dry-run` before any confirmed removal. Full removal
+`purge <service-id> --dry-run` before any confirmed purge. Full purge
 verification belongs on a clean isolated host, including checks that shared
 infrastructure and unrelated services survive.
 

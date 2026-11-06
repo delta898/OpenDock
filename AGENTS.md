@@ -1,5 +1,40 @@
 # OpenDock Agent Guidance
 
+## Greenfield product redesign
+
+The current target design is documented in
+`docs/product-distribution.md` and its linked catalog/package, service
+capability, and command/instance contracts. Newer user decisions recorded
+there take precedence over this file wherever they conflict. In particular,
+the old `bundles/` versus `extensions/` product split and signed-package
+assumptions are not target requirements. Existing repository paths and code
+remain useful references; do not preserve their interfaces for backward
+compatibility. Keep the safety principles below—idempotent setup, scoped
+configuration, explicit ownership, and confirmation for destructive work—when
+translating them into the new design.
+
+For all new product and documentation work, follow the current product rule:
+there is no bundled-service category. New service source belongs in the separate
+OpenDock-Services repository and is installed from the static catalog. References
+below to `services/bundles/` describe legacy migration material only; they are
+not instructions to add new services there. Package `update`, `search`, and
+`install` are operational, while package setup, launch, and domain-scoped
+instances remain unfinished.
+
+## Repository split and service paths
+
+OpenDock is the platform repository and does not ship application services as
+bundles. All service source lives in the separate OpenDock-Services repository
+under `services/extensions/<service-id>/`. Installed package releases live in
+OpenDock under `services/extensions/<service-id>/releases/<version>`; keep
+mutable per-instance state outside immutable release directories. Resolve
+service paths through the catalog instead of constructing paths from IDs.
+
+Any `services/bundles/` or old flat service trees still present in this checkout
+are migration residue and must not be used for new work. The local, gitignored
+`archive/` is preservation material only and must never be discovered, packaged,
+or synced to a host.
+
 ## Zero-config service workflow
 
 OpenDock is a multi-service platform. Keep the common path simple: when a
@@ -37,10 +72,11 @@ Keep defaults and machine-local effective values separate. Tracked defaults use
   `config/core.env.default`, `config/infra.env.default`, and
   `config/shared/<concern>.env.default`. Their private effective files use the
   same paths without `.default`.
-- Every service owns `services/<service>/.env.default` for tracked runtime
-  defaults, including image tags, and `services/<service>/.env` for local
-  overrides and secrets. Renovate tracks `.env.default` files. The ignored
-  local `.env` is not scanned.
+- Installed services read tracked runtime defaults from their active package
+  release and keep private effective settings outside that release under
+  `config/extensions/` or the instance-owned config location. Renovate scans
+  tracked `.env.default` files, never private `.env` files. Legacy bundle and
+  flat service paths remain only during repository migration.
 - Keep route maps and external provider credentials in their dedicated files;
   do not fold them into the application environment layers.
 
@@ -65,12 +101,12 @@ persist that choice privately, and do not repeat the prompt on later launches.
 Do not infer that a path is on an external disk: if an unmounted disk's
 mount-point directory still exists on the system disk, OpenDock uses the path
 the user configured. Document this behavior and declare removal ownership so
-`remove` displays the exact location before deleting it. Keep databases and
+`purge` displays the exact location before deleting it. Keep databases and
 other latency-sensitive state on their existing local storage unless the
 service explicitly supports moving them.
 
 Declare service-owned setup fields, required values, initial credentials, and
-secret generator identifiers in `services/<service>/opendock.toml`. Keep
+secret generator identifiers in the service's `opendock.toml`. Keep
 application-specific secret bundles and validation rules in that service's
 `opendock.py` capability. The common `setup`, `launch`, and `secrets` flows
 must use the same secret coordinator: setup creates missing values while
@@ -91,9 +127,9 @@ their metadata rather than naming individual keys or files in Python.
 Do not add new values to legacy root `common.env`. Its one-time migration must
 preserve known values, keep a restrictive backup, and stop without changing the
 legacy file if it encounters an unregistered key. Migrate old private
-`config/services/*.env` files to service-owned `.env` files with restrictive
-backups. Keep actual `config/*.env` and `services/*/.env` files private and out
-of Git while syncing the tracked defaults.
+`config/services/*.env` files to service-owned private configuration with
+restrictive backups. Keep actual `config/*.env` and service `.env` files
+private and out of Git while syncing the tracked defaults.
 The former tracked `infra/.env` held shared image defaults; move them to
 `config/infra.env.default` and migrate non-default host values to
 `config/infra.env` before removing the old file.
@@ -105,13 +141,15 @@ match either the new `.env.default` or the previous tracked service `.env`
 default recorded in `config/migrations/service-env-v1.json`; preserve other
 overrides and keep a restrictive backup of any rewritten file.
 
-## Service removal and reset behavior
+## Service reset and purge behavior
 
 Every service must have a clear removal contract that mirrors the resources
 OpenDock provisions for it. `stop` stops running containers; `down` removes
-containers while preserving persistent data. `remove <service>` means complete
-removal (`all`) by default and must always ask for confirmation before making
-changes.
+containers while preserving persistent data. `purge <service>` means complete
+removal (`all`) of the service's runtime resources by default and must always
+ask for confirmation before making changes. The service definition remains
+installed so the service can be set up and launched again. `uninstall` is a
+separate package-code operation and must not delete runtime state implicitly.
 
 - Before confirmation, show the exact service-owned resources that would be
   removed: containers, images, named volumes, bind-mounted data paths, service
@@ -127,19 +165,19 @@ changes.
   or volumes, global OpenDock configuration such as the primary domain,
   resources belonging to another service, or user content outside the selected
   service's declared removal scope.
-- Do not infer that every file under `services/<name>/data/` is disposable.
+- Do not infer that every file under a service's declared data directory is disposable.
   Each service must identify generated state, caches, and user-owned content so
   the removal plan can describe their effect accurately.
 - Services that use shared databases must remove only their own database or
   schema through a service-aware operation; removing the shared database
-  volume is not a service reset.
+  volume is not a service purge.
 - Describe shared database adapters in the platform descriptor and each
   service's exact database/role keys in its removal descriptor. Refuse removal
   if another dependent service has no audited declaration or if configured
   database/role names collide.
 - A new service must declare how its service-scoped settings, containers,
   images, persistent data, database objects, and routes are removed. Reuse the
-  common `remove <service>` interface and keep service-specific cleanup logic
+  common `purge <service>` interface and keep service-specific cleanup logic
   behind that interface.
 - Roll out removal support service by service. Enable a service only after its
   removal contract has been audited and registered; reject unsupported targets
@@ -149,23 +187,24 @@ changes.
   service's Compose project. Require explicit service metadata for bind-mounted
   paths, shared-database objects, public routes, and any user content that must
   be retained or needs a separate warning.
-- If removal scopes are added, allow narrower selections for individual
-  resource classes. The no-scope command remains the complete service removal
+- If purge scopes are added, allow narrower selections for individual
+  resource classes. The no-scope command remains the complete service purge
   and must not silently degrade to container-only removal.
-- Refuse removal without confirmation in non-interactive use. Do not add a
+- Refuse purge without confirmation in non-interactive use. Do not add a
   confirmation bypass that defeats the explicit-confirmation requirement.
 - After every current service has an audited removal contract, verify all
   services from a clean, isolated host: configure, launch, repeat launch,
-  inspect the removal plan, remove, and confirm service-owned resources are
+  inspect the purge plan, purge, and confirm service-owned resources are
   gone while shared infra and unrelated routes/data remain. Do not claim the
-  removal rollout complete before this end-to-end pass.
+  purge rollout complete before this end-to-end pass.
 
 ## Command and service ownership
 
 Keep common command workflows in the OpenDock CLI and service-specific
-application knowledge under `services/<name>/`. The CLI owns target resolution,
-shared configuration services, prerequisite ordering, common confirmation,
-Compose invocation, gateway/Cloudflare routing, and consistent progress/errors.
+application knowledge in `OpenDock-Services/services/extensions/<name>/`.
+The CLI owns target resolution, shared configuration
+services, prerequisite ordering, common confirmation, Compose invocation,
+gateway/Cloudflare routing, and consistent progress/errors.
 Services own their setup fields, first-run preparation, custom readiness,
 application migrations, and exact cleanup scope. A new service must not require
 a service-name conditional in the central CLI for these behaviors.
@@ -175,8 +214,8 @@ optional service hooks for procedures that need application knowledge. Keep
 hooks idempotent, scoped to the selected service, and integrated through the
 common workflow. A hook must not bypass common validation, confirmation, shared
 prerequisite ordering, or public route handling. Absent optional capabilities
-should require no empty script. Keep service commands discoverable under
-`services/<name>/commands/` and align new lifecycle hooks with
+should require no empty script. Keep service commands beside their contribution
+under `commands/` and align new lifecycle hooks with
 `docs/command-architecture.md` rather than creating a parallel interface.
 Declare every lifecycle hook in the service descriptor; the CLI must not infer
 capabilities from helper filenames. Routable services must declare their
@@ -198,7 +237,7 @@ a versioned descriptor, and only the optional capability handlers it needs.
 Discovery must not require a second central service registration list. Keep
 descriptor schema version separate from capability API version; reject
 unsupported required versions before changing service state. Removing a
-service's runtime data with `remove` is separate from deregistering its code.
+service's runtime data with `purge` is separate from deregistering its code.
 Deleting or disabling a service definition must never implicitly delete
 containers, volumes, configuration, or user data.
 Keep service command summaries, details, and examples in that service's

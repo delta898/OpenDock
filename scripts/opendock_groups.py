@@ -12,7 +12,7 @@ def service_targets():
 
 
 def is_service(target):
-    return (ROOT_DIR / "services" / target / "compose.yml").is_file()
+    return target in service_targets()
 
 
 def groups():

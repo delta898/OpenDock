@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Run distribution commands against OpenDock's development catalog."""
+
+import os
+from pathlib import Path
+import sys
+
+
+ROOT = Path(__file__).resolve().parent
+COMMANDS_WITH_ENVIRONMENT = {"update", "search", "install"}
+
+
+def main() -> None:
+    arguments = sys.argv[1:]
+    if not arguments or arguments[0] in {"-h", "--help", "help"}:
+        os.execv(str(ROOT / "opendock"), [str(ROOT / "opendock"), *arguments])
+    if arguments[0] in COMMANDS_WITH_ENVIRONMENT:
+        if any(argument == "--environment" or argument.startswith("--environment=") for argument in arguments[1:]):
+            raise SystemExit("dev_opendock fixes --environment dev; omit the environment option.")
+        arguments.extend(("--environment", "dev"))
+    os.execv(str(ROOT / "opendock"), [str(ROOT / "opendock"), *arguments])
+
+
+if __name__ == "__main__":
+    main()
