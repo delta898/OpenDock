@@ -59,14 +59,14 @@ class CLITests(unittest.TestCase):
         self.assertIn("Installed service ID", service_help.stdout)
         self.assertIn("List a service's extra commands", service_help.stdout)
 
-    def test_service_list_and_make_compatibility_match(self):
-        direct = run_cli("list", "services")
+    def test_list_and_make_compatibility_match(self):
+        direct = run_cli("list")
         legacy = subprocess.run(
-            ["make", "list", "services"], cwd=ROOT, text=True,
+            ["make", "list"], cwd=ROOT, text=True,
             capture_output=True, check=True,
         )
         self.assertEqual(direct.stdout, legacy.stdout)
-        self.assertNotIn("Unknown service", direct.stdout)
+        self.assertIn("Services:", direct.stdout)
 
     def test_bad_arguments_fail_before_changes(self):
         result = subprocess.run(
