@@ -1115,6 +1115,13 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     `services/extensions/uptime-kuma/releases/0.1.0`에 설치했다. 이로써 dev R2 fetch와
     package install은 사용자 환경에서 확인됐다. Package setup, launch, purge 및
     domain별 instance 동작은 아직 검증하지 않았다.
+  - 이후 OpenDock checkout에서 Uptime Kuma release가 서비스 catalog와 설정 경로에
+    연결되는지 확인했다. `./opendock list services`에서 발견되고
+    `./opendock check-config uptime-kuma`가 `OK`를 반환했다.
+    `./opendock setup uptime-kuma`는 descriptor의 기본 subdomain 설정을 읽어 완료됐으며,
+    기존 설정과 기본값만 사용해 별도 애플리케이션 인프라를 시작하지 않았다. Registry의
+    서비스 ID, release 경로 버전, descriptor 버전이 불일치하지 않도록 catalog 검증도
+    강화했다. 실제 컨테이너 launch와 readiness는 아직 검증하지 않았다.
 - 보존할 교훈:
   - 개발 저장소 접근 제어와 제품 entitlement는 같은 문제로 취급하지 않는다.
     소스 저장소를 private으로 만드는 것만으로 고객 설치·업데이트 경험이 완성되지 않는다.
@@ -1124,6 +1131,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     state 보존, 환불 이후 재다운로드 정책을 명시해야 한다.
 - 검증 상태: 설계 문서, catalog client의 local unit test, ZIP/package build,
   generated catalog validation, temporary-root install/service discovery, 실제 tag-triggered
-  GitHub Actions dev R2 게시, 사용자 환경의 `update → search → install`을 확인했다.
-  Package setup/launch/purge, domain별 instance lifecycle, 깨끗한 호스트, production publish,
-  macOS 호스트 bootstrap 및 WSL2 지원은 검증되지 않았다.
+  GitHub Actions dev R2 게시, 사용자가 수행한 `update → search → install`을 확인했다.
+  이어서 현재 checkout에서 `list → check-config → setup`을 로컬 확인했다. Setup은
+  기본값 경로까지이며 app runtime을 시작하지 않았다. Package launch/readiness/purge,
+  domain별 instance lifecycle, 깨끗한 호스트, production publish, macOS 호스트 bootstrap 및
+  WSL2 지원은 검증되지 않았다.

@@ -447,6 +447,7 @@ class ServiceCatalog:
         found = []
         seen = set()
         extension_root = (self.services_dir / "extensions").resolve()
+        platform_names = {component.name for component in self.platform.components}
         for entry in entries:
             if not isinstance(entry, dict) or set(entry) != {"service_id", "version", "release_path", "sha256", "installed_at"}:
                 raise CatalogError(f"Invalid entry in extension registry {registry_path}.")
@@ -458,7 +459,13 @@ class ServiceCatalog:
             if (not isinstance(service_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", service_id)
                     or service_id in seen):
                 raise CatalogError(f"Invalid or duplicate service_id in extension registry: {service_id!r}.")
-            if not isinstance(version, str) or not re.fullmatch(r"[0-9A-Za-z][0-9A-Za-z.+_-]*", version):
+            if service_id in platform_names:
+                raise CatalogError(
+                    f"Installed service ID {service_id!r} conflicts with a platform component."
+                )
+            if not isinstance(version, str) or not re.fullmatch(
+                r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?", version
+            ):
                 raise CatalogError(f"Invalid release version for extension {service_id!r}.")
             if not isinstance(relative, str):
                 raise CatalogError(f"Invalid release path for extension {service_id!r}.")
@@ -467,10 +474,13 @@ class ServiceCatalog:
             if not isinstance(installed_at, str) or not installed_at:
                 raise CatalogError(f"Invalid package installation metadata for {service_id!r}.")
             relative_path = PurePosixPath(relative)
-            expected_prefix = PurePosixPath("services/extensions") / service_id / "releases"
-            if (relative_path.is_absolute() or ".." in relative_path.parts
-                    or relative_path.parts[:len(expected_prefix.parts)] != expected_prefix.parts):
-                raise CatalogError(f"Unsafe release path for extension {service_id!r}.")
+            expected_path = (
+                PurePosixPath("services/extensions") / service_id / "releases" / version
+            )
+            if relative_path != expected_path:
+                raise CatalogError(
+                    f"Extension {service_id!r} release_path must point to its registered version."
+                )
             directory = (self.root / Path(*relative_path.parts)).resolve()
             try:
                 directory.relative_to(extension_root / service_id / "releases")
@@ -483,6 +493,10 @@ class ServiceCatalog:
             descriptor = self._load_descriptor(descriptor_file, service_id)
             if descriptor.get("service_id") != service_id:
                 raise CatalogError(f"Extension release ID does not match registry entry {service_id!r}.")
+            if descriptor.get("version") != version:
+                raise CatalogError(
+                    f"Extension {service_id!r} descriptor version does not match its registry entry."
+                )
             found.append(ServiceDefinition(
                 name=service_id, directory=directory, compose_file=compose_file,
                 descriptor_file=descriptor_file, descriptor=MappingProxyType(descriptor),

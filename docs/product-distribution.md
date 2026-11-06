@@ -215,9 +215,19 @@ package installation:
   configured through the platform settings interface. A local
   `config/shared/cloudflare.toml` metadata error found during `update` was
   corrected by registering the skip key under its owning Cloudflare section.
+- The installed release is discovered by `ServiceCatalog` through
+  `services/extensions/installed.toml`. On the current checkout,
+  `./opendock list services` lists Uptime Kuma and
+  `./opendock check-config uptime-kuma` succeeds. The package setup flow also
+  completed using the existing platform value and the package-declared
+  `UPTIME_KUMA_SUBDOMAIN` default; it required no application infrastructure.
+- Registry discovery now requires the registered service ID, versioned release
+  path, and package descriptor version to agree, and rejects service IDs that
+  collide with platform components. This keeps setup/config resolution bound to
+  the package release that was installed.
 
-This confirms catalog fetch, local search, checksum-verified download, and
-package installation. It does **not** verify service setup, launch, upgrades,
-purge, domain-scoped instances, or production publishing. Legacy service files
-remain in the OpenDock checkout during the migration and are not the product
-model for new service work.
+This confirms catalog fetch, local search, checksum-verified download, package
+discovery, config validation, and metadata-driven setup. It does **not** verify
+service launch, readiness, upgrades, purge, domain-scoped instances, or
+production publishing. Legacy service files remain in the OpenDock checkout
+during the migration and are not the product model for new service work.

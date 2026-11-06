@@ -203,10 +203,17 @@ The dev R2 bucket and CI publisher are connected. The Uptime Kuma `0.1.0`
 release was published by tag-triggered GitHub Actions. From a local OpenDock
 checkout, the user confirmed `update`, `search uptime`, and `install uptime-kuma`;
 the installed release was placed under `services/extensions/uptime-kuma/releases/0.1.0`.
-The CLI still lacks the proposed 24-hour refresh policy and `upgrade`; setup,
-launch, domain-scoped instances, and multi-domain isolation are not implemented
-or verified. Do not treat package installation as proof of a full service
-lifecycle.
+OpenDock now discovers that release through the local registry, includes its
+descriptor-declared settings in `check-config` and `setup`, and verifies that
+registry service ID/version/path match the installed descriptor. In the local
+checkout, `./opendock list services` listed Uptime Kuma,
+`./opendock check-config uptime-kuma` returned `OK`, and
+`./opendock setup uptime-kuma` completed using existing platform configuration
+and package defaults. Setup started no application containers. The CLI still
+lacks the proposed 24-hour refresh policy and `upgrade`;
+service launch, readiness, purge, domain-scoped instances, and multi-domain
+isolation are not implemented or verified. Do not treat package setup as proof
+of a full service lifecycle.
 
 ## Remaining implementation work
 
