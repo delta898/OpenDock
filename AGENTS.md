@@ -35,6 +35,15 @@ are migration residue and must not be used for new work. The local, gitignored
 `archive/` is preservation material only and must never be discovered, packaged,
 or synced to a host.
 
+## Git remote operations
+
+Do not push commits, branches, or tags to any remote unless the user explicitly
+requests the push. A request to commit, merge, or otherwise organize Git history
+does not imply permission to push. This rule also applies when managing the
+companion `OpenDock-Services` repository. Fetching remote state for a requested
+Git operation is allowed; publishing local changes requires a separate,
+explicit user request.
+
 ## Zero-config service workflow
 
 OpenDock is a multi-service platform. Keep the common path simple: when a
