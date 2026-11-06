@@ -311,6 +311,13 @@ def install(environment: str, service_id: str, catalog: dict, root: Path) -> Pat
             from opendock_catalog import CatalogError, ServiceCatalog
             validator = object.__new__(ServiceCatalog)
             validator.root = Path(root).resolve()
+            from opendock_catalog import PlatformCatalog
+            validator.platform = PlatformCatalog(validator.root)
+            validator.shared_setup_groups = frozenset(
+                group
+                for component in validator.platform.components
+                for group in component.shared_groups
+            )
             metadata = validator._load_descriptor(descriptor, service_id)
         except (OSError, ValueError, CatalogError) as exc:
             raise DistributionError(f"Package descriptor is invalid: {exc}") from exc
