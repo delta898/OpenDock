@@ -1296,6 +1296,10 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     직접 읽지 못하는 인터페이스를 따라가되 token을 process argv 또는 영구 중복 파일에
     넣지 않는다. 기존 cloudflared 프로세스가 발견되면 bootstrap이 종료하는 대신 그대로
     두고 안내를 출력한다.
+  - macOS에서 Homebrew가 설치한 `cloudflared 2026.10.7`이 `--token-file` 미지원으로
+    오인됐다. 실제 도움말에는 flag가 있었고, `set -o pipefail` 아래의 `grep -q`가 먼저
+    닫힌 pipe 때문에 SIGPIPE를 내며 검사만 실패했다. 전체 도움말을 변수에 받은 뒤
+    문자열을 검사하도록 바꿨다.
 - 보존할 교훈:
   - clone 가능한 개발 저장소가 곧 제품 설치 artifact인 것은 아니다. 새 호스트에 필요한
     runtime dependency를 확인하고, source tree와 user-owned config/state를 따로 배포한다.
@@ -1307,6 +1311,8 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 검증 상태: 현재 worktree의 allowlist로 만든 임시 minimal root에서 `./opendock help`를
   실행했고 `.git`, `.github`, tests, docs 부재를 확인했다. synthetic archive selection,
   bootstrap Bash syntax/help, Cloudflare setting metadata, runtime token temporary-file cleanup,
-  `git diff --check`를 확인했다. 깨끗한 Ubuntu/macOS 호스트에서 bootstrap 전체 실행, 실제
-  codeload 다운로드, Docker 설치, 기존 cloudflared daemon과의 실환경 상호작용은 검증하지
+  `git diff --check`를 확인했다. 추가로 사용자가 겪은 macOS Homebrew 설치 후 지원 검사
+  오류를 재현해, 설치된 `cloudflared 2026.10.7`의 실제 help와 수정된 Bash 검사를 확인했다.
+  Tunnel connector의 실제 시작 및 기존 cloudflared daemon과의 실환경 상호작용은 검증하지
+  않았다. 깨끗한 Ubuntu/macOS bootstrap 전체 실행과 실제 codeload 다운로드도 아직 검증하지
   않았다.
