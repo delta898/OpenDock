@@ -44,6 +44,28 @@ companion `OpenDock-Services` repository. Fetching remote state for a requested
 Git operation is allowed; publishing local changes requires a separate,
 explicit user request.
 
+### `[cmd]` shorthand
+
+When the user says `[cmd]`, treat it as an instruction to complete the local
+Git workflow for the active feature branch:
+
+1. Review the worktree and relevant diff, finish the requested work, and run
+   the applicable verification before committing.
+2. Commit the completed changes on the current feature branch. Do not create an
+   empty commit when there are no changes to record.
+3. Merge that branch into its parent branch. Use an explicitly named target if
+   the user supplied one; otherwise use `dev` as the parent for feature work.
+4. After confirming the merge succeeded, delete the source feature branch
+   locally and leave the checkout on the parent branch.
+
+This shorthand applies to both OpenDock and OpenDock-Services when the task
+touches either or both repositories. Never delete `main`, `dev`, or
+`release/*`. Delete a source branch only after Git confirms it is merged. If
+the current branch is protected, the parent cannot be identified safely, or a
+merge conflict prevents completion, stop before deleting anything and report
+the specific blocker. `[cmd]` does not authorize pushing; the user must
+explicitly ask to push.
+
 ## Zero-config service workflow
 
 OpenDock is a multi-service platform. Keep the common path simple: when a
