@@ -131,7 +131,9 @@ def main():
     env["OPENDOCK_ROOT"] = str(ROOT_DIR)
     env["OPENDOCK_SERVICE"] = target
     env["OPENDOCK_SERVICE_COMMAND"] = command
-    env["OPENDOCK_SERVICE_DIR"] = str(service_dir(target))
+    definition = ServiceCatalog(ROOT_DIR).get(target)
+    env["OPENDOCK_SERVICE_DIR"] = str(definition.directory)
+    env["OPENDOCK_SERVICE_DATA_DIR"] = str(definition.data_directory)
 
     result = subprocess.run([str(script), *extra_args], cwd=ROOT_DIR, env=env)
     return result.returncode

@@ -67,6 +67,49 @@ def removal_plan(*, routes=None, shared_database=None):
 
 
 class RemoveTests(unittest.TestCase):
+    def test_compose_environment_resolves_storage_against_stable_data_root(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            service_root = root / "services/extensions/wordpress"
+            release = service_root / "releases/0.1.0"
+            release.mkdir(parents=True)
+            definition = SimpleNamespace(
+                name="wordpress",
+                data_directory=service_root,
+                storage_mounts=({
+                    "setting_key": "WORDPRESS_WEBROOT_PATH",
+                },),
+            )
+            catalog = SimpleNamespace(get=lambda _service: definition)
+            with mock.patch.object(remove, "ROOT", root), \
+                 mock.patch.object(remove, "ServiceCatalog", return_value=catalog), \
+                 mock.patch.object(
+                     remove,
+                     "load_values",
+                     return_value={"WORDPRESS_WEBROOT_PATH": "./data/webroot"},
+                 ):
+                environment = remove.compose_environment("wordpress")
+
+        self.assertEqual(
+            environment["WORDPRESS_WEBROOT_PATH"],
+            str(service_root / "data/webroot"),
+        )
+
+    def test_declared_data_path_is_resolved_outside_immutable_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            data_root = root / "services/extensions/wordpress"
+            release = data_root / "releases/0.1.0"
+            release.mkdir(parents=True)
+            definition = SimpleNamespace(data_directory=data_root)
+            catalog = SimpleNamespace(get=lambda _service: definition)
+            with mock.patch.object(remove, "ROOT", root), \
+                 mock.patch.object(remove, "ServiceCatalog", return_value=catalog):
+                result = remove.owned_path("wordpress", "data/webroot")
+
+        self.assertEqual(result, data_root / "data/webroot")
+        self.assertNotEqual(result, release / "data/webroot")
+
     def test_service_config_removal_keeps_restricted_backup(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -95,6 +138,7 @@ class RemoveTests(unittest.TestCase):
         with mock.patch.object(remove, "initialize"), \
              mock.patch.object(remove, "compose_prefix", return_value=["docker", "compose"]), \
              mock.patch.object(remove, "run_command", side_effect=run), \
+             mock.patch.object(remove, "compose_environment", return_value={}), \
              mock.patch.object(remove, "remove_routes", side_effect=lambda *_: events.append("routes")), \
              mock.patch.object(remove, "remove_shared_database", side_effect=lambda *_: events.append("database")), \
              mock.patch.object(remove, "remove_service_config"), \
@@ -108,6 +152,7 @@ class RemoveTests(unittest.TestCase):
         with mock.patch.object(remove, "initialize"), \
              mock.patch.object(remove, "compose_prefix", return_value=["docker", "compose"]), \
              mock.patch.object(remove, "run_command", side_effect=remove.RemovalError("compose failed")), \
+             mock.patch.object(remove, "compose_environment", return_value={}), \
              mock.patch.object(remove, "remove_routes") as remove_routes, \
              mock.patch.object(remove, "remove_shared_database") as remove_database:
             with self.assertRaisesRegex(remove.RemovalError, "compose failed"):

@@ -94,6 +94,28 @@ class LifecycleContractTests(unittest.TestCase):
         self.addCleanup(without_messages.cleanup)
         self.assertEqual(ServiceCatalog(empty_root).get("example-service").lifecycle_messages, {})
 
+    def test_installed_release_uses_stable_service_data_directory(self):
+        temporary, root = self.catalog_with_descriptor(
+            'schema_version = 1\n'
+            'service_id = "example-service"\n'
+            'version = "1.0.0"\n'
+            'capability_api_version = 1\n'
+            'capabilities = []\n'
+            'dependencies = []\n'
+        )
+        self.addCleanup(temporary.cleanup)
+
+        service = ServiceCatalog(root).get("example-service")
+
+        self.assertEqual(
+            service.directory,
+            root.resolve() / "services/extensions/example-service/releases/1.0.0",
+        )
+        self.assertEqual(
+            service.data_directory,
+            root.resolve() / "services/extensions/example-service",
+        )
+
     def test_post_launch_is_not_an_action_capability_name(self):
         temporary, root = self.catalog_with_descriptor(
             'schema_version = 1\n'

@@ -4,6 +4,7 @@
 import errno
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -16,8 +17,8 @@ from opendock_settings import (
     CONFIG, LEGACY_ENV, compose_env_files, initialize, load_values,
 )
 from opendock_storage import (
+    compose_mount_environment,
     external_paths_for_removal,
-    resolve_mount_source,
     symlink_component,
 )
 
@@ -29,12 +30,13 @@ class RemovalError(Exception):
     pass
 
 
-def run_command(args, *, capture=False, check=True, input_text=None):
+def run_command(args, *, capture=False, check=True, input_text=None, env=None):
     try:
         result = subprocess.run(
             [str(arg) for arg in args], cwd=ROOT, text=True,
             stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.PIPE if capture else None, input=input_text, check=False,
+            env=env,
         )
     except FileNotFoundError as exc:
         raise RemovalError(f"Required command not found: {exc.filename}") from exc
@@ -71,6 +73,15 @@ def compose_prefix(service):
     for env_file in compose_env_files(service):
         command += ["--env-file", env_file]
     return command + ["-f", directory / "compose.yml", "-p", service]
+
+
+def compose_environment(service):
+    """Resolve declared bind mounts against stable service data paths."""
+    definition = ServiceCatalog(ROOT).get(service)
+    values = load_values(service=service, process_env=True)
+    environment = os.environ.copy()
+    environment.update(compose_mount_environment(definition, values))
+    return environment
 
 
 def infra_compose_prefix():
@@ -191,7 +202,7 @@ def routes_for_removal(domains):
 
 
 def owned_path(service, relative):
-    service_directory = ServiceCatalog(ROOT).get(service).directory
+    service_directory = ServiceCatalog(ROOT).get(service).data_directory
     service_root = service_directory.resolve()
     current = service_directory
     for part in Path(relative).parts:
@@ -315,6 +326,7 @@ def build_plan(service):
     ).stdout.splitlines() if item.strip()]
     images = [item.strip() for item in run_command(
         [*compose_prefix(service), "config", "--images"], capture=True,
+        env=compose_environment(service),
     ).stdout.splitlines() if item.strip()]
     images.extend(removal.get("extra_images", ()))
     images = list(dict.fromkeys(images))
@@ -379,7 +391,7 @@ def build_plan(service):
 def print_plan(plan):
     definition = plan["service"]
     name = definition.name
-    service_path = definition.directory.relative_to(ROOT).as_posix()
+    service_path = definition.data_directory.relative_to(ROOT).as_posix()
     print(f"Complete removal plan for {definition.display_name}:")
     print(f"  Stop and remove {definition.display_name} Compose containers")
     if plan["compose_ids"]:
@@ -597,8 +609,14 @@ def remove_resources(plan):
     initialize()
     if plan["shared_database"]:
         if plan["compose_ids"]:
-            run_command([*compose_prefix(service), "stop"])
-    run_command([*compose_prefix(service), "down", "--volumes", "--remove-orphans"])
+            run_command(
+                [*compose_prefix(service), "stop"],
+                env=compose_environment(service),
+            )
+    run_command(
+        [*compose_prefix(service), "down", "--volumes", "--remove-orphans"],
+        env=compose_environment(service),
+    )
 
     orphan_ids = [item["id"] for item in plan["orphan_containers"] if item.get("id")]
     if orphan_ids:

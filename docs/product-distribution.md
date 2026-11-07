@@ -28,6 +28,14 @@ entitlements, and license enforcement. Catalog entries and release artifacts
 are publicly downloadable; the private GitHub repository remains the
 maintainer source, not a customer access mechanism.
 
+Within OpenDock-Services, `services/candidates/` is an idea backlog and
+`services/experiments/<service-id>/` is the active development and local test
+area. Only integrations promoted to `services/extensions/<service-id>/` are
+package publication inputs. The `dev` branch publishes those packages to the
+dev R2 catalog for OpenDock integration testing. Production promotion is a
+separate release step and is not enabled yet. These source stages belong to
+OpenDock-Services; OpenDock does not scan or special-case them.
+
 ## User and operating model
 
 - Linux is the first supported host target. macOS is second. Windows through

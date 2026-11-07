@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from opendock_distribution import (
     DistributionError,
     _safe_extract,
+    install_local_file,
     load_cached,
     validate_catalog,
 )
@@ -71,6 +72,58 @@ class DistributionTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 with self.assertRaises(DistributionError):
                     _safe_extract(archive, Path(directory))
+
+    def test_safe_extract_preserves_executable_bit_with_normalized_permissions(self):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            executable = zipfile.ZipInfo("commands/multisite")
+            executable.external_attr = (0o100777 << 16)
+            archive.writestr(executable, "#!/bin/sh\nexit 0\n")
+            regular = zipfile.ZipInfo("README.md")
+            regular.external_attr = (0o100666 << 16)
+            archive.writestr(regular, "WordPress integration\n")
+        with zipfile.ZipFile(io.BytesIO(buffer.getvalue())) as archive:
+            with tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                _safe_extract(archive, root)
+                self.assertEqual(
+                    (root / "commands/multisite").stat().st_mode & 0o777,
+                    0o755,
+                )
+                self.assertEqual(
+                    (root / "README.md").stat().st_mode & 0o777,
+                    0o644,
+                )
+
+    def test_local_package_install_uses_safe_extraction_without_catalog(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = root / "example-service.zip"
+            with zipfile.ZipFile(package, "w") as archive:
+                archive.writestr(
+                    "opendock.toml",
+                    'schema_version = 1\nservice_id = "example-service"\n'
+                    'version = "0.1.0-local.1"\ndisplay_name = "Example Service"\n'
+                    'capabilities = []\ndependencies = []\n',
+                )
+                archive.writestr("compose.yml", "services: {}\n")
+                command = zipfile.ZipInfo("commands/example")
+                command.external_attr = 0o100755 << 16
+                archive.writestr(command, "#!/bin/sh\nexit 0\n")
+
+            class EmptyPlatform:
+                components = ()
+
+            with patch("opendock_catalog.PlatformCatalog", return_value=EmptyPlatform()):
+                destination = install_local_file(package, root)
+
+            self.assertEqual(
+                destination,
+                root / "services/extensions/example-service/releases/0.1.0-local.1",
+            )
+            self.assertTrue((destination / "commands/example").stat().st_mode & 0o111)
+            registry = root / "services/extensions/installed.toml"
+            self.assertIn('service_id = "example-service"', registry.read_text())
 
     def test_search_cache_refreshes_when_missing(self):
         with tempfile.TemporaryDirectory() as directory:

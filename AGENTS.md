@@ -24,10 +24,13 @@ instances remain unfinished.
 ## Repository split and service paths
 
 OpenDock is the platform repository and does not ship application services as
-bundles. All service source lives in the separate OpenDock-Services repository
-under `services/extensions/<service-id>/`. Installed package releases live in
-OpenDock under `services/extensions/<service-id>/releases/<version>`; keep
-mutable per-instance state outside immutable release directories. Resolve
+bundles. Service ideas may be recorded in
+`OpenDock-Services/services/candidates/`; active development and local testing
+belong under `OpenDock-Services/services/experiments/<service-id>/`. Accepted
+package source lives in that repository under
+`services/extensions/<service-id>/`. Installed package releases live in OpenDock under
+`services/extensions/<service-id>/releases/<version>`; keep mutable
+per-instance state outside immutable release directories. Resolve installed
 service paths through the catalog instead of constructing paths from IDs.
 
 Any `services/bundles/` or old flat service trees still present in this checkout

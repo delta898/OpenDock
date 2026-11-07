@@ -477,7 +477,9 @@ EOF
 }
 
 cloudflared_supports_token_file() {
-	cloudflared tunnel run --help 2>&1 | grep -q -- '--token-file'
+	local help_output
+	help_output="$(cloudflared tunnel run --help 2>&1)" || return 1
+	[[ "$help_output" == *"--token-file"* ]]
 }
 
 install_cloudflared_linux() {

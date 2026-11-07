@@ -28,6 +28,45 @@ def run_cli(*args):
 
 
 class CLITests(unittest.TestCase):
+    def test_compose_resolves_bind_mount_from_stable_data_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            service_root = root / "services/extensions/wordpress"
+            release = service_root / "releases/0.1.0-local.1"
+            release.mkdir(parents=True)
+            (release / "compose.yml").write_text("services: {}\n")
+            definition = SimpleNamespace(
+                directory=release,
+                data_directory=service_root,
+                storage_mounts=({
+                    "setting_key": "WORDPRESS_WEBROOT_PATH",
+                },),
+            )
+            catalog = mock.Mock()
+            catalog.names = ("wordpress",)
+            catalog.get.return_value = definition
+            settings = mock.Mock()
+            settings.compose_env_files.return_value = []
+            settings.load_values.return_value = {
+                "WORDPRESS_WEBROOT_PATH": "./data/webroot",
+            }
+            with mock.patch.object(cli, "ROOT", root), \
+                 mock.patch.object(cli, "ServiceCatalog", return_value=catalog), \
+                 mock.patch.object(cli, "settings_module", return_value=settings), \
+                 mock.patch.object(cli, "service_runtime_environment", return_value={}), \
+                 mock.patch.object(cli, "run") as run:
+                cli.compose("wordpress", "up", "-d")
+
+        compose_env = run.call_args.kwargs["env"]
+        self.assertEqual(
+            compose_env["WORDPRESS_WEBROOT_PATH"],
+            str(service_root / "data/webroot"),
+        )
+        self.assertEqual(
+            run.call_args.args[1:4],
+            ("compose", "--project-directory", str(release)),
+        )
+
     def test_launch_auto_installs_and_sets_up_a_catalog_package(self):
         destination = ROOT / "services/extensions/n8n-v2/releases/0.1.0"
         catalog = {"services": [{"service_id": "n8n-v2"}]}
