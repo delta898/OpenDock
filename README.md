@@ -311,6 +311,8 @@ to review or repair the settings directly.
 
 Create the API token with permissions that can read the zone, edit DNS records, and edit Cloudflare Tunnel configuration. In Cloudflare's token UI, this usually means:
 
+Step-by-step token, permission, and Tunnel ID instructions are in the [Cloudflare Tunnel setup guide](#cloudflare-tunnel).
+
 ```text
 Zone / Zone / Read
 Zone / DNS / Edit

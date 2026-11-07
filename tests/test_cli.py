@@ -25,6 +25,12 @@ config_spec = importlib.util.spec_from_file_location(
 config_cli = importlib.util.module_from_spec(config_spec)
 sys.modules[config_spec.name] = config_cli
 config_spec.loader.exec_module(config_cli)
+check_spec = importlib.util.spec_from_file_location(
+    "opendock_check_config_test", ROOT / "scripts" / "check-config.py"
+)
+check_cli = importlib.util.module_from_spec(check_spec)
+sys.modules[check_spec.name] = check_cli
+check_spec.loader.exec_module(check_cli)
 
 
 def run_cli(*args):
@@ -233,6 +239,57 @@ class CLITests(unittest.TestCase):
         self.assertIn("WORDPRESS_DB_PASSWORD: configured", output.getvalue())
         self.assertNotIn("private-secret", output.getvalue())
         prompt.assert_called_once()
+
+    def test_cloudflare_setup_notes_are_printed_before_required_values(self):
+        field = config_cli.Field(
+            name="CLOUDFLARE_TUNNEL_ID", kind="required-user",
+            note="Copy the ID from Cloudflare Tunnels. Guide: README.md#cloudflare-tunnel.",
+        )
+        output = StringIO()
+        def input_with_echo(prompt):
+            print(prompt, end="")
+            return "tunnel-id"
+
+        with mock.patch.object(builtins, "input", side_effect=input_with_echo), \
+             redirect_stdout(output):
+            value = config_cli.prompt_required(field, {})
+        self.assertEqual(value, "tunnel-id")
+        self.assertLess(
+            output.getvalue().index("Cloudflare Tunnels"),
+            output.getvalue().index("CLOUDFLARE_TUNNEL_ID"),
+        )
+
+    def test_cloudflare_check_config_does_not_suggest_generated_secrets(self):
+        output = StringIO()
+        fake_catalog = SimpleNamespace(
+            platform=SimpleNamespace(components=()), names=(),
+        )
+        with mock.patch.object(check_cli, "ServiceCatalog", return_value=fake_catalog), \
+             mock.patch.object(check_cli, "QUIET", False), \
+             mock.patch.object(check_cli, "TARGET", "cloudflare"), \
+             redirect_stdout(output):
+            failed = check_cli.print_results([{
+                "target": "cloudflare",
+                "missing": ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_TUNNEL_ID"],
+                "placeholders": [], "invalid": [], "optional": {},
+                "generated": set(),
+            }])
+        self.assertTrue(failed)
+        self.assertIn("Run `./opendock setup cloudflare`", output.getvalue())
+        self.assertNotIn("./opendock secrets", output.getvalue())
+
+    def test_check_config_suggests_secrets_only_for_missing_generated_fields(self):
+        output = StringIO()
+        with mock.patch.object(check_cli, "QUIET", False), \
+             mock.patch.object(check_cli, "TARGET", "infra"), \
+             redirect_stdout(output):
+            check_cli.print_results([{
+                "target": "infra",
+                "missing": ["POSTGRES_ADMIN_PASSWORD"],
+                "placeholders": [], "invalid": [], "optional": {},
+                "generated": {"POSTGRES_ADMIN_PASSWORD"},
+            }])
+        self.assertIn("./opendock secrets", output.getvalue())
 
     def test_help_shows_current_workflows_and_generic_route_examples(self):
         for args in ((), ("--help",), ("help",)):

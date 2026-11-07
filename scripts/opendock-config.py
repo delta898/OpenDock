@@ -197,6 +197,7 @@ def is_real_value(name, values):
 
 
 def prompt_required(field, values):
+    print_field_note(field)
     current = values.get(field.name, "")
     if is_real_value(field.name, values):
         answer = input(f"{field.name} [{current}]: ").strip()
@@ -210,10 +211,9 @@ def prompt_required(field, values):
 
 
 def prompt_defaulted(field, values):
+    print_field_note(field)
     current = values.get(field.name, "")
     default = current if is_real_value(field.name, values) else field.default
-    if field.note:
-        print(f"  {field.note}")
     if default:
         answer = input(f"{field.name} [{default}]: ").strip()
         return default if not answer else answer
@@ -223,10 +223,9 @@ def prompt_defaulted(field, values):
 
 
 def prompt_initial_credential(field, values):
+    print_field_note(field)
     if is_real_value(field.name, values):
         print(f"{field.name} [keep existing]")
-        if field.note:
-            print(f"  {field.note}")
         answer = input("  Enter a new value? [y/N] ").strip().lower()
         if answer not in ("y", "yes"):
             return None
@@ -235,12 +234,12 @@ def prompt_initial_credential(field, values):
 
     if field.note:
         print(f"{field.name}")
-        print(f"  {field.note}")
     value = input(f"{field.name} [auto-generate]: ").strip()
     return value or "__GENERATE__"
 
 
 def prompt_secret(field, values):
+    print_field_note(field)
     if is_real_value(field.name, values):
         print(f"{field.name} [keep existing]")
         answer = input("  Enter a new value? [y/N] ").strip().lower()
@@ -252,6 +251,11 @@ def prompt_secret(field, values):
         if value:
             return value
         print("  Required. Please enter a value.")
+
+
+def print_field_note(field):
+    if field.note:
+        print(f"  {field.note}")
 
 
 def values_to_generate(fields, values, chosen):
