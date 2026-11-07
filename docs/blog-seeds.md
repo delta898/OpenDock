@@ -1231,7 +1231,19 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     기존 CI는 extensions만 감시하므로, 후보 아이디어나 실험이 catalog release를 만들지
     않도록 OpenDock-Services README/AGENTS와 OpenDock distribution 문서에 경계를 적고
     release-target unit test에 candidates/experiments 경로 사례를 추가했다. Production은
-    dev 검증 이후 별도 release 단계로 남아 있으며 production workflow는 아직 없다.
+    dev 검증 이후 별도 release 단계로 남아 있었으나, 이번 후속 작업에서 release/* push용
+    production workflow를 추가했다. Dev/prod가 같은 catalog publisher를 사용하고,
+    `opendock-prod` Environment 승인 이후에만 prod credentials를 publish job에 제공하는
+    구조다. Release branch의 `services/extensions/` 전체가 prod catalog 기준이므로 해당
+    branch는 production 서비스 전체 snapshot이어야 한다.
+  - 기존 prod credential sync script가 `.secrets/.r2.prod.env`의 Account ID와 bucket을
+    Environment variables로, R2 access key pair를 Environment secrets로 설정한다는 점을
+    확인했다. Script에 required reviewer, self-review 허용, `release/*` deployment policy가
+    있는지 확인한 뒤에만 production credentials를 쓸 수 있도록 검증을 추가했다. GitHub
+    Environment 설정은 script가 직접 구성하지 않는다.
+  - 사용자는 `prod_sync_github_secret.sh`를 이미 실행했다고 알렸다. 실제 GitHub Environment
+    값과 approval policy는 이 작업에서 조회할 수 없었으며, production workflow code와 안내만
+    두 저장소의 local `dev`에 commit/merge했다. 원격 push와 실제 prod R2 게시 전이다.
   - 사용자는 실제 배포 source에는 Uptime Kuma와 n8n-v2/v3만 남기기로 했다.
     Docmost, Hermes, Immich, Jellyfin, Mastodon, Mattermost, Nextcloud, Supabase,
     WordPress source를 `services/experiments/`로 옮겼다. 이 경로는 선택된 작업만
@@ -1252,8 +1264,10 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   Uptime Kuma container가 healthy인 것, Tunnel origin 수정 뒤 외부 HTTPS로 DB first-run
   화면을 여는 것을 확인했다. DB wizard 완료와 post-setup app readiness/purge,
   domain별 instance lifecycle, 깨끗한 호스트, production publish, macOS 호스트 bootstrap 및
-  WSL2 지원은 검증되지 않았다. 이번 후속 개선은 Python 정적 컴파일과 diff whitespace
-  검토만 했으며 실 Cloudflare/API, package 재설치, `launch all` route migration은 실행하지
+  WSL2 지원은 검증되지 않았다. 이번 후속 production workflow 변경은 Python/Node 정적 구문
+  확인과 `git diff --check`만 했고 전체 테스트와 actionlint는 실행하지 않았다. GitHub
+  Environment approval, secrets 연결, 실제 prod R2 publish는 아직 검증되지 않았다. 실
+  Cloudflare/API, package 재설치, `launch all` route migration은 실행하지
   않았다. readiness-stage 후속 구현에서는 CI가 catalog membership을 현재
   `services/extensions/` source 집합과 맞추도록 했다. 기존 catalog에는 있지만 source가
   빠진 서비스는 다음 성공한 CI에서 catalog에서 제외하고 ZIP 객체는 자동 삭제하지 않는다.
