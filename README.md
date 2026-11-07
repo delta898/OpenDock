@@ -31,17 +31,111 @@ Caddy
 
 ## Requirements
 
-- Linux or macOS with Python 3.11+ and Docker Compose
-- `curl` for bootstrap downloads; Git is not required
-- rsync and SSH for remote sync
-- For public hosting: a domain managed by Cloudflare and a Cloudflare Tunnel
-  connector that can reach this server's Caddy HTTP origin
+- Ubuntu Server 24.04 or newer, or macOS.
+- An internet connection, `curl`, and Bash to run the bootstrap script.
+- On Ubuntu, a user account with `sudo` access. Bootstrap installs Python 3 and
+  Docker Engine with Compose v2 if they are missing.
+- On macOS, Python 3.11 or newer and Docker Desktop (or another Docker
+  compatible runtime with Compose v2). Start the runtime before installing.
+- For public access, a domain managed by Cloudflare and a Tunnel connector
+  that can reach this server's Caddy origin.
+- `rsync` and SSH are needed only if you use remote sync.
 
-OpenDock has one bootstrap entrypoint for Ubuntu Linux and macOS. It prepares
-the host and installs only the platform runtime files into the OpenDock root
-(`~/OpenDock` by default), without Git metadata, CI files, tests, or developer
-documentation. It never installs private OpenDock-Services source; services
-are installed later from the configured package catalog.
+Git is not required.
+
+## Bootstrap
+
+Run this command on the machine where you want to host OpenDock:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh | bash
+```
+
+Bootstrap prepares Docker, then installs the OpenDock runtime under
+`~/OpenDock`. It installs only the files needed to run OpenDock; it does not
+copy Git metadata, CI files, tests, or developer documentation. Service
+packages are downloaded separately when you install or launch a service.
+
+On Ubuntu, bootstrap installs Python 3 and, when needed, Docker Engine and
+Compose v2. If it adds your account to the `docker` group, log out and back in
+before running Docker commands without `sudo`.
+
+On macOS, install Python 3.11+ and Docker Desktop before running bootstrap. If
+Docker Desktop is installed but stopped, bootstrap opens it and waits for it to
+start. Complete any first-run setup in Docker Desktop yourself.
+
+### Cloudflare Tunnel
+
+OpenDock needs two different Cloudflare credentials for public hosting. They
+do different jobs, so create both before setup. The API token goes into
+`./opendock setup cloudflare`; the connector token is used by bootstrap. Do not
+paste one in place of the other.
+
+#### 1. Create an API token for OpenDock
+
+In Cloudflare, open **My Profile → API Tokens → Create Token → Create Custom
+Token**. Give it a name such as `OpenDock DNS and Tunnel Sync`, then add these
+permissions:
+
+| Resource | Permission | Why OpenDock needs it |
+| --- | --- | --- |
+| Account → Cloudflare Tunnel | Edit | Read and update Tunnel hostname routes |
+| Zone → DNS | Edit | Create or update DNS records for OpenDock hostnames |
+| Zone → Zone | Read | Find the zone for each hostname |
+
+Under **Account Resources**, select only the account that owns the Tunnel.
+Under **Zone Resources**, select only the domain zones OpenDock will manage.
+Review the summary, create the token, and copy it when Cloudflare shows it.
+Cloudflare displays the token secret only once. Do not use your Global API Key.
+See Cloudflare's [API token creation guide](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
+and [permission reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/).
+
+#### 2. Create or select a remotely managed Tunnel
+
+In Cloudflare, open **Networking → Tunnels** and create a Tunnel, or select an
+existing remotely managed Tunnel. Record its Tunnel ID. On the Tunnel's
+**Overview** tab, select **Add a replica** and copy the token from the displayed
+`cloudflared` command; do not run that command. This connector token is
+different from the API token above. Anyone who has the connector token can run
+a connector for that Tunnel, so keep it private. See Cloudflare's [Tunnel token
+guide](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/).
+
+During bootstrap, paste the connector token at the hidden prompt. If you do not
+have it yet, choose **No**; bootstrap prints the exact file and setting to use
+later. After bootstrap, configure the primary domain and API credentials:
+
+```sh
+cd ~/OpenDock
+./opendock setup
+./opendock setup cloudflare
+```
+
+Enter the API token and Tunnel ID when prompted. OpenDock stores them with the
+connector token in the private `config/cloudflare.env` file.
+
+### Install and launch a service
+
+Search the service catalog, then launch a service. Launch installs it if needed
+and guides you through its first setup:
+
+```sh
+./opendock search <words>
+./opendock launch <service-id>
+```
+
+The default install directory is `~/OpenDock`. To choose another directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh | bash -s -- --dir "$HOME/opendock"
+```
+
+To view all options without making changes:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh | bash -s -- --help
+```
+
+You can also inspect the [bootstrap script](scripts/bootstrap.sh).
 
 ## Development package flow
 
@@ -106,85 +200,6 @@ For another hostname, add a typed route such as
 `./opendock route add static docs.example.org`, then run
 `./opendock launch <hostname>`. Static routes serve files from
 `static-sites/<hostname>/`.
-
-## Bootstrap
-
-Run the bootstrap on Ubuntu Server 24.04 or newer or macOS:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh | bash
-```
-
-On Ubuntu, bootstrap installs Python 3, curl, and CA certificates. If
-Docker Engine or Compose v2 is missing, it installs Ubuntu's `docker.io` and
-`docker-compose-v2` packages, enables Docker with systemd, and adds the login
-user to the `docker` group when needed. A newly added user must log out and
-back in before using Docker without `sudo`.
-
-On macOS, install Python 3.11+ and Docker Desktop (or another
-Docker-compatible runtime with Compose v2) first. Bootstrap opens Docker
-Desktop when it is installed but stopped, then waits for the runtime. Complete
-Docker Desktop's first-run agreement and setup in its app; bootstrap does not
-accept license terms on the user's behalf. See the [Docker Desktop for Mac
-installation guide](https://docs.docker.com/desktop/setup/install/mac-install/).
-
-After preparing the host and installing OpenDock, bootstrap creates the
-private `config/cloudflare.env` from its tracked template and guides you through
-creating or selecting a remotely-managed Tunnel in Cloudflare Dashboard. You can enter the connector
-token at the hidden prompt, or set `CLOUDFLARED_TUNNEL_TOKEN` in that file and
-rerun bootstrap. If a token is available and no other connector is running,
-Ubuntu installs `cloudflared` and enables an OpenDock systemd service; macOS
-installs it with Homebrew and registers a user LaunchAgent. An already-running
-connector is left untouched, with guidance printed while bootstrap continues.
-The connector token is private and excluded from Git and `./opendock sync`.
-
-The Tunnel connector token is separate from the Cloudflare API token and
-Tunnel ID: `config/cloudflare.env` stores the connector token and the API
-credentials OpenDock uses to sync Tunnel routes and DNS. After bootstrap, run
-`./opendock setup cloudflare` to configure the API credentials. While the
-connector runs, bootstrap derives a short-lived, permission-restricted token
-file because `cloudflared` requires token-only file contents; it removes that
-temporary file when the connector exits.
-
-To inspect the script before running it:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh -o bootstrap.sh
-less bootstrap.sh
-bash bootstrap.sh
-```
-
-The default OpenDock root is `~/OpenDock`; override it with `--dir`:
-
-```sh
-cd ~/OpenDock
-```
-
-To prepare the host now and install OpenDock later:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh | bash -s -- --no-install
-```
-
-Rerun the same downloaded script with `--install` when you are ready:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh | bash -s -- --install
-```
-
-To use a different install directory, pass `--dir`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/delta898/OpenDock/main/scripts/bootstrap.sh | bash -s -- --dir "$HOME/opendock"
-```
-
-Create and review the local env file:
-
-```sh
-./opendock setup
-```
-
-`./opendock setup` asks for values that need your intent, such as the main domain, and keeps existing values when you press Enter. It also generates local passwords and app secrets without printing them.
 
 Run `./opendock help` to see available commands. GNU Make is only needed if
 you use the older `make ...` compatibility commands.
