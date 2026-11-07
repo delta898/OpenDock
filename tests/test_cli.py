@@ -1,6 +1,7 @@
 """Checks for the public CLI without starting Docker or contacting Cloudflare."""
 
 import importlib.util
+import builtins
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import subprocess
@@ -18,6 +19,12 @@ spec = importlib.util.spec_from_loader("opendock_cli", loader=None)
 cli = importlib.util.module_from_spec(spec)
 cli.__file__ = str(ROOT / "opendock")
 exec(compile((ROOT / "opendock").read_text(), str(ROOT / "opendock"), "exec"), cli.__dict__)
+config_spec = importlib.util.spec_from_file_location(
+    "opendock_config_test", ROOT / "scripts" / "opendock-config.py"
+)
+config_cli = importlib.util.module_from_spec(config_spec)
+sys.modules[config_spec.name] = config_cli
+config_spec.loader.exec_module(config_cli)
 
 
 def run_cli(*args):
@@ -80,7 +87,7 @@ class CLITests(unittest.TestCase):
         fetch.assert_called_once_with("dev")
         install.assert_called_once_with("dev", "n8n-v2", catalog, ROOT)
         self.assertIsNone(result)
-        self.assertIn("continuing through prepare and launch", output.getvalue())
+        self.assertIn("continuing through first-time setup and launch", output.getvalue())
 
     def test_keyboard_interrupt_exits_cleanly(self):
         stderr = StringIO()
@@ -129,7 +136,8 @@ class CLITests(unittest.TestCase):
     def test_prepare_messages_bracket_setup_prerequisites_and_prepare_action(self):
         events = []
         catalog = mock.Mock()
-        catalog.get.return_value = SimpleNamespace(storage_mounts=())
+        catalog.get.return_value = SimpleNamespace(storage_mounts=(), setup_complete=True)
+        catalog.is_extension.return_value = False
         with mock.patch.object(cli, "ServiceCatalog", return_value=catalog), \
              mock.patch.object(cli, "validate_service_capabilities", side_effect=lambda _service: events.append("validate")), \
              mock.patch.object(cli, "has_capability", return_value=False), \
@@ -144,9 +152,87 @@ class CLITests(unittest.TestCase):
         self.assertEqual(started, {"infra"})
         self.assertEqual(events, [
             "validate", "pre_prepare", "setup", "optional-setup",
-            "storage-config", "storage-check", "dependencies",
+            "setup", "storage-config", "storage-check", "dependencies",
             "prepare-action", "post_prepare",
         ])
+
+    def test_first_launch_runs_service_setup_and_records_completion(self):
+        events = []
+        catalog = mock.Mock()
+        catalog.get.return_value = SimpleNamespace(
+            storage_mounts=(), setup_complete=False,
+        )
+        catalog.is_extension.return_value = True
+        with mock.patch.object(cli, "ServiceCatalog", return_value=catalog), \
+             mock.patch.object(cli, "validate_service_capabilities", side_effect=lambda _service: events.append("validate")), \
+             mock.patch.object(cli, "has_capability", return_value=False), \
+             mock.patch.object(cli, "show_lifecycle_messages", side_effect=lambda _items, stage: events.append(stage)), \
+             mock.patch.object(cli, "script", side_effect=lambda *args: events.append(("setup", *args))), \
+             mock.patch.object(cli, "ensure_service_configuration", side_effect=lambda _service: events.append("config-check")), \
+             mock.patch.object(cli, "ensure_service_storage_configuration", side_effect=lambda _service: events.append("storage-config")), \
+             mock.patch.object(cli, "prepare_service_storage", side_effect=lambda _service: events.append("storage-check")), \
+             mock.patch.object(cli, "start_service_dependencies", side_effect=lambda _items, **_kwargs: events.append("dependencies") or set()), \
+             mock.patch.object(cli, "run_service_preparations", side_effect=lambda _items: events.append("prepare-action")), \
+             mock.patch.object(cli, "mark_setup_complete", side_effect=lambda _root, ids: events.append(("mark", ids))), \
+             mock.patch.object(cli.sys.stdin, "isatty", return_value=True):
+            cli.launch_service_set(["example-service"])
+        self.assertEqual(events, [
+            "validate", "pre_prepare", ("setup", "opendock-config.py", "example-service"),
+            "config-check", "storage-config", "storage-check", "dependencies", "prepare-action",
+            "post_prepare", ("mark", ["example-service"]),
+        ])
+
+    def test_completed_service_launch_shows_editable_settings_before_start(self):
+        events = []
+        catalog = mock.Mock()
+        catalog.get.return_value = SimpleNamespace(
+            storage_mounts=(), setup_complete=True,
+        )
+        catalog.is_extension.return_value = True
+        with mock.patch.object(cli, "ServiceCatalog", return_value=catalog), \
+             mock.patch.object(cli, "validate_service_capabilities", side_effect=lambda _service: events.append("validate")), \
+             mock.patch.object(cli, "has_capability", return_value=False), \
+             mock.patch.object(cli, "show_lifecycle_messages", side_effect=lambda _items, stage: events.append(stage)), \
+             mock.patch.object(cli, "ensure_service_configuration", side_effect=lambda _service: events.append("config-check")), \
+             mock.patch.object(cli, "script", side_effect=lambda *args: events.append(tuple(args))), \
+             mock.patch.object(cli, "ensure_service_storage_configuration", side_effect=lambda _service: events.append("storage-config")), \
+             mock.patch.object(cli, "prepare_service_storage", side_effect=lambda _service: events.append("storage-check")), \
+             mock.patch.object(cli, "start_service_dependencies", side_effect=lambda _items, **_kwargs: events.append("dependencies") or set()), \
+             mock.patch.object(cli, "run_service_preparations", side_effect=lambda _items: events.append("prepare-action")), \
+             mock.patch.object(cli, "mark_setup_complete", side_effect=lambda _root, ids: events.append(("mark", ids))), \
+             mock.patch.object(cli.sys.stdin, "isatty", return_value=True):
+            cli.launch_service_set(["example-service"])
+        self.assertEqual(events, [
+            "validate", "pre_prepare", "config-check",
+            ("opendock-config.py", "--optional-only", "example-service"),
+            ("opendock-config.py", "--review", "example-service"), "config-check",
+            "storage-config", "storage-check", "dependencies", "prepare-action",
+            "post_prepare", ("mark", []),
+        ])
+
+    def test_service_setup_review_shows_values_and_redacts_secrets(self):
+        fields = [
+            SimpleNamespace(name="WORDPRESS_WEBROOT_PATH", kind="defaulted-choice", default="./data/webroot"),
+            SimpleNamespace(name="WORDPRESS_DB_PASSWORD", kind="generated-secret", default=None),
+        ]
+        output = StringIO()
+        with mock.patch.object(config_cli, "resolve_sections", return_value=["wordpress"]), \
+             mock.patch.object(config_cli.SETTINGS, "initialize"), \
+             mock.patch.object(config_cli.SETTINGS, "load_values", return_value={
+                 "WORDPRESS_WEBROOT_PATH": "/srv/wordpress",
+                 "WORDPRESS_DB_PASSWORD": "private-secret",
+             }), \
+             mock.patch.object(config_cli, "selected_fields", return_value=fields), \
+             mock.patch.object(config_cli, "is_real_value", side_effect=lambda key, values: bool(values.get(key))), \
+             mock.patch.object(config_cli.sys.stdin, "isatty", return_value=True), \
+             mock.patch.object(builtins, "input", return_value="n") as prompt, \
+             redirect_stdout(output):
+            result = config_cli.review_setup("wordpress")
+        self.assertEqual(result, 0)
+        self.assertIn("WORDPRESS_WEBROOT_PATH: /srv/wordpress", output.getvalue())
+        self.assertIn("WORDPRESS_DB_PASSWORD: configured", output.getvalue())
+        self.assertNotIn("private-secret", output.getvalue())
+        prompt.assert_called_once()
 
     def test_help_shows_current_workflows_and_generic_route_examples(self):
         for args in ((), ("--help",), ("help",)):
@@ -165,6 +251,23 @@ class CLITests(unittest.TestCase):
             self.assertNotIn("positional arguments:", result.stdout)
             self.assertLess(result.stdout.index("./opendock setup"),
                             result.stdout.index("./opendock route add"))
+
+    def test_search_shows_compact_primary_image_instead_of_package_version(self):
+        catalog = {"services": [{
+            "service_id": "n8n-v2",
+            "display_name": "n8n 2 Stable",
+            "summary": "Workflow automation",
+            "tags": ["automation"],
+            "primary_image": "n8n:2.46.6",
+            "releases": [{"version": "0.1.1"}],
+        }]}
+        output = StringIO()
+        with mock.patch.object(cli, "load_cached", return_value=catalog), \
+             redirect_stdout(output):
+            result = cli.main(["search"])
+        self.assertEqual(result, 0)
+        self.assertIn("n8n-v2\tn8n 2 Stable\tn8n:2.46.6", output.getvalue())
+        self.assertNotIn("0.1.1", output.getvalue())
 
     def test_help_is_available_at_each_command_level(self):
         route_help = run_cli("route", "--help")

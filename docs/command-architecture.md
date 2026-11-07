@@ -282,8 +282,10 @@ The first contract is intentionally small and lives in these files:
   only when they need one of that service's declared capabilities.
 - A service's `opendock.toml` declares `schema_version`, `service_id`,
   optional `display_name`, shared platform `dependencies`, implemented
-  `capabilities`, optional `setup.fields`, optional command help metadata, and
-  optional `[removal]` resource ownership. Capabilities also require
+  `capabilities`, optional `setup.fields`, optional command help metadata,
+  optional `[catalog].primary_image_service`, and optional `[removal]` resource
+  ownership. The catalog builder resolves the declared Compose service's image
+  against `.env.default` for search display. Capabilities also require
   `capability_api_version`.
 - A service's `opendock.py` implements only the procedures named by its
   descriptor. API version 1 supports `runtime_environment(context)`,
@@ -326,7 +328,15 @@ formats, delegates custom formats and consistency bundles, and persists values
 without displaying them. `setup`, `launch`, and `secrets` use this same
 coordinator: setup generates while prompting, launch fills missing values
 before validation, and `secrets` offers an explicit repair command. All current
-Compose services have descriptors and declare their `infra` dependency. Adding
+Compose services have descriptors and declare their `infra` dependency. Each
+installed package also records whether its service-level first setup has
+completed. An explicit successful `setup <service>` records that state; if the
+state is absent, the first `launch <service>` runs the complete service setup
+flow before starting the application. Existing defaults or generated secrets
+do not count as evidence that service setup ran. Later launches skip first-time
+setup, show current service settings with secrets redacted, and offer an edit
+path; non-interactive launches keep valid existing settings. Missing required
+configuration is repaired before launch. Adding
 a capability name to the catalog requires its type, dispatcher, and error
 handling; an unsupported declaration fails during discovery.
 

@@ -38,6 +38,7 @@ from opendock_distribution import (
     install as install_package,
     install_local_file,
     load_cached,
+    mark_setup_complete,
 )
 from opendock_storage import (
     compose_mount_environment,
@@ -418,7 +419,7 @@ def install_package_for_launch(service):
             f"Package installed. Run './opendock setup {service}' interactively, "
             f"then './opendock launch {service}'."
         )
-    print(f"==> {service}: continuing through prepare and launch", flush=True)
+    print(f"==> {service}: continuing through first-time setup and launch", flush=True)
 
 
 def ensure_cloudflare_configuration():
@@ -510,15 +511,34 @@ def prepare_service_set(selected, *, configure_missing=False):
 
 
 def launch_service_set(selected):
-    for service in selected:
-        validate_service_capabilities(ServiceCatalog(ROOT).get(service))
+    catalog = ServiceCatalog(ROOT)
+    definitions = {service: catalog.get(service) for service in selected}
+    for definition in definitions.values():
+        validate_service_capabilities(definition)
+    first_setup = [
+        service for service, definition in definitions.items()
+        if catalog.is_extension(service) and not definition.setup_complete
+    ]
     show_lifecycle_messages(selected, "pre_prepare")
     # Configuration is a prerequisite for every service. Service preparation
     # hooks add application-specific work, but must not gate common setup.
     for service in selected:
+        if service in first_setup:
+            if not sys.stdin.isatty():
+                raise CLIError(
+                    f"First-time setup is required for '{service}'. Run "
+                    f"'./opendock setup {service}' interactively, then retry launch."
+                )
+            print(f"==> {service}: first-time service setup", flush=True)
+            script("opendock-config.py", service)
+        else:
+            ensure_service_configuration(service)
+            script("opendock-config.py", "--optional-only", service)
+            if catalog.is_extension(service):
+                script("opendock-config.py", "--review", service)
+        # Validate any edits made in the review screen and repair generated
+        # secrets before storage checks or shared prerequisites are changed.
         ensure_service_configuration(service)
-    for service in selected:
-        script("opendock-config.py", "--optional-only", service)
     preparable = [
         service for service in selected
         if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
@@ -530,6 +550,10 @@ def launch_service_set(selected):
     started = start_service_dependencies(selected, wait=True)
     run_service_preparations(preparable)
     show_lifecycle_messages(selected, "post_prepare")
+    try:
+        mark_setup_complete(ROOT, first_setup)
+    except DistributionError as exc:
+        raise CLIError(str(exc)) from exc
     return started
 
 
@@ -886,7 +910,7 @@ def print_guide():
           ./opendock update                        Refresh the service catalog
           ./opendock list                          See installed services, runtime status, and groups
           ./opendock setup                         Configure your primary domain
-          ./opendock launch <service>              Configure and start one service
+          ./opendock launch <service>              Review service setup and start it
 
         Domains and static sites
           ./opendock route show [hostname]         Show configured routes
@@ -968,7 +992,10 @@ def parser():
     sub = p.add_subparsers(dest="command", required=True)
     update_cmd = sub.add_parser("update", help="Refresh the service catalog")
     update_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
-    search_cmd = sub.add_parser("search", help="Search available service packages")
+    search_cmd = sub.add_parser(
+        "search", help="Search service packages by name or description",
+        description="Search available services. Results show the primary Docker image name and tag; OpenDock package versions are omitted.",
+    )
     search_cmd.add_argument("terms", nargs="*", help="Words to match in service metadata")
     search_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
     install_cmd = sub.add_parser(
@@ -1034,7 +1061,7 @@ def parser():
             "secrets": "Generate missing passwords, tokens, and application secrets.",
             "check-config": "Check required settings before changing or starting services.",
             "publish": "Apply configured host routes to Caddy and Cloudflare.",
-            "launch": "Start a service, or apply and publish a hostname route. Declared first-run preparation runs automatically.",
+            "launch": "Run first-time service setup when needed; later launches show current settings and offer review before starting.",
         }
         examples = {
             "setup": ["./opendock setup", "./opendock setup <service>", "./opendock setup mail"],
@@ -1126,7 +1153,7 @@ def parser():
                      help="Route type")
     add.add_argument("hostname", help="Full public hostname, e.g. ai.example.org")
     add.add_argument("target", nargs="?",
-                     help="Service ID for service routes; http(s):// origin URL for external routes")
+                     help="Service ID for service routes; upstream URL (http(s):// origin) for external routes")
     route_remove = route_sub.add_parser(
         "remove", help="Remove a hostname route",
         description="Remove a route and sync its public route entries when configured.",
@@ -1178,10 +1205,10 @@ def main(argv=None):
                     " ".join(service.get("tags", [])),
                 ]).casefold()
                 if all(term in haystack for term in terms):
-                    versions = sorted((release["version"] for release in service["releases"]), reverse=True)
-                    matches.append((service, versions[0] if versions else "no releases"))
-            for service, version in matches:
-                print(f"{service['service_id']}\t{service['display_name']}\t{version}")
+                    matches.append(service)
+            for service in matches:
+                image = service.get("primary_image", "image tag unavailable")
+                print(f"{service['service_id']}\t{service['display_name']}\t{image}")
             if not matches:
                 print("No matching services.")
         elif command == "install":
@@ -1222,6 +1249,14 @@ def main(argv=None):
                 if has_capability(ServiceCatalog(ROOT).get(service), "prepare")
             ]
             prepare_service_set(preparable)
+            catalog = ServiceCatalog(ROOT)
+            extension_ids = [
+                service for service in selected if catalog.is_extension(service)
+            ]
+            try:
+                mark_setup_complete(ROOT, extension_ids)
+            except DistributionError as exc:
+                raise CLIError(str(exc)) from exc
         elif command == "secrets":
             script("opendock-secrets.py", args.target)
         elif command == "check-config":

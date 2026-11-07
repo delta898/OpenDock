@@ -314,18 +314,60 @@ def print_generated_notices(generated_keys, fields):
             print(notice)
 
 
-def main():
-    args = sys.argv[1:]
+def review_setup(target):
+    sections = resolve_sections(target)
+    SETTINGS.initialize()
+    values = SETTINGS.load_values(process_env=False)
+    fields = selected_fields(sections)
+    print(f"OpenDock setup: {target} current service settings")
+    if not fields:
+        print("  This service has no user-facing setup fields.")
+        return 0
+    print()
+    for field in fields:
+        value = values.get(field.name, "") or field.default or ""
+        if field.kind in {"secret-user", "initial-credential", "generated-secret"}:
+            shown = "configured" if is_real_value(field.name, values) else "not set"
+        else:
+            shown = value if value else "not set"
+        print(f"  {field.name}: {shown}")
+
+    incomplete = [
+        field for field in fields
+        if field.kind in {"required-user", "secret-user", "initial-credential"}
+        and not is_real_value(field.name, values)
+    ]
+    if incomplete:
+        print("\nRequired service settings are incomplete; setup must be completed now.")
+        return main([target])
+    if not sys.stdin.isatty():
+        print("\nNon-interactive launch: keeping the current service settings.")
+        return 0
+    answer = input("\nChange service settings before launch? [y/N] ").strip().lower()
+    if answer in {"y", "yes"}:
+        return main([target])
+    return 0
+
+
+def main(argv=None):
+    args = list(sys.argv[1:] if argv is None else argv)
+    review = "--review" in args
+    if review:
+        args.remove("--review")
     optional_only = "--optional-only" in args
     storage_only = "--storage-only" in args
-    if optional_only and storage_only:
-        raise SystemExit("--optional-only and --storage-only cannot be combined")
+    if sum((review, optional_only, storage_only)) > 1:
+        raise SystemExit("--review, --optional-only, and --storage-only cannot be combined")
     args = [arg for arg in args if arg not in {"--optional-only", "--storage-only"}]
     if len(args) > 1:
         raise SystemExit(
             "Usage: opendock-config.py [--optional-only | --storage-only] [target]"
         )
     target = args[0] if args else "all"
+    if review:
+        if target not in service_targets():
+            raise SystemExit("--review requires one installed service target")
+        return review_setup(target)
     if storage_only and target not in service_targets():
         raise SystemExit("--storage-only requires one service target")
     sections = resolve_sections(target)
