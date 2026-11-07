@@ -545,6 +545,14 @@ def publish(target):
     run(ROOT / "scripts/publish-cloudflare.sh", target)
 
 
+def ensure_gateway_network():
+    try:
+        run("docker", "network", "inspect", "shared-net", quiet=True)
+    except CLIError:
+        print("==> network: create shared-net", flush=True)
+        run("docker", "network", "create", "shared-net", quiet=True)
+
+
 def launch(target):
     # Reuse the route resolver, including validation of host-owned domains.conf.
     domains = domains_module()
@@ -556,16 +564,18 @@ def launch(target):
         web_root.mkdir(parents=True, exist_ok=True)
         print(f"Static site: {target}\nWeb root: {web_root}/\n"
               "Place the site's files there. Caddy and Cloudflare routing will now be applied.", flush=True)
-        try:
-            run("docker", "network", "inspect", "shared-net", quiet=True)
-        except CLIError:
-            print("==> network: create shared-net", flush=True)
-            run("docker", "network", "create", "shared-net", quiet=True)
+        ensure_gateway_network()
         lifecycle("up", "gateway", wait=True)
         reload_gateway()
         publish(target)
         return
-    if route:
+    if route and route["type"] == "external":
+        ensure_cloudflare_configuration()
+        ensure_gateway_network()
+        reload_gateway()
+        publish(target)
+        return
+    if route and route["type"] == "service":
         service = route["target"]
         ensure_cloudflare_configuration()
         already_started = launch_service_set([service])
@@ -580,8 +590,8 @@ def launch(target):
         return
     if "." in target:
         raise CLIError(f"No route is configured for hostname: {target}\n"
-                       f"Add one with: ./opendock route add {target} <service|static>")
-    matches = [r["hostname"] for r in routes if r["type"] == "docker" and r["target"] == target]
+                       f"Add one with: ./opendock route add service {target} <service-id>")
+    matches = [r["hostname"] for r in routes if r["type"] == "service" and r["target"] == target]
     if len(matches) > 1:
         raise CLIError(f"'{target}' has multiple hostnames; use one of:\n" +
                        "\n".join(f"  ./opendock launch {host}" for host in matches))
@@ -614,11 +624,14 @@ def launch(target):
         show_lifecycle_messages(selected_services, "post_launch")
 
 
-def route(command, hostname=None, service=None):
+def route(command, route_type=None, hostname=None, target=None):
     if command == "show":
         script("opendock-domains.py", "list", *([hostname] if hostname else []))
     elif command == "add":
-        script("opendock-domains.py", "add", hostname, service)
+        arguments = ["opendock-domains.py", "add", route_type, hostname]
+        if target is not None:
+            arguments.append(target)
+        script(*arguments)
     else:
         # Keep the same ordering: remove Cloudflare entries before deleting local mapping.
         domains = domains_module()
@@ -710,10 +723,36 @@ def sync(name, dry_run=False):
 def list_targets(kind=None):
     found = services()
     group_names = groups()
+    containers, docker_note = running_containers()
+
+    def service_line(name):
+        project_containers = [
+            container
+            for (project, _service), entries in containers.items()
+            if project == name
+            for container in entries
+        ]
+        if docker_note:
+            runtime = "unknown"
+        elif not project_containers:
+            runtime = "stopped"
+        else:
+            statuses = [status.casefold() for _image, status in project_containers]
+            running = [status.startswith("up ") or status == "up" for status in statuses]
+            if all(running):
+                runtime = "running"
+            elif any(running):
+                runtime = "partial"
+            elif any(status.startswith(("restarting", "starting")) for status in statuses):
+                runtime = "starting"
+            else:
+                runtime = "stopped"
+        return f"  {name:<24} installed · {runtime}"
+
     if kind == "services":
         if not found:
             raise CLIError("No services found in the service catalog.")
-        print("\n".join(found))
+        print("\n".join(service_line(name) for name in found))
     elif kind == "groups":
         if not GROUPS.is_file():
             print("No service groups found.")
@@ -725,9 +764,11 @@ def list_targets(kind=None):
         if (ROOT / "gateway/compose.yml").exists():
             print("  gateway")
         print("\nServices:")
-        print("\n".join(f"  {name}" for name in found) if found else "  (none)")
+        print("\n".join(service_line(name) for name in found) if found else "  (none)")
         print("\nGroups:")
         print("\n".join(f"  {name}" for name in group_names) if group_names else "  (none)")
+    if docker_note:
+        print(f"\n{docker_note}")
 
 
 def configured_images(target):
@@ -770,10 +811,10 @@ def running_containers():
         output = run(
             "docker", "ps", "--all", "--format",
             "{{.Label \"com.docker.compose.project\"}}\t{{.Label \"com.docker.compose.service\"}}\t{{.Image}}\t{{.Status}}",
-            capture=True,
+            capture=True, quiet=True,
         )
     except CLIError:
-        return {}, "Docker is unavailable; showing configured image tags only."
+        return {}, "Docker is unavailable; runtime state could not be determined."
     containers = {}
     for line in output.splitlines():
         project, service, image, status = (line.split("\t", 3) + [""] * 4)[:4]
@@ -830,23 +871,26 @@ def print_guide():
           ./opendock search <words>                Find a service package
           ./opendock install <service>             Install a service package
           ./opendock update                        Refresh the service catalog
-          ./opendock list                          See installed services and groups
+          ./opendock list                          See installed services, runtime status, and groups
           ./opendock setup                         Configure your primary domain
           ./opendock launch <service>              Configure and start one service
 
         Domains and static sites
           ./opendock route show [hostname]         Show configured routes
-          ./opendock route add <hostname> <service|static>
-                                                   Add a Docker service or static site
-          ./opendock launch <hostname>              Apply the route and show static web root
+          ./opendock route add <type> <hostname> [<target>]
+                                                   Add static, service, or external route
+          ./opendock launch <hostname>             Apply a route and publish it
           ./opendock route remove <hostname>        Remove the route and its Cloudflare entries
 
           Examples:
-            ./opendock route add app.example.org <service>
+            ./opendock route add service app.example.org n8n-v3
             ./opendock launch app.example.org
-            ./opendock route add docs.example.org static
+            ./opendock route add static docs.example.org
             ./opendock launch docs.example.org
+            ./opendock route add external ai.example.org http://host.docker.internal:1234
+            ./opendock launch ai.example.org
           Static files go in static-sites/docs.example.org/.
+          External upstream URLs must be reachable from the Caddy container.
 
         Configuration and inspection
           ./opendock --version                     Show the OpenDock product version
@@ -920,8 +964,8 @@ def parser():
     sub.add_parser("help", help="Show the getting-started guide",
                    description="Show the common OpenDock workflows and examples.")
     l = sub.add_parser(
-        "list", help="List services and groups",
-        description="List installed services or the named service groups.",
+        "list", help="List installed services with runtime state and groups",
+        description="List installed services with Docker runtime state or the named service groups.",
         epilog="Examples:\n  ./opendock list\n  ./opendock list services\n  ./opendock list groups",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1025,9 +1069,10 @@ def parser():
                              help="Additional arguments passed to the service command")
     route_cmd = sub.add_parser(
         "route", help="Manage hostname routes",
-        description="Add, show, or remove mappings from public hostnames to Docker or static sites.",
-        epilog=("Examples:\n  ./opendock route add app.example.org <service>\n"
-                "  ./opendock route add docs.example.org static\n"
+        description="Add, show, or remove public hostname routes to static files, installed services, or external upstreams.",
+        epilog=("Examples:\n  ./opendock route add service app.example.org n8n-v3\n"
+                "  ./opendock route add static docs.example.org\n"
+                "  ./opendock route add external ai.example.org http://host.docker.internal:1234\n"
                 "  ./opendock route show\n  ./opendock route remove docs.example.org"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1040,18 +1085,22 @@ def parser():
     )
     show.add_argument("hostname", nargs="?", help="Optional hostname to look up")
     add = route_sub.add_parser(
-        "add", description="Map a full hostname to an installed Docker service or a static site.",
-        help="Map a hostname to a Docker service or static web root",
+        "add", usage="./opendock route add <type> <hostname> [<target>]",
+        description="Add a public hostname route to static files, an installed service, or an external upstream.",
+        help="Add a static, service, or external hostname route",
         epilog=("Examples:\n"
-                "  ./opendock route add app.example.org <service>\n"
-                "  ./opendock route add docs.example.org static\n\n"
+                "  ./opendock route add static docs.example.org\n"
+                "  ./opendock route add service app.example.org n8n-v3\n"
+                "  ./opendock route add external ai.example.org http://host.docker.internal:1234\n\n"
                 "Then run './opendock launch <hostname>' to apply the route. "
-                "Static files go in static-sites/<hostname>/."),
+                "Static files go in static-sites/<hostname>/. External upstreams must be reachable from Caddy."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    add.add_argument("hostname", help="Full public hostname, e.g. docs.example.org")
-    add.add_argument("service", metavar="service|static",
-                     help="Installed service ID from './opendock list', or static")
+    add.add_argument("type", choices=("static", "service", "external"),
+                     help="Route type")
+    add.add_argument("hostname", help="Full public hostname, e.g. ai.example.org")
+    add.add_argument("target", nargs="?",
+                     help="Service ID for service routes; http(s):// origin URL for external routes")
     route_remove = route_sub.add_parser(
         "remove", help="Remove a hostname route",
         description="Remove a route and sync its public route entries when configured.",
@@ -1154,7 +1203,10 @@ def main(argv=None):
             )
             return result.returncode
         elif command == "route":
-            route(args.route_command, getattr(args, "hostname", None), getattr(args, "service", None))
+            if args.route_command == "add":
+                route("add", args.type, args.hostname, args.target)
+            else:
+                route(args.route_command, hostname=getattr(args, "hostname", None))
         elif command == "service":
             result = subprocess.run(
                 [sys.executable, ROOT / "scripts/opendock-service.py",

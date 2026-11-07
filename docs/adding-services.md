@@ -10,8 +10,8 @@
 > application readiness, and multi-domain lifecycle remain unverified.
 
 The examples below describe how the current legacy Docker Compose catalog was
-implemented. Static routes are configured separately with `./opendock route add
-<hostname> static`; they do not use a service descriptor. A non-Docker runtime
+implemented. Static routes are configured separately with
+`./opendock route add static <hostname>`; they do not use a service descriptor. A non-Docker runtime
 needs a new platform contract and is outside this guide.
 
 ## What is discovered automatically?

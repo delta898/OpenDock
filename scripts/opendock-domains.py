@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Resolve OpenDock hostnames to Docker services or static web roots."""
+"""Resolve OpenDock hostnames to static, service, or external upstream targets."""
+import ipaddress
 import os
 import re
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from opendock_settings import load_values
 from opendock_catalog import ServiceCatalog
@@ -21,6 +23,7 @@ HOST_RE = re.compile(
     r"(?:\.(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?))*\.?$"
 )
 TARGET_RE = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}")
+ROUTE_TYPES = {"static", "service", "external"}
 
 
 def parse_env(path):
@@ -49,7 +52,7 @@ def service_routes(env):
         subdomain = env.get(routing["subdomain_key"]) or service.name
         routes.append({
             "hostname": f"{subdomain}.{domain}",
-            "type": "docker",
+            "type": "service",
             "target": service.name,
         })
     return routes
@@ -62,21 +65,39 @@ def parse_domains_file():
         if not line:
             continue
         parts = line.split()
-        if len(parts) != 3:
+        if len(parts) < 2:
             raise SystemExit(
-                f"domains.conf:{line_number}: expected <hostname> <docker|static> <target>"
+                f"domains.conf:{line_number}: expected <type> <hostname> [<target>]"
             )
-        hostname, route_type, target = parts
+        if parts[0] in ROUTE_TYPES:
+            route_type, hostname = parts[:2]
+            expected_parts = 2 if route_type == "static" else 3
+            if len(parts) != expected_parts:
+                suffix = "" if route_type == "static" else " <target>"
+                raise SystemExit(
+                    f"domains.conf:{line_number}: expected {route_type} <hostname>{suffix}"
+                )
+            target = hostname.rstrip(".").lower() if route_type == "static" else parts[2]
+        elif len(parts) == 3 and parts[1] in {"docker", "service", "static", "external"}:
+            # Accept the previous hostname-first file layout and normalize it on write.
+            hostname, stored_type, target = parts
+            route_type = "service" if stored_type == "docker" else stored_type
+        else:
+            raise SystemExit(
+                f"domains.conf:{line_number}: expected <type> <hostname> [<target>]"
+            )
+        if route_type not in ROUTE_TYPES:
+            raise SystemExit(
+                f"domains.conf:{line_number}: type must be static, service, or external"
+            )
+        if route_type == "static":
+            target = hostname.rstrip(".").lower()
         if not HOST_RE.fullmatch(hostname):
             raise SystemExit(f"domains.conf:{line_number}: invalid hostname: {hostname}")
-        if route_type not in {"docker", "static"}:
-            raise SystemExit(f"domains.conf:{line_number}: type must be docker or static")
-        if route_type == "docker" and not TARGET_RE.fullmatch(target):
-            raise SystemExit(f"domains.conf:{line_number}: invalid Docker service name: {target}")
-        if route_type == "static" and target != hostname.rstrip(".").lower():
-            raise SystemExit(
-                f"domains.conf:{line_number}: static web root must match its hostname"
-            )
+        if route_type == "service" and not TARGET_RE.fullmatch(target):
+            raise SystemExit(f"domains.conf:{line_number}: invalid service ID: {target}")
+        if route_type == "external":
+            validate_external_target(target, line_number=line_number)
         routes.append(
             {"hostname": hostname.rstrip(".").lower(), "type": route_type, "target": target}
         )
@@ -100,11 +121,11 @@ def validate_routes(routes):
         if hostname in seen:
             raise SystemExit(f"Duplicate hostname {route['hostname']} in domain routes")
         seen[hostname] = route
-        if route["type"] == "docker":
+        if route["type"] == "service":
             try:
                 service = catalog.get(route["target"])
             except ValueError as error:
-                raise SystemExit(f"Unknown Docker service in domain routes: {route['target']}") from error
+                raise SystemExit(f"Unknown service in domain routes: {route['target']}") from error
             handler = service.routing.get("caddy_handler")
             if not handler:
                 raise SystemExit(
@@ -113,7 +134,7 @@ def validate_routes(routes):
             handler_file = catalog.routing_file(service)
             if handler_file is None or not handler_file.is_file() or f"({handler})" not in handler_file.read_text():
                 raise SystemExit(f"Missing Caddy handler {handler} for service {service.name}.")
-        else:
+        elif route["type"] == "static":
             if route["target"] != hostname.rstrip("."):
                 raise SystemExit(f"Static web root must match hostname: {hostname}")
             web_root = (STATIC_ROOT / route["target"]).resolve()
@@ -125,6 +146,10 @@ def validate_routes(routes):
                 raise SystemExit(
                     f"Missing static web root static-sites/{route['target']}; create it before publishing"
                 )
+        elif route["type"] == "external":
+            validate_external_target(route["target"])
+        else:
+            raise SystemExit(f"Unsupported route type: {route['type']}")
 
 
 def default_routes():
@@ -139,12 +164,15 @@ def save_routes(routes):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         shutil.copy2(DOMAINS_FILE, backup_dir / f"domains.conf.{timestamp}.bak")
     rows = [
-        "# One hostname per route. Docker targets are services/*; static targets are static-sites/*.",
-        "# Format: <hostname> <docker|static> <target>",
+        "# One route per line. Service targets are installed OpenDock services.",
+        "# Format: <type> <hostname> [<target>]",
+        "# Examples: static docs.example.org | service app.example.org n8n-v3 | external ai.example.org http://host.docker.internal:1234",
     ]
-    rows.extend(
-        f"{route['hostname']} {route['type']} {route['target']}" for route in routes
-    )
+    for route in routes:
+        if route["type"] == "static":
+            rows.append(f"static {route['hostname']}")
+        else:
+            rows.append(f"{route['type']} {route['hostname']} {route['target']}")
     DOMAINS_FILE.write_text("\n".join(rows) + "\n")
     os.chmod(DOMAINS_FILE, 0o600)
 
@@ -165,10 +193,10 @@ def add_missing_default_routes(service_names):
     defaults = {
         route["target"]: route
         for route in default_routes()
-        if route["type"] == "docker"
+        if route["type"] == "service"
     }
     present = {
-        route["target"] for route in routes if route["type"] == "docker"
+        route["target"] for route in routes if route["type"] == "service"
     }
     added = []
     for service in service_names:
@@ -183,21 +211,69 @@ def add_missing_default_routes(service_names):
     return added
 
 
-def parse_target(hostname, value):
-    if value == "static":
-        return "static", hostname
-    if value.startswith("static:"):
-        raise SystemExit("Static web roots are derived from the hostname; use 'static'.")
-    if not TARGET_RE.fullmatch(value):
-        raise SystemExit("Target must be a known OpenDock service name or 'static'.")
-    return "docker", value
+def validate_external_target(value, *, line_number=None):
+    prefix = f"domains.conf:{line_number}: " if line_number else ""
+
+    def invalid(reason):
+        raise SystemExit(
+            f"{prefix}invalid external upstream URL ({reason}); use an http:// or https:// origin "
+            "without credentials, path, query, or fragment"
+        )
+
+    if (not isinstance(value, str) or not value
+            or any(ord(char) < 33 or ord(char) == 127 for char in value)):
+        invalid("whitespace or control character")
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError as error:
+        invalid(str(error))
+    if parsed.scheme not in {"http", "https"}:
+        invalid("scheme must be http or https")
+    if not hostname or parsed.username is not None or parsed.password is not None:
+        invalid("host is missing or credentials are present")
+    if parsed.netloc.endswith(":"):
+        invalid("port is empty")
+    if (parsed.path not in {"", "/"} or parsed.query or parsed.fragment
+            or "?" in value or "#" in value):
+        invalid("only an origin URL is supported")
+    if port is not None and not 1 <= port <= 65535:
+        invalid("port is outside 1-65535")
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        if not HOST_RE.fullmatch(hostname) or "%" in hostname:
+            invalid("invalid hostname or IP address")
+    return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
 
 
-def add_route(hostname, target_value, routes=None):
+def parse_target(route_type, hostname, value=None):
+    if route_type == "static":
+        if value is not None:
+            raise SystemExit(
+                "Static routes do not take a target; their web root is derived from the hostname."
+            )
+        return hostname
+    if route_type == "service":
+        if not value:
+            raise SystemExit("Service routes require a service ID target.")
+        if not TARGET_RE.fullmatch(value):
+            raise SystemExit("Service target must be an installed OpenDock service ID.")
+        return value
+    if route_type == "external":
+        if not value:
+            raise SystemExit("External routes require an upstream URL target.")
+        normalized = validate_external_target(value)
+        return normalized
+    raise SystemExit("Route type must be static, service, or external.")
+
+
+def add_route(route_type, hostname, target_value=None, routes=None):
     hostname = hostname.rstrip(".").lower()
     if not HOST_RE.fullmatch(hostname):
         raise SystemExit(f"Invalid hostname: {hostname}")
-    route_type, target = parse_target(hostname, target_value)
+    target = parse_target(route_type, hostname, target_value)
     candidate = {"hostname": hostname, "type": route_type, "target": target}
     routes = ensure_domains_file() if routes is None else routes
     existing = next((route for route in routes if route["hostname"].lower() == hostname), None)
@@ -210,11 +286,15 @@ def add_route(hostname, target_value, routes=None):
         (STATIC_ROOT / hostname).mkdir(parents=True, exist_ok=True)
     validate_routes(updated)
     save_routes(updated)
-    print(f"Added {hostname} -> {route_type}:{target}")
+    suffix = "" if route_type == "static" else f":{target}"
+    print(f"Added {hostname} -> {route_type}{suffix}")
     if route_type == "static":
         print(f"Web root: {STATIC_ROOT / hostname}/")
         print("Place the site's files there, then run:")
         print(f"  ./opendock launch {hostname}")
+    elif route_type == "external":
+        print("The upstream must be reachable from the Caddy container.")
+        print(f"Apply the route with: ./opendock launch {hostname}")
     else:
         print(f"Apply the route with: ./opendock launch {hostname}")
 
@@ -227,7 +307,7 @@ def remove_route(hostname):
         raise SystemExit(f"No OpenDock route is configured for {hostname}.")
     save_routes(updated)
     print(f"Removed OpenDock's local route for {hostname}.")
-    print("Static files are preserved.")
+    print("Static files are preserved; external upstreams are not stopped.")
 
 
 def render_routes(routes):
@@ -237,7 +317,7 @@ def render_routes(routes):
     catalog = ServiceCatalog(ROOT)
     for route in routes:
         hostname = route["hostname"]
-        if route["type"] == "docker":
+        if route["type"] == "service":
             service = catalog.get(route["target"])
             handler_path = catalog.routing_file(service)
             if catalog.is_extension(service.name):
@@ -252,13 +332,22 @@ def render_routes(routes):
                 handler = f"import {service.routing['caddy_handler']}"
             else:
                 handler = f"import {service.routing['caddy_handler']}"
-        else:
+        elif route["type"] == "static":
             handler = "\n".join(
                 [
                     "import security_headers",
                     f"root * /srv/static-sites/{route['target']}",
                     "encode zstd gzip",
                     "file_server {\n    hide .git .env\n}",
+                ]
+            )
+        else:
+            upstream = validate_external_target(route["target"])
+            handler = "\n".join(
+                [
+                    "import common_proxy",
+                    "import security_headers",
+                    f"reverse_proxy {upstream}",
                 ]
             )
         indented_handler = "\n".join(f"    {line}" for line in handler.splitlines())
@@ -277,8 +366,8 @@ def main():
         for hostname in added:
             print(f"Added default hostname {hostname}")
         return
-    if command == "add" and len(sys.argv) == 4:
-        add_route(sys.argv[2], sys.argv[3])
+    if command == "add" and len(sys.argv) in {4, 5}:
+        add_route(sys.argv[2], sys.argv[3], sys.argv[4] if len(sys.argv) == 5 else None)
         return
     if command == "remove" and len(sys.argv) == 3:
         remove_route(sys.argv[2])
@@ -287,12 +376,13 @@ def main():
         hostname = sys.argv[2].rstrip(".").lower()
         route = next((route for route in resolve_routes() if route["hostname"] == hostname), None)
         if route:
-            print(f"{route['type']}:{route['target']}")
+            suffix = "" if route["type"] == "static" else f":{route['target']}"
+            print(f"{route['type']}{suffix}")
         return
     if command == "legacy-check" and len(sys.argv) == 3:
         service = sys.argv[2]
         hostnames = [route["hostname"] for route in resolve_routes()
-                     if route["type"] == "docker" and route["target"] == service]
+                     if route["type"] == "service" and route["target"] == service]
         if len(hostnames) > 1:
             print(f"'{service}' has multiple hostnames; use './opendock launch <hostname>':")
             for hostname in hostnames:
@@ -308,9 +398,10 @@ def main():
         if hostname_filter:
             routes = [route for route in routes if route["hostname"].lower() == hostname_filter]
         for route in routes:
-            print(f"{route['hostname']:<36} {route['type']}:{route['target']}")
+            target = "" if route["type"] == "static" else f" {route['target']}"
+            print(f"{route['hostname']:<36} {route['type']}{target}")
         return
-    raise SystemExit("Usage: opendock-domains.py [list [hostname]|add <hostname> <service|static>|remove <hostname>|lookup <hostname>|render]")
+    raise SystemExit("Usage: opendock-domains.py [list [hostname]|add <type> <hostname> [<target>]|remove <hostname>|lookup <hostname>|render]")
 
 
 if __name__ == "__main__":

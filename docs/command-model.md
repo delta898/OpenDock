@@ -64,7 +64,10 @@ opendock domain rename <old-domain> <new-domain>
 opendock domain remove <domain>
 ```
 
-`list` shows installed service packages (optionally narrowed to one package);
+`list` shows installed service packages and their Docker runtime state
+(`running`, `stopped`, `partial`, `starting`, or `unknown` when Docker is
+unavailable); it does not include catalog packages that are not installed.
+`list services` shows the same service rows without core targets and groups.
 `site list` shows configured instances. `search` searches the catalog. `info`
 shows package metadata and installed version. A no-target `launch` does not
 mean “launch everything”; it requires a service and an instance.
