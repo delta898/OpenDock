@@ -115,8 +115,9 @@ class CLITests(unittest.TestCase):
             self.assertIn("Start here", result.stdout)
             self.assertIn("./opendock list", result.stdout)
             self.assertIn("./opendock launch <service>", result.stdout)
-            self.assertIn("route add <hostname> <service|static>", result.stdout)
-            self.assertIn("route add docs.example.org static", result.stdout)
+            self.assertIn("route add <type> <hostname> [<target>]", result.stdout)
+            self.assertIn("route add static docs.example.org", result.stdout)
+            self.assertIn("route add external ai.example.org", result.stdout)
             self.assertIn("purge <service> --dry-run", result.stdout)
             self.assertIn("service <service> <command>", result.stdout)
             self.assertIn("Services that declare email support", result.stdout)
@@ -128,11 +129,12 @@ class CLITests(unittest.TestCase):
 
     def test_help_is_available_at_each_command_level(self):
         route_help = run_cli("route", "--help")
-        self.assertIn("Add, show, or remove mappings", route_help.stdout)
+        self.assertIn("Add, show, or remove public hostname routes", route_help.stdout)
 
         route_add_help = run_cli("route", "add", "--help")
         self.assertIn("Full public hostname", route_add_help.stdout)
-        self.assertIn("or static", route_add_help.stdout)
+        self.assertIn("upstream URL", route_add_help.stdout)
+        self.assertIn("host.docker.internal:1234", route_add_help.stdout)
         self.assertIn("static-sites/<hostname>/", route_add_help.stdout)
 
         setup_help = run_cli("setup", "--help")
@@ -180,8 +182,8 @@ class CLITests(unittest.TestCase):
         self.assertEqual(stderr.getvalue().strip(), "OpenDock remove: Unknown service: infra")
         self.assertNotIn("Command failed", stderr.getvalue())
 
-    def test_docker_launch_sequence_passes_started_dependencies(self):
-        route = {"hostname": "blog.example.com", "type": "docker", "target": "wordpress"}
+    def test_service_launch_sequence_passes_started_dependencies(self):
+        route = {"hostname": "blog.example.com", "type": "service", "target": "wordpress"}
         with mock.patch.object(cli, "domains_module") as domains, \
              mock.patch.object(cli, "ensure_cloudflare_configuration") as cloudflare, \
              mock.patch.object(cli, "launch_service_set", return_value={"infra"}) as start_deps, \
@@ -232,7 +234,7 @@ class CLITests(unittest.TestCase):
         self.assertEqual(prune.call_args.args[3], "preview")
 
     def test_multiple_hostnames_require_explicit_hostname(self):
-        routes = [{"hostname": host, "type": "docker", "target": "wordpress"}
+        routes = [{"hostname": host, "type": "service", "target": "wordpress"}
                   for host in ("blog.example.com", "blog.example.org")]
         with mock.patch.object(cli, "domains_module") as domains:
             domains.return_value.resolve_routes.return_value = routes

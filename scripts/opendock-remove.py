@@ -298,7 +298,7 @@ def build_plan(service):
             config_files.append(relative)
     all_routes = routes_for_removal(domains)
     routes = [route for route in all_routes
-              if route.get("type") == "docker" and route.get("target") == service]
+              if route.get("type") == "service" and route.get("target") == service]
     compose_ids = {
         item.strip() for item in run_command(
             ["docker", "ps", "-aq", "--filter",
@@ -516,14 +516,14 @@ def remove_routes(service, plan):
     domains = plan["domains"]
     current = routes_for_removal(domains)
     current_routes = [route for route in current
-                      if route.get("type") == "docker" and route.get("target") == service]
+                      if route.get("type") == "service" and route.get("target") == service]
     if not current_routes:
         return
     for route in current_routes:
         run_command([sys.executable, ROOT / "scripts" / "publish-cloudflare.py",
                      "remove", route["hostname"]])
     remaining = [route for route in current if not (
-        route.get("type") == "docker" and route.get("target") == service)]
+        route.get("type") == "service" and route.get("target") == service)]
     domains.save_routes(remaining)
     domains.render_routes(remaining)
     names = run_command(["docker", "ps", "--format", "{{.Names}}"],

@@ -21,7 +21,7 @@ This document describes the conventions used by OpenDock. It is intended for mai
 
 - Services should be easy to start from the repository root.
 - Adding a service should not require editing the CLI dispatcher.
-- `STACK_DOMAIN` should produce predictable default hostnames; `domains.conf` can map any hostname to a service or static directory.
+- `STACK_DOMAIN` should produce predictable default hostnames; `domains.conf` can map a hostname to static files, an installed service, or an external upstream.
 - Public routes should be discoverable from repository structure.
 - Cloudflare Tunnel is the default public exposure layer.
 - Beginner-facing setup should stay small: `./opendock setup`, then
@@ -293,7 +293,7 @@ application instructions without revealing values. Keep this file outside
 
 WordPress multisite is exposed as `./opendock service wordpress multisite`. It enables subdirectory multisite only. Before changing files or the database, it requires confirmation unless `YES=1` is set, backs up `wp-config.php`, `.htaccess`, and the WordPress MariaDB database, runs WP-CLI conversion with `WORDPRESS_CLI_IMAGE`, patches the Apache `.htaccess` rules used by the WordPress container, and restarts WordPress.
 
-Keep service-specific workflows under `./opendock service <service> <command>` instead of adding new top-level CLI commands. `./opendock list services` lists installed services; `./opendock up services` starts them all.
+Keep service-specific workflows under `./opendock service <service> <command>` instead of adding new top-level CLI commands. `./opendock list services` lists installed services with their Docker runtime state; catalog packages that are not installed are omitted. `./opendock up services` starts them all.
 
 ## Config Validation
 
@@ -401,16 +401,18 @@ If a subdomain value is absent, the resolver falls back to the service ID.
 
 `./opendock setup` configures the primary domain and does not ask about optional
 routes. Users manage hostname mappings with `./opendock route show`,
-`./opendock route add <hostname> <service|static>`, and
-`./opendock route remove <hostname>`. `./opendock launch <hostname>` starts the mapped
-Docker service or applies a static route. Static roots use
-`static-sites/<hostname>/` and are served directly by Caddy. Cloudflare
-publishing locates the zone containing each hostname. All zones used by one
-Tunnel must be in the same Cloudflare account, and the API token needs DNS
-permissions for each zone. The launch target is required; use `all` explicitly
-to start every installed service. `./opendock launch <service>` remains
-available; if that service has multiple hostnames, it fails with hostname
-commands to avoid ambiguity.
+`./opendock route add <type> <hostname> [<target>]`, and
+`./opendock route remove <hostname>`. Route types are `static`, `service`, and
+`external`; see [`routes.md`](routes.md) for examples and upstream URL rules.
+`./opendock launch <hostname>` starts a mapped OpenDock service or applies a
+static/external route through Caddy. Static roots use
+`static-sites/<hostname>/` and are served directly by Caddy. External upstreams
+must be reachable from the Caddy container. Cloudflare publishing locates the
+zone containing each hostname. All zones used by one Tunnel must be in the same
+Cloudflare account, and the API token needs DNS permissions for each zone. The
+launch target is required; use `all` explicitly to start every installed
+service. `./opendock launch <service>` remains available; if that service has
+multiple hostnames, it fails with hostname commands to avoid ambiguity.
 
 ## Caddy Route Convention
 

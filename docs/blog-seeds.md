@@ -370,11 +370,12 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 
 - 상태: `seed`
 - 관련 이력: `codex/feature/multi-domain-static-sites`,
+  `codex/external-route-targets`,
   `scripts/opendock-domains.py`, `scripts/publish-cloudflare.py`,
   `gateway/caddy/conf.d/`, `static-sites/`
-- 주제: `특정 정적 사이트 도구에 묶이지 않는 도메인 라우팅 설계`
-- 독자 질문: 한 서버에서 Docker 앱과 정적 파일 사이트를 여러 도메인으로
-  연결하면서 도메인·실행 방식·Gateway 설정을 어떻게 분리할 수 있는가?
+- 주제: `서비스 종류와 무관한 일관된 hostname route 모델 만들기`
+- 독자 질문: 한 Gateway에서 설치된 서비스, 정적 파일, OpenDock 외부 앱을
+  같은 도메인 관리 방식으로 어떻게 연결할 수 있는가?
 - 참고할 사항:
   - 요구의 출발점은 이미 Docker WordPress를 쓰는 저사양 서버에 정적 사이트를
     추가하고 기존 사이트와 다른 도메인으로 공개하는 것이었다. 첫 구현안은
@@ -395,6 +396,20 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     CNAME과 일치할 때만 지운다. Cloudflare 설정이 없으면 원격 정리는 건너뛴다.
     한 Tunnel에 연결하는 zone들은 같은 account여야 하며 token에 각 zone 권한이
     필요하다.
+  - 사용자는 LM Studio API가 OpenDock 밖에서 실행되는 경우도 기존 Caddy reverse
+    proxy 경로에 붙이고 싶어 했다. `route add <hostname> <service|static>` 문법을
+    종류 우선의 `route add <type> <hostname> [<target>]`로 일반화하고 `static`,
+    `service`, `external`을 공통 target 종류로 두는 방향을 선택했다. 새 예시는
+    `route add external ai.example.org http://host.docker.internal:1234`다.
+  - 구현에서는 `domains.conf`도 type-first line으로 바꾸고, 외부 upstream을 http/https
+    origin으로 제한해 자격 증명·경로·query·fragment를 받지 않도록 했다. Caddy
+    컨테이너가 upstream에 직접 연결하므로 host `localhost`와 Caddy container의
+    `localhost`가 다르다는 점을 안내한다. external route launch는 upstream을 설치하거나
+    시작하지 않고 gateway reload와 Tunnel/DNS publish만 수행한다. Cloudflare Tunnel은
+    기존처럼 Caddy origin 하나로 연결되고 route type마다 Caddy가 내부 대상 처리를 맡는다.
+  - `docs/routes.md`, root README, CLI root/route/add help에 같은 문법과 예시를 반영했다.
+    이는 local implementation 상태이며 사용자 환경에서 실제 LM Studio reachability,
+    Caddy reload, Cloudflare publication은 아직 확인하지 않았다.
   - `domains.conf`와 static web root는 host-owned 데이터로 보고 일반
     `make sync`에서 제외한다. 코드 배포 rsync가 원격 route 설정이나 사이트
     파일을 `--delete`로 지우지 않도록 한 경계다. 정적 콘텐츠는 서버에 별도로
@@ -408,7 +423,10 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
 - 검증 상태: hostname 중심 CLI와 문서 변경은
   `codex/feature/multi-domain-static-sites`에서 진행 중이다. `make help`와
   `git diff --check`는 확인했지만 테스트나 Caddy 설정 검증을 실행하지 않았으며,
-  로컬 runtime 및 실제 Cloudflare zone/Tunnel 경로는 아직 검증되지 않았다.
+  로컬 runtime 및 실제 Cloudflare zone/Tunnel 경로는 아직 검증되지 않았다. External
+  route 후속 구현은 Python 정적 컴파일, CLI help 출력, `git diff --check`를 확인했다.
+  Test suite, Caddy config adaptation, 실제 외부 upstream과 Cloudflare Tunnel은 아직
+  검증하지 않았다.
 
 ## OD-012. Make를 호환 계층으로 줄이고 Python CLI를 사용자 접점으로 만든 이유
 

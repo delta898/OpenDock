@@ -103,10 +103,10 @@ def build_routes(env, services):
         services = set(services)
         selected = [
             route for route in resolved
-            if route["type"] == "docker" and route["target"] in services
+            if route["type"] == "service" and route["target"] in services
         ]
     routes = [
-        {"service": route["target"], "type": route["type"], "hostname": route["hostname"], "origin": ORIGIN_SERVICE_URL}
+        {"target": route["target"], "type": route["type"], "hostname": route["hostname"], "origin": ORIGIN_SERVICE_URL}
         for route in selected
     ]
     return stack_domain, routes

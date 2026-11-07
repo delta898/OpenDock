@@ -71,64 +71,19 @@ application setup; OpenDock does not create a Kuma database or account. Wizard
 completion, post-setup application readiness, purge, and multi-domain isolation
 remain unverified.
 
-## Existing routing implementation
+## Hostname routing
 
-The routing behavior below describes the current checkout. Uptime Kuma's
-first-launch path was verified through the first-run database page, but that
-does not establish full application readiness or multi-domain instance
-support. OpenDock uses Cloudflare Tunnel as its default public entrypoint;
-Caddy routes Tunnel traffic to Docker services.
-
-### How OpenDock Routes Traffic
-
-OpenDock connects a **hostname** to a **target**. A target is either a Docker
-service registered in OpenDock, such as `wordpress`, or the special target
-`static` for files served by Caddy.
+OpenDock routes public hostnames to static files, installed OpenDock services,
+or applications running outside OpenDock. The common command is:
 
 ```text
-blog.example.com  -> wordpress (Docker service)
-docs.example.com  -> static    (files in static-sites/docs.example.com/)
+./opendock route add <type> <hostname> [<target>]
 ```
 
-There are two kinds of routes:
-
-- **Default routes** are derived from the primary domain and each service's
-  default subdomain. For example, `STACK_DOMAIN=example.com` and
-  `WORDPRESS_SUBDOMAIN=blog` provide `blog.example.com -> wordpress` without
-  running `route add`.
-- **Additional routes** are stored in the host-local `domains.conf` file. Add
-  one explicitly with `./opendock route add <hostname> <service|static>`.
-
-`launch` accepts either a service name or a hostname.
-`./opendock launch uptime-kuma` starts the installed service at its default hostname.
-`./opendock launch home.example.com` applies a hostname that already has a
-route. An arbitrary hostname is not automatically assigned a service: add its
-route first. If one service has multiple hostnames, use the hostname form to
-choose which route to publish. The target is required; use
-`./opendock launch all` explicitly to start every installed service.
-When a host-local `domains.conf` already exists, `launch all` adds missing
-default routes for selected services after setup and preparation succeed.
-
-For a static route, OpenDock creates `static-sites/<hostname>/` and configures
-Caddy to serve files from it. Put an `index.html` and other site files there;
-no Hugo process or separate web-server container is required. `launch` applies
-the route and prints the web root, but does not create or upload site content.
-
-`launch` is the managed path: it checks configuration, starts the required
-shared infrastructure and service when applicable, updates Caddy, and
-publishes configured Cloudflare routes. `up` is a direct Docker Compose
-operation for users who want to manage those steps themselves; it does not
-start prerequisites or publish routes.
-
-Cloudflare Tunnel is the required public entrypoint for public launch. Configure
-Cloudflare credentials and the tunnel ID through `./opendock setup cloudflare`;
-the connector must also be able to reach Caddy. Public launch stops before
-service state changes when the required Cloudflare settings are missing.
-After publishing, URLs are clickable in terminals that support OSC 8 links.
-In an interactive desktop terminal, OpenDock also offers to open one in the
-browser; headless SSH sessions only show the URL. In macOS Terminal, hold
-Command and double-click the URL. Other terminal apps may use Cmd-click or
-Ctrl-click.
+Examples and target reachability requirements are documented in
+[`docs/routes.md`](docs/routes.md). After adding a route, run
+`./opendock launch <hostname>` to apply it to Caddy and publish it through
+Cloudflare Tunnel. External targets must be reachable from the Caddy container.
 
 ### Legacy platform setup reference
 
@@ -141,8 +96,9 @@ For the current Cloudflare Tunnel setup:
 4. Install a service package from the catalog, then use `./opendock setup
    <service>` or `./opendock launch <service>`.
 
-For another hostname, first run
-`./opendock route add <hostname> <service|static>`, then
+For another hostname, add a typed route such as
+`./opendock route add service app.example.org n8n-v3` or
+`./opendock route add static docs.example.org`, then run
 `./opendock launch <hostname>`. Static routes serve files from
 `static-sites/<hostname>/`.
 
@@ -256,13 +212,13 @@ inspect it with `./opendock route show`. Additional hostnames need an explicit
 mapping to an installed service:
 
 ```sh
-./opendock route add home2.example.com homepage
+./opendock route add service home2.example.com homepage
 ./opendock launch home2.example.com
-./opendock route add docs.example.org static
+./opendock route add static docs.example.org
 ./opendock launch docs.example.org
 ```
 
-Docker targets use their registered service name. For a static route,
+Service targets use their registered service ID. For a static route,
 `route add` creates `static-sites/<hostname>/`; `launch` prints that web root
 and applies Caddy plus Cloudflare routing. Place your files in that directory.
 All mapped Cloudflare zones must belong to the Tunnel's account, and the API
@@ -289,7 +245,7 @@ For custom or secondary hostnames, add the mapping first. Static content is
 managed by the user; OpenDock applies its serving and publishing route:
 
 ```sh
-./opendock route add docs.primary.com static
+./opendock route add static docs.primary.com
 ./opendock launch docs.primary.com
 ```
 
@@ -488,7 +444,7 @@ Launch by the default service name or by an explicitly mapped hostname:
 
 ```sh
 ./opendock launch homepage
-./opendock route add docs.example.com static
+./opendock route add static docs.example.com
 ./opendock launch docs.example.com
 ```
 
@@ -499,9 +455,9 @@ you have added multiple routes for the same service:
 ./opendock launch homepage
 ```
 
-An unknown hostname fails with instructions to add a route. `route add` only
-records the mapping and prepares a static web root; `launch` applies the route
-to Caddy and publishes it.
+An unknown hostname fails with instructions to add a route. `route add` records
+the mapping and prepares a static web root when needed; `launch` applies the
+route to Caddy and publishes it. External routes do not start the upstream.
 
 Service groups are defined in `services/groups.conf`. Use `./opendock list groups` to see the available groups.
 

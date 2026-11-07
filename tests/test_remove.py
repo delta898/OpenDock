@@ -118,8 +118,8 @@ class RemoveTests(unittest.TestCase):
 
     def test_route_removal_preserves_other_services(self):
         routes = [
-            {"hostname": "agent.example.test", "type": "docker", "target": "example"},
-            {"hostname": "blog.example.test", "type": "docker", "target": "wordpress"},
+            {"hostname": "agent.example.test", "type": "service", "target": "example"},
+            {"hostname": "blog.example.test", "type": "service", "target": "wordpress"},
         ]
         domains = FakeDomains(routes)
         domains.DOMAINS_FILE = Path("/tmp/domains.conf")
