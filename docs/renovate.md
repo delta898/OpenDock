@@ -42,8 +42,7 @@ container state Docker reports. To show one service or project, pass its name:
 
 ```sh
 ./opendock info
-./opendock info wordpress
-./opendock info supabase
+./opendock info <service-id>
 ```
 
 The configured tag comes from the owning `.env.default`, its private `.env`

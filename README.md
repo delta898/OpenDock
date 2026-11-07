@@ -11,16 +11,10 @@ guide](docs/command-architecture.md) for maintainers adding capabilities.
 
 There is no bundled-service product category. Services are distributed as
 packages from OpenDock-Services through a static catalog. The platform does
-not access that private source repository. The development catalog, package
-setup, and first launch path are connected. The Uptime Kuma pilot has reached
-its first-run database screen through the public route; completing application
-setup and checking final app readiness remain outside the verified scope. See
-[Product Architecture](docs/product-distribution.md)
-for the target and implementation status.
+not access the source repository. See [Product Architecture](docs/product-distribution.md)
+for the product boundary, distribution model, and implementation status.
 
-The platform checkout still contains legacy service files during migration;
-they are not the product model for new services. Shared platform components
-include:
+Shared platform components include:
 
 ```text
 MariaDB
@@ -72,12 +66,41 @@ start. Complete any first-run setup in Docker Desktop yourself.
 
 ### Cloudflare Tunnel
 
-OpenDock needs two different Cloudflare credentials for public hosting. They
-do different jobs, so create both before setup. The API token goes into
-`./opendock setup cloudflare`; the connector token is used by bootstrap. Do not
-paste one in place of the other.
+Cloudflare is the main external setup for public hosting. OpenDock needs two
+tokens and one Tunnel ID across two steps; the names are easy to mix up. Follow the
+[Cloudflare Tunnel setup guide](https://github.com/delta898/OpenDock#cloudflare-tunnel)
+as you go:
 
-#### 1. Create an API token for OpenDock
+| Value | Enter it in | What it does |
+| --- | --- | --- |
+| Tunnel token | Bootstrap | Authenticates `cloudflared` to your remotely managed Tunnel |
+| Cloudflare API token | `./opendock setup` | Lets OpenDock update DNS and Tunnel routes |
+| Tunnel ID | `./opendock setup` | Identifies which remotely managed Tunnel OpenDock updates |
+
+The Tunnel token and API token are different credentials with different jobs;
+the Tunnel ID is an identifier, not a token. Bootstrap can store the Tunnel
+token without echoing it; setup prompts for the API token privately. One
+Tunnel/connector carries traffic for all OpenDock services through Caddy; you
+do not create a separate Tunnel token for each service.
+
+#### 1. Create or select a remotely managed Tunnel and copy its token
+
+In Cloudflare, open **Networking → Tunnels** and select **Create Tunnel**.
+Name it, then select **Create Tunnel**. On the **Setup Environment** screen,
+choose the environment only to display the matching connector command; OpenDock
+will run the connector for you, so do not install or run Cloudflare's command.
+The Tunnel ID appears on this screen. In **Install and Run**, copy the long
+`eyJ...` value after `--token` in the displayed command. That value is the
+**Tunnel token**; it is not the Tunnel ID.
+
+If the Tunnel already exists or you leave this screen, open **Networking →
+Tunnels → <your tunnel> → Overview → Add a replica** and copy the token from
+the displayed `cloudflared` command. You do not need to create a separate
+Tunnel token: Cloudflare provides it as part of the connector command. Keep it
+private because anyone holding it can run a connector for that Tunnel. See
+Cloudflare's [Tunnel token guide](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/).
+
+#### 2. Create an API token for OpenDock
 
 In Cloudflare, open **My Profile → API Tokens → Create Token → Create Custom
 Token**. Give it a name such as `OpenDock DNS and Tunnel Sync`, then add these
@@ -96,28 +119,20 @@ Cloudflare displays the token secret only once. Do not use your Global API Key.
 See Cloudflare's [API token creation guide](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/)
 and [permission reference](https://developers.cloudflare.com/fundamentals/api/reference/permissions/).
 
-#### 2. Create or select a remotely managed Tunnel
-
-In Cloudflare, open **Networking → Tunnels** and create a Tunnel, or select an
-existing remotely managed Tunnel. Record its Tunnel ID. On the Tunnel's
-**Overview** tab, select **Add a replica** and copy the token from the displayed
-`cloudflared` command; do not run that command. This connector token is
-different from the API token above. Anyone who has the connector token can run
-a connector for that Tunnel, so keep it private. See Cloudflare's [Tunnel token
-guide](https://developers.cloudflare.com/tunnel/reference/tunnel-tokens/).
-
-During bootstrap, paste the connector token at the hidden prompt. If you do not
+During bootstrap, paste the Tunnel token at the hidden prompt. If you do not
 have it yet, choose **No**; bootstrap prints the exact file and setting to use
-later. After bootstrap, configure the primary domain and API credentials:
+later. After bootstrap, run setup once to configure the primary domain, API
+token, and Tunnel ID shown when you created the Tunnel. To review only the
+Cloudflare values later, run
+`./opendock setup cloudflare`:
 
 ```sh
 cd ~/OpenDock
 ./opendock setup
-./opendock setup cloudflare
 ```
 
-Enter the API token and Tunnel ID when prompted. OpenDock stores them with the
-connector token in the private `config/cloudflare.env` file.
+OpenDock stores both tokens and the Tunnel ID in the private
+`config/cloudflare.env` file.
 
 ### Install and launch a service
 
@@ -149,9 +164,9 @@ Use the development wrapper to select the dev catalog automatically:
 
 ```sh
 ./dev_opendock update
-./dev_opendock search uptime
-./dev_opendock install uptime-kuma
-./dev_opendock launch n8n-v2
+./dev_opendock search <words>
+./dev_opendock install <service-id>
+./dev_opendock launch <service-id>
 ```
 
 The wrapper fixes these commands to the `dev` catalog. `search` uses the local
@@ -160,20 +175,12 @@ more than 24 hours old. `update` always forces a refresh. `install` verifies
 the package checksum before placing the release under `services/extensions/`;
 installation does not configure or launch the service. Select the production
 catalog with `./opendock update --environment prod` or
-`./opendock search n8n --environment prod`.
+`./opendock search <words> --environment prod`.
 
 For a service that is not installed yet, `launch <service>` refreshes the
 selected catalog, installs the matching package, opens its setup flow, and
 continues into launch. `./dev_opendock launch <service>` selects the dev
 catalog for this first-use flow; `./opendock launch <service>` uses prod.
-
-Uptime Kuma `0.1.0` has been published to the development catalog. The user
-confirmed update, search, install, setup, and launch on Linux. Infra and Uptime
-Kuma containers became healthy, and the public route displayed Kuma's first-run
-database selection page. Choosing/configuring the database is the user's
-application setup; OpenDock does not create a Kuma database or account. Wizard
-completion, post-setup application readiness, purge, and multi-domain isolation
-remain unverified.
 
 ## Hostname routing
 
@@ -189,110 +196,11 @@ Examples and target reachability requirements are documented in
 `./opendock launch <hostname>` to apply it to Caddy and publish it through
 Cloudflare Tunnel. External targets must be reachable from the Caddy container.
 
-### Legacy platform setup reference
-
-For the current Cloudflare Tunnel setup:
-
-1. Put the domain in Cloudflare and connect a Tunnel connector that can reach
-   this server's Caddy HTTP origin.
-2. Run `./opendock setup` to set the primary domain.
-3. Run `./opendock setup cloudflare` for automatic Tunnel and DNS publication.
-4. Install a service package from the catalog, then use `./opendock setup
-   <service>` or `./opendock launch <service>`.
-
-For another hostname, add a typed route such as
-`./opendock route add service app.example.org n8n-v3` or
-`./opendock route add static docs.example.org`, then run
+Run `./opendock help` to see available commands. For another hostname, add a
+typed route such as `./opendock route add service app.example.org <service-id>`
+or `./opendock route add static docs.example.org`, then run
 `./opendock launch <hostname>`. Static routes serve files from
 `static-sites/<hostname>/`.
-
-Run `./opendock help` to see available commands. GNU Make is only needed if
-you use the older `make ...` compatibility commands.
-
-The former in-repository service workflow was:
-
-```sh
-./opendock list
-./opendock setup
-./opendock launch homepage
-```
-
-This workflow is retained as a reference for the existing platform code. It is
-not the new service installation workflow.
-
-Legacy in-repository service settings were created by `./opendock setup`. To edit them by hand, use the
-owner-specific local files after setup:
-
-```sh
-nano config/core.env
-nano services/bundles/homepage/.env
-nano services/bundles/uptime-kuma/.env
-```
-
-OpenDock also generates local passwords and app secrets automatically before `./opendock up` and `./opendock launch`. Existing values are kept. Before a config file changes, its previous version is backed up under `backups/config/`. Existing installations using `common.env` are migrated automatically the next time OpenDock setup or startup initializes configuration; the original file is retained in that backup directory.
-
-You can also generate values explicitly:
-
-```sh
-./opendock secrets
-```
-
-Generated bundle secrets are stored in the corresponding private bundle `.env` file.
-
-Default subdomains are defined in each bundled service's tracked defaults:
-
-```env
-HOMEPAGE_SUBDOMAIN=home
-UPTIME_KUMA_SUBDOMAIN=uptime
-```
-
-Extension defaults are supplied by their package and appear after installation.
-
-The default route list uses these subdomains under `STACK_DOMAIN`. You can
-inspect it with `./opendock route show`. Additional hostnames need an explicit
-mapping to an installed service:
-
-```sh
-./opendock route add service home2.example.com homepage
-./opendock launch home2.example.com
-./opendock route add static docs.example.org
-./opendock launch docs.example.org
-```
-
-Service targets use their registered service ID. For a static route,
-`route add` creates `static-sites/<hostname>/`; `launch` prints that web root
-and applies Caddy plus Cloudflare routing. Place your files in that directory.
-All mapped Cloudflare zones must belong to the Tunnel's account, and the API
-token needs access to each zone when automatic Cloudflare sync is enabled.
-
-`./opendock route remove <hostname>` removes that route from OpenDock and Caddy and,
-when Cloudflare credentials are configured, removes the Tunnel entry plus only
-a DNS CNAME pointing to this Tunnel. Unrelated DNS records are preserved.
-Static files are preserved. Launching by service name selects its default
-hostname; launching by hostname selects a specific route.
-
-`domains.conf` and `static-sites/` are host-owned configuration and content, so
-the general `./opendock sync` code deployment preserves them on the remote server.
-Create the route map and deploy static files on the server.
-
-Start the default Homepage service. OpenDock derives its hostname from the
-primary domain and `HOMEPAGE_SUBDOMAIN`, so no `route add` is needed:
-
-```sh
-./opendock launch home.primary.com
-```
-
-For custom or secondary hostnames, add the mapping first. Static content is
-managed by the user; OpenDock applies its serving and publishing route:
-
-```sh
-./opendock route add static docs.primary.com
-./opendock launch docs.primary.com
-```
-
-Before starting services, OpenDock fills generated secrets and checks the
-layered configuration for required values. This helps catch missing external
-settings after `git pull` adds a new service.
 
 ## External media storage
 
@@ -340,19 +248,9 @@ Then run:
 - checks for DNS conflicts before changing Tunnel or DNS state, then stops
   instead of overwriting unrelated records
 
-All public hostnames point to the same local Caddy gateway:
+Each public hostname points to the local Caddy gateway:
 
 ```text
-home.<your-domain>    -> http://localhost:80
-blog.<your-domain>    -> http://localhost:80
-cloud.<your-domain>   -> http://localhost:80
-photos.<your-domain>  -> http://localhost:80
-media.<your-domain>   -> http://localhost:80
-social.<your-domain>  -> http://localhost:80
-chat.<your-domain>    -> http://localhost:80
-supabase.<your-domain> -> http://localhost:80
-n8n.<your-domain>     -> http://localhost:80
-uptime.<your-domain>  -> http://localhost:80
 <any-mapped-domain>   -> http://localhost:80
 ```
 
@@ -373,7 +271,7 @@ container state:
 ```sh
 ./opendock --version
 ./opendock info
-./opendock info wordpress
+./opendock info <service-id>
 ```
 
 OpenDock's name, current version, description, Python requirement, and project
@@ -397,8 +295,7 @@ Check local configuration:
 
 ```sh
 ./opendock check-config
-./opendock check-config immich
-./opendock check-config media
+./opendock check-config <service-id>
 ```
 
 `check-config` runs automatically before commands that start or render services:
@@ -419,14 +316,12 @@ Review or update local setup interactively:
 ```sh
 ./opendock setup
 ./opendock setup mail
-./opendock setup mastodon
-./opendock setup mattermost
-./opendock setup media
+./opendock setup <service-id>
 ```
 
 ### Optional email (SMTP)
 
-SMTP is a shared, optional setting. Services that declare support for it offer configuration during setup or first launch. Choose **No** to continue without SMTP; OpenDock remembers the choice, and the service still starts. Email-dependent features may be unavailable until you configure a relay. Supabase keeps its local Inbucket fallback unless you configure an external relay. The currently integrated services are Docmost, Mastodon, Mattermost, n8n, and Supabase.
+SMTP is a shared, optional setting. Services that declare support for it offer configuration during setup or first launch. Choose **No** to continue without SMTP; OpenDock remembers the choice, and the service still starts. Email-dependent features may be unavailable until you configure a relay.
 
 To configure or change the relay later:
 
@@ -440,27 +335,13 @@ Run a service-specific command:
 
 ```sh
 ./opendock list services
-./opendock service supabase api-keys
-./opendock service supabase functions-secrets
-./opendock service wordpress
-./opendock service wordpress multisite
-./opendock service hermes onboard
+./opendock invoke <service-id>
+./opendock invoke <service-id> <command>
 ```
 
-`./opendock service <service>` lists available commands for that service. These commands provide service-specific helpers without adding every special case to the shared command set.
-The Supabase API-key command prints only the client-safe publishable key and
-keeps all elevated keys hidden. The Functions command creates or inspects the
-local Edge Function secrets file without printing its values; a normal
-`./opendock launch supabase` also creates the empty, usable file automatically.
-
-Generate local secrets manually:
-
-```sh
-./opendock secrets
-./opendock secrets wordpress
-./opendock secrets mastodon
-./opendock secrets media
-```
+`./opendock invoke <service-id>` lists commands provided by the installed
+package. Service commands stay with their package instead of expanding the
+shared command set.
 
 Start services:
 
@@ -468,8 +349,7 @@ Start services:
 ./opendock up infra
 ./opendock up gateway
 ./opendock up services
-./opendock up wordpress
-./opendock up media
+./opendock up <service-id>
 ```
 
 `./opendock up <target>` is a thin Docker Compose wrapper for that target. It does not start prerequisites for you.
@@ -479,14 +359,13 @@ Publish routes:
 ```sh
 ./opendock publish
 ./opendock publish services
-./opendock publish n8n
-./opendock publish media
+./opendock publish <service-id>
 ```
 
 Launch by the default service name or by an explicitly mapped hostname:
 
 ```sh
-./opendock launch homepage
+./opendock launch <service-id>
 ./opendock route add static docs.example.com
 ./opendock launch docs.example.com
 ```
@@ -495,7 +374,7 @@ The service-name form selects that service's default route. Use a hostname when
 you have added multiple routes for the same service:
 
 ```sh
-./opendock launch homepage
+./opendock launch <service-id>
 ```
 
 An unknown hostname fails with instructions to add a route. `route add` records
@@ -508,8 +387,8 @@ Inspect or stop:
 
 ```sh
 ./opendock ps all
-./opendock logs uptime-kuma
-./opendock down homepage
+./opendock logs <service-id>
+./opendock down <service-id>
 ./opendock down gateway
 ```
 
@@ -522,8 +401,6 @@ Local files ignored by Git:
 ```text
 config/          private core, infrastructure, shared, service, and Cloudflare settings
 .sync.env.toml   optional rsync test-machine settings
-infra/.env       legacy defaults, migrated automatically on first use
-gateway/.env     legacy defaults, migrated automatically on first use
 ```
 
 Committed defaults:
@@ -548,13 +425,11 @@ When you update the repository with `git pull`, OpenDock reads updated defaults 
 │       └── conf.d/
 └── services/
     └── extensions/       # installed packages; ignored by Git
-archive/                  # local legacy service copy; ignored and inactive
 ```
 
-Optional service source is maintained in the sibling OpenDock-Services
-repository. Previous service directories and their local state are kept in the
-gitignored `archive/` folder on this checkout; they are not discovered or
-included in repository sync.
+Service source is maintained in the separate OpenDock-Services repository.
+OpenDock installs package releases into `services/extensions/` from the
+catalog.
 
 ## Sync To A Test Machine
 
@@ -593,7 +468,6 @@ installed packages under `services/extensions/`, `static-sites/` contents,
 private `config/*.env` files (and the legacy
 `common.env` migration input), `.sync.env.toml`,
 `*.env` files, `domains.conf`, the generated Caddy routes file, and
-`services/supabase/functions.env` are protected on the destination. Local
 configuration migration markers under `config/` are also preserved so a later
 sync does not repeat one-time migrations. The tracked
 `static-sites/README.md` and other committed examples remain deployable.
@@ -614,7 +488,6 @@ The greenfield product target is documented in
 design; current repository docs and commands describe the existing
 implementation and are not the new compatibility contract.
 
-For service conventions, see [docs/development.md](docs/development.md) and
-[Adding a Service to OpenDock](docs/adding-services.md). To have an AI assistant
-prepare a contribution from service-specific inputs, use the
-[service contribution meta prompt](docs/prompts/add-service.md).
+For platform development conventions, see [docs/development.md](docs/development.md)
+and the linked architecture contracts. Service integrations are maintained in
+the separate OpenDock-Services repository.

@@ -35,11 +35,11 @@ def command_files(name):
 
 
 def print_usage():
-    print("Usage: ./opendock service <service> [command] [arguments]")
+    print("Usage: ./opendock invoke <service> [command] [arguments]")
     print()
     print("Use --help at either level:")
-    print("  ./opendock service <service> --help")
-    print("  ./opendock service <service> <command> --help")
+    print("  ./opendock invoke <service> --help")
+    print("  ./opendock invoke <service> <command> --help")
 
 
 def print_command_help(target, command):
@@ -53,7 +53,7 @@ def print_command_help(target, command):
     info = next((item for item in definition.commands if item.get("name") == command), {})
     summary = info.get("summary", f"Run the {command} command for {target}.")
     details = info.get("details", "")
-    print(f"Usage: ./opendock service {target} {command} [arguments]")
+    print(f"Usage: ./opendock invoke {target} {command} [arguments]")
     print()
     print(summary)
     if details:
@@ -61,10 +61,10 @@ def print_command_help(target, command):
         print(details)
     print()
     print("Examples:")
-    for example in info.get("examples", [f"./opendock service {target} {command}"]):
+    for example in info.get("examples", [f"./opendock invoke {target} {command}"]):
         print(f"  {example}")
     print()
-    print(f"List all {target} commands with: ./opendock service {target} --help")
+    print(f"List all {target} commands with: ./opendock invoke {target} --help")
     return 0
 
 

@@ -316,6 +316,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - 처음에는 `action` dispatcher로 제공했지만, 범용어가 모호하다는 사용자
     피드백 뒤 `service` namespace로 정리했다. 위험한 동작을 서비스 소유 명령으로
     두면 공통 CLI에 WordPress 전용 top-level 명령을 추가하지 않아도 된다.
+  - 이후 사용자는 `service`가 동사 중심인 다른 OpenDock 명령과 어울리지 않는다고
+    판단했고, 하위 호환 없이 `invoke <service> <command>`로 바꾸기로 했다. 공통 CLI는
+    package command를 발견·전달하고, 명령 내용은 각 서비스가 계속 소유한다.
 - 보존할 교훈:
   - destructive workflow 자동화의 품질은 실행 속도가 아니라 preflight,
     backup, 명시적 확인, 실패 지점, 복구 경로로 평가해야 한다.
@@ -775,8 +778,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     `validate_config`를 연결했다. secret field와 generator ID는 descriptor에 선언하고,
     application-specific bundle 생성·교차값 검증은 서비스 handler에 둔다. 중앙은
     공통 generator, 실행 시점 조정, 안전한 저장과 결과 표시를 맡는다. `setup`은
-    설정 과정에서, `launch`는 config 검사 전, `secrets`는 명시적 복구 경로로
-    같은 coordinator를 사용한다. Supabase의 초기 functions.env 준비도 해당 서비스의
+    설정 과정에서, `launch`는 config 검사 전에 같은 coordinator를 사용한다. 이후
+    사용자는 별도 `secrets <target>` 명령이 서비스별 지식을 드러내고 setup/launch와
+    중복된다고 지적했다. 공통 generator는 내부 utility로 유지하되 수동 복구는
+    `setup <target>`에 모으고, `check-config`는 읽기 전용으로 두기로 했다.
+    Supabase의 초기 functions.env 준비도 해당 서비스의
     `prepare` capability로 옮겼다. 이 구조는 신뢰된 checkout의 Python 코드이며
     보안 sandbox가 아니라는 경계도 문서에 기록했다.
   - 사용자가 실제 n8n 첫 launch에서 OpenDock이 완료 링크를 출력한 뒤에도
@@ -1249,6 +1255,12 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     WordPress source를 `services/experiments/`로 옮겼다. 이 경로는 선택된 작업만
     진행하는 workbench/holding area이며, 디렉터리가 있다고 모든 서비스를 병렬 개발하는
     뜻은 아니다.
+  - 공개 OpenDock checkout을 별도로 감사하면서 `services/bundles/`의 추적된
+    Homepage/Uptime Kuma 구현, 오래된 bundle 설정·서비스 기여 문서, service-candidate
+    backlog와 초기 common.env 설계 노트를 제거했다. README, config, gateway, infra 안내를
+    catalog 기반 플랫폼과 서비스 소스 저장소의 경계에 맞췄다. 삭제는 Git 추적 파일에만
+    한정했고 두 legacy 경로에 남아 있던 ignored private `.env` 파일은 보존했다.
+    로컬 확인은 `git diff --check`와 링크/경로 검색까지이며, 테스트는 실행하지 않았다.
 - 보존할 교훈:
   - 개발 저장소 접근 제어와 제품 entitlement는 같은 문제로 취급하지 않는다.
     소스 저장소를 private으로 만드는 것만으로 고객 설치·업데이트 경험이 완성되지 않는다.

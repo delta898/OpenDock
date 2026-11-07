@@ -173,12 +173,12 @@ discovering plugins].
 | Command family | Common OpenDock responsibilities | Service responsibilities |
 | --- | --- | --- |
 | `list`, `info` | Discover services, groups, targets; render consistent output | Declare display metadata or service-specific status details when needed |
-| `setup`, `secrets`, `check-config` | Prompt and secret UX, config loading/writing, validation engine, safe file permissions, common errors | Declare fields, defaults, validation rules, secret relationships, and service-specific setup steps |
+| `setup`, `check-config` | Prompt and secret UX, config loading/writing, validation engine, safe file permissions, common errors | Declare fields, defaults, validation rules, secret relationships, and service-specific setup steps |
 | `up`, `down`, `start`, `stop`, `restart`, `pull`, `build`, `config`, `ps`, `logs` | Resolve targets, validate where applicable, invoke Compose consistently, report failures | Declare Compose project; provide a hook only when the ordinary Compose operation is insufficient |
 | `launch` | Order the workflow: configuration check, shared prerequisites, service preparation, Compose start, gateway reload, route publication | Declare prerequisites and optional pre-start/post-start operations |
 | `route`, `publish` | Own hostname mapping format, Caddy rendering, Cloudflare integration, common validation and output | Declare service default hostname metadata; external targets use the shared route contract |
 | `purge` | Resolve one service, request confirmation, show a plan, execute common cleanup primitives, report results | Declare owned resources and preservation boundaries; provide custom cleanup for resources Compose cannot safely identify |
-| `service <name> <command>` | Discover commands, provide common help/dispatch and environment context | Implement optional service-specific operations under that service directory |
+| `invoke <service> <command>` | Discover commands, provide common help/dispatch and environment context | Implement optional service-specific operations under that service directory |
 | `sync` | Own remote selection, transport, copy/prune policy, dry-run and reporting | Declare files/directories that must be preserved or excluded only when service-specific behavior is necessary |
 
 Optional shared setup sections, such as SMTP, are declared in shared config
@@ -325,10 +325,9 @@ for related secret bundles and application-specific configuration validation;
 Supabase also prepares its private Edge Functions env file. The common secret
 coordinator selects fields from descriptors, generates the generic declared
 formats, delegates custom formats and consistency bundles, and persists values
-without displaying them. `setup`, `launch`, and `secrets` use this same
-coordinator: setup generates while prompting, launch fills missing values
-before validation, and `secrets` offers an explicit repair command. All current
-Compose services have descriptors and declare their `infra` dependency. Each
+without displaying them. `setup` and `launch` use this same coordinator: setup
+generates while prompting, and launch fills missing values before validation.
+All current Compose services have descriptors and declare their `infra` dependency. Each
 installed package also records whether its service-level first setup has
 completed. An explicit successful `setup <service>` records that state; if the
 state is absent, the first `launch <service>` runs the complete service setup
@@ -460,5 +459,5 @@ Do not rewrite every command at once.
 7. Keep a capability coverage table and reject unsupported destructive actions
    until a service's resource contract has been reviewed.
 
-At each step, retain the same user-facing commands and verify a fresh setup,
+Keep the user-facing grammar verb-first and consistent. Verify a fresh setup,
 repeat launch, config validation, and safe failure behavior on Linux and macOS.

@@ -525,18 +525,27 @@ PY
 show_cloudflared_token_instructions() {
 	cat <<EOF
 
-Cloudflare Tunnel connector is not configured yet.
-1. In Cloudflare Dashboard, open Networking > Tunnels and select your remotely-managed tunnel.
-2. Choose Add a replica and copy the token from the displayed cloudflared command.
-3. Add only the token (not the command) to this key in:
+Cloudflare Tunnel connector setup is not complete yet.
+
+OpenDock uses two tokens and one Tunnel ID in two steps:
+  1. Tunnel token: authenticates cloudflared to your remotely managed Tunnel.
+     Bootstrap asks for this token; it is not the API token or Tunnel ID.
+  2. Cloudflare API token and Tunnel ID: let OpenDock publish DNS and Tunnel routes.
+     Enter these later with: ./opendock setup cloudflare
+
+Step-by-step guide:
+  https://github.com/delta898/OpenDock#cloudflare-tunnel
+
+To finish this bootstrap step, open Cloudflare Dashboard > Networking > Tunnels,
+select your remotely-managed Tunnel, choose Add a replica, and copy the token
+from the displayed cloudflared command. Paste only the token, not the command,
+into this key in:
    $CLOUDFLARE_ENV_FILE
    CLOUDFLARED_TUNNEL_TOKEN=<paste-token-here>
    The file is private (mode 600) and excluded from Git and OpenDock sync.
-4. Rerun bootstrap:
+Then rerun bootstrap:
    bash "$INSTALL_DIR/scripts/bootstrap.sh"
 
-The connector token is separate from the Cloudflare API token and Tunnel ID
-used by './opendock setup cloudflare' for route and DNS synchronization.
 EOF
 }
 
@@ -559,11 +568,15 @@ read_cloudflared_token_if_requested() {
 
 	cat <<'EOF' >/dev/tty
 
-Cloudflare Tunnel connector setup
-Create or select a remotely-managed Tunnel in Cloudflare Dashboard:
-  Networking > Tunnels > select tunnel > Add a replica
-Copy the token from the cloudflared install command. OpenDock can store it
-without echoing it, then install and start the connector service.
+Cloudflare setup — step 1 of 2: connect this host to your Tunnel
+OpenDock needs two tokens and one Tunnel ID in total:
+  • Tunnel token — enter it now to authenticate cloudflared to your Tunnel.
+  • API token and Tunnel ID — enter them later with ./opendock setup cloudflare.
+
+In Cloudflare Dashboard, open Networking > Tunnels, select your remotely-managed
+Tunnel, choose Add a replica, and copy the token from the cloudflared command.
+Paste only the token, not the command. The prompt below hides what you type.
+Guide: https://github.com/delta898/OpenDock#cloudflare-tunnel
 EOF
 	printf 'Enter the Tunnel token now? [y/N] ' >/dev/tty
 	IFS= read -r answer </dev/tty || answer=""
@@ -761,9 +774,11 @@ print_next_steps() {
 		printf '\nNext steps:\n  cd "%s"\n' "$INSTALL_DIR"
 		cat <<'EOF'
   ./opendock setup
-  # Configure the primary domain and create private local configuration.
-  ./opendock setup cloudflare
-  # Configure Cloudflare API access for route/DNS sync.
+  # Configure the primary domain, Cloudflare API token, and Tunnel ID.
+
+To review only Cloudflare settings later, run: ./opendock setup cloudflare
+Guide:
+  https://github.com/delta898/OpenDock#cloudflare-tunnel
 
   ./opendock check-config
   ./opendock search <service>

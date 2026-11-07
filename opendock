@@ -934,7 +934,6 @@ def print_guide():
           ./opendock setup [target]                 Set up all or one service/group
           ./opendock setup mail                    Configure the shared SMTP relay
           ./opendock check-config [target]          Validate configuration
-          ./opendock secrets [target]               Generate missing secrets
           ./opendock info [target]                  Show product, image, and container info
           ./opendock ps [target]                    Show container status (default: all)
           ./opendock logs <service>                 Follow one service's logs
@@ -954,21 +953,20 @@ def print_guide():
         Other
           ./opendock purge <service>                  Delete service runtime resources (confirms first)
           ./opendock purge <service> --dry-run       Preview purge without changes
-          ./opendock service <service>              List service-specific commands
-          ./opendock service <service> <command>    Run one service-specific command
+          ./opendock invoke <service>              List service-specific commands
+          ./opendock invoke <service> <command>    Run one service-specific command
           ./opendock sync <name> --dry-run          Preview deployment to a remote
           ./opendock sync <name>                    Deploy code to a remote
 
         Help at each level
           ./opendock route --help
           ./opendock route add --help
-          ./opendock service <service> --help
-          ./opendock service <service> <command> --help
+          ./opendock invoke <service> --help
+          ./opendock invoke <service> <command> --help
 
         Targets: a service (see './opendock list'), group, infra, gateway,
                  services (all apps), or all (core and apps).
         Run './opendock <command> --help' for exact arguments.
-        Existing 'make ...' commands remain available for compatibility.
         """))
 
 
@@ -1055,24 +1053,21 @@ def parser():
                               help="Service, group, infra, gateway, services, or all (default: all)")
         else:
             item.add_argument("target", help="Service, group, infra, gateway, services, or all")
-    for command in ("setup", "secrets", "check-config", "publish", "launch"):
+    for command in ("setup", "check-config", "publish", "launch"):
         descriptions = {
             "setup": "Configure OpenDock, including required Cloudflare publishing settings, or configure a service.",
-            "secrets": "Generate missing passwords, tokens, and application secrets.",
             "check-config": "Check required settings before changing or starting services.",
             "publish": "Apply configured host routes to Caddy and Cloudflare.",
             "launch": "Run first-time service setup when needed; later launches show current settings and offer review before starting.",
         }
         examples = {
             "setup": ["./opendock setup", "./opendock setup <service>", "./opendock setup mail"],
-            "secrets": ["./opendock secrets", "./opendock secrets <service>"],
             "check-config": ["./opendock check-config", "./opendock check-config infra", "./opendock check-config cloudflare"],
             "publish": ["./opendock publish", "./opendock publish blog.example.com"],
             "launch": ["./opendock launch <service>", "./opendock launch app.example.com", "./opendock launch all"],
         }[command]
         target_help = {
             "setup": "Service, group, platform, shared config (such as mail), or all (default: all)",
-            "secrets": "Service, group, or all (default: all)",
             "check-config": "Service, group, infra, gateway, cloudflare, or all (default: all)",
             "publish": "Hostname, service, group, or all (default: all)",
             "launch": "Hostname, service, group, infra, gateway, or all (required)",
@@ -1107,19 +1102,21 @@ def parser():
         epilog="Example: ./opendock logs <service>",
     )
     logs.add_argument("target", help="One service, infra, or gateway (not a group)")
-    service_cmd = sub.add_parser(
-        "service", help="Show or run service-specific commands",
+    invoke_cmd = sub.add_parser(
+        "invoke", help="Show or run service-specific commands",
         description="List a service's extra commands, or get help/run one of them.",
-        usage="./opendock service <service> [command] [arguments]",
-        epilog=("Examples:\n  ./opendock service <service> --help\n"
-                "  ./opendock service <service> <command> --help"),
+        usage="./opendock invoke <service> [command] [arguments]",
+        epilog=("Examples:\n  ./opendock invoke <service> --help\n"
+                "  ./opendock invoke <service> <command> --help"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    service_cmd.add_argument("service", help="Installed service ID; see './opendock list'")
-    service_cmd.add_argument("name", nargs="?", default="", metavar="command",
+    invoke_cmd.add_argument("service", help="Installed service ID; see './opendock list'")
+    invoke_cmd.add_argument("name", nargs="?", default="", metavar="command",
                              help="Service-specific command; omit it to list available commands")
-    service_cmd.add_argument("args", nargs=argparse.REMAINDER, metavar="arguments",
-                             help="Additional arguments passed to the service command")
+    invoke_cmd.add_argument(
+        "args", nargs=argparse.REMAINDER, metavar="arguments",
+        help="Additional arguments passed to the service command",
+    )
     route_cmd = sub.add_parser(
         "route", help="Manage hostname routes",
         description="Add, show, or remove public hostname routes to static files, installed services, or external upstreams.",
@@ -1257,8 +1254,6 @@ def main(argv=None):
                 mark_setup_complete(ROOT, extension_ids)
             except DistributionError as exc:
                 raise CLIError(str(exc)) from exc
-        elif command == "secrets":
-            script("opendock-secrets.py", args.target)
         elif command == "check-config":
             try:
                 check_config(args.target)
@@ -1281,9 +1276,9 @@ def main(argv=None):
                 route("add", args.type, args.hostname, args.target)
             else:
                 route(args.route_command, hostname=getattr(args, "hostname", None))
-        elif command == "service":
+        elif command == "invoke":
             result = subprocess.run(
-                [sys.executable, ROOT / "scripts/opendock-service.py",
+                [sys.executable, ROOT / "scripts/opendock-invoke.py",
                  args.service, args.name, *args.args],
                 cwd=ROOT,
             )

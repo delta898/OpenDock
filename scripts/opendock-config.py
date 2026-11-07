@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import importlib.util
 import getpass
+import shutil
 import sys
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -255,7 +257,15 @@ def prompt_secret(field, values):
 
 def print_field_note(field):
     if field.note:
-        print(f"  {field.note}")
+        width = max(40, shutil.get_terminal_size(fallback=(80, 24)).columns)
+        print(textwrap.fill(
+            field.note,
+            width=width,
+            initial_indent="  ",
+            subsequent_indent="  ",
+            break_long_words=False,
+            break_on_hyphens=False,
+        ))
 
 
 def values_to_generate(fields, values, chosen):

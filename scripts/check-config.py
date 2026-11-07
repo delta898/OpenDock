@@ -97,44 +97,7 @@ def is_placeholder(name, value, example_values):
     return False
 
 
-def generated_fields_for_target(target):
-    """Return generated credentials owned by the target's config descriptors."""
-    generated = set()
-    shared_groups = set()
-    catalog = ServiceCatalog(ROOT_DIR)
-    components = {item.name: item for item in catalog.platform.components}
-    if target in CONFIG_SECTIONS:
-        fields = CONFIG_SECTIONS[target].get("setup", {}).get("fields", [])
-        generated.update(
-            field["name"] for field in fields
-            if field.get("kind") in {"generated-secret", "initial-credential"}
-        )
-    elif target in components:
-        component = components[target]
-        fields = component.setup_fields
-        shared_groups.update(component.shared_groups)
-        generated.update(
-            field["name"] for field in fields
-            if field.get("kind") in {"generated-secret", "initial-credential"}
-        )
-    elif target in catalog.names:
-        service = catalog.get(target)
-        shared_groups.update(service.setup_dependencies)
-        generated.update(
-            field["name"] for field in service.setup_fields
-            if field.get("kind") in {"generated-secret", "initial-credential"}
-        )
-    for component in catalog.platform.components:
-        generated.update(
-            field["name"] for field in component.setup_fields
-            if field.get("shared_group") in shared_groups
-            and field.get("kind") in {"generated-secret", "initial-credential"}
-        )
-    return generated
-
-
 def check_target(target, common_values, example_values):
-    generated = generated_fields_for_target(target)
     if target in CONFIG_SECTIONS:
         fields = CONFIG_SECTIONS[target].get("setup", {}).get("fields", [])
         required = {
@@ -156,7 +119,6 @@ def check_target(target, common_values, example_values):
             "placeholders": placeholders,
             "invalid": [],
             "optional": {},
-            "generated": generated,
         }
 
     directory = target_dir(target)
@@ -168,7 +130,6 @@ def check_target(target, common_values, example_values):
             "placeholders": [],
             "invalid": [],
             "optional": {},
-            "generated": generated,
         }
 
     env = {}
@@ -232,7 +193,6 @@ def check_target(target, common_values, example_values):
         "placeholders": placeholders,
         "invalid": invalid,
         "optional": optional_missing,
-        "generated": generated,
     }
 
 
@@ -282,14 +242,6 @@ def print_results(results):
     if failed:
         print("Set external values with `./opendock setup` or `./opendock setup <service>`.")
         print(f"Run `./opendock setup {TARGET}` to review and fill user-facing values.")
-        generated_missing = {
-            name
-            for result in results
-            for name in result.get("generated", set())
-            if name in set(result["missing"]) | set(result["placeholders"])
-        }
-        if generated_missing:
-            print("Run `./opendock secrets` to fill generated passwords and app secrets.")
         return 1
 
     return 0

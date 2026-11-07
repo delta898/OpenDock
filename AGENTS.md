@@ -149,12 +149,13 @@ service explicitly supports moving them.
 Declare service-owned setup fields, required values, initial credentials, and
 secret generator identifiers in the service's `opendock.toml`. Keep
 application-specific secret bundles and validation rules in that service's
-`opendock.py` capability. The common `setup`, `launch`, and `secrets` flows
-must use the same secret coordinator: setup creates missing values while
-configuring, launch creates missing values before checking configuration, and
-`secrets` provides an explicit repair path. The common layer owns generic
-generators, secure persistence, and consistent output; it must not enumerate
-service-specific generator types, secret relationships, or validation rules.
+`opendock.py` capability. The common `setup` and `launch` flows must use the
+same secret coordinator: setup creates missing values while configuring, and
+launch creates missing values before checking configuration. The common layer
+owns generic generators, secure persistence, and consistent output; it must not
+enumerate service-specific generator types, secret relationships, or validation
+rules. Keep secret generation as an internal utility; do not expose a generic
+`secrets` command. Use `setup <target>` for explicit recovery.
 Shared platform settings and shared setup groups belong to the corresponding
 platform component descriptor (`infra/opendock.toml`, `gateway/opendock.toml`).
 Services declare only the shared groups they require; config prompting, secret

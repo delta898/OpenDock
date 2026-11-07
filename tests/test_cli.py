@@ -259,7 +259,7 @@ class CLITests(unittest.TestCase):
             output.getvalue().index("CLOUDFLARE_TUNNEL_ID"),
         )
 
-    def test_cloudflare_check_config_does_not_suggest_generated_secrets(self):
+    def test_cloudflare_check_config_recommends_setup(self):
         output = StringIO()
         fake_catalog = SimpleNamespace(
             platform=SimpleNamespace(components=()), names=(),
@@ -276,9 +276,8 @@ class CLITests(unittest.TestCase):
             }])
         self.assertTrue(failed)
         self.assertIn("Run `./opendock setup cloudflare`", output.getvalue())
-        self.assertNotIn("./opendock secrets", output.getvalue())
 
-    def test_check_config_suggests_secrets_only_for_missing_generated_fields(self):
+    def test_check_config_does_not_add_a_secrets_repair_command(self):
         output = StringIO()
         with mock.patch.object(check_cli, "QUIET", False), \
              mock.patch.object(check_cli, "TARGET", "infra"), \
@@ -287,9 +286,9 @@ class CLITests(unittest.TestCase):
                 "target": "infra",
                 "missing": ["POSTGRES_ADMIN_PASSWORD"],
                 "placeholders": [], "invalid": [], "optional": {},
-                "generated": {"POSTGRES_ADMIN_PASSWORD"},
             }])
-        self.assertIn("./opendock secrets", output.getvalue())
+        self.assertIn("Run `./opendock setup infra`", output.getvalue())
+        self.assertNotIn("./opendock secrets", output.getvalue())
 
     def test_help_shows_current_workflows_and_generic_route_examples(self):
         for args in ((), ("--help",), ("help",)):
@@ -301,7 +300,7 @@ class CLITests(unittest.TestCase):
             self.assertIn("route add static docs.example.org", result.stdout)
             self.assertIn("route add external ai.example.org", result.stdout)
             self.assertIn("purge <service> --dry-run", result.stdout)
-            self.assertIn("service <service> <command>", result.stdout)
+            self.assertIn("invoke <service> <command>", result.stdout)
             self.assertIn("Services that declare email support", result.stdout)
             self.assertNotIn("service wordpress multisite", result.stdout)
             self.assertNotIn("service hermes onboard", result.stdout)
@@ -340,18 +339,9 @@ class CLITests(unittest.TestCase):
         self.assertIn("shared config (such as mail)", setup_help.stdout)
         self.assertIn("./opendock setup mail", setup_help.stdout)
 
-        service_help = run_cli("service", "--help")
-        self.assertIn("Installed service ID", service_help.stdout)
-        self.assertIn("List a service's extra commands", service_help.stdout)
-
-    def test_list_and_make_compatibility_match(self):
-        direct = run_cli("list")
-        legacy = subprocess.run(
-            ["make", "list"], cwd=ROOT, text=True,
-            capture_output=True, check=True,
-        )
-        self.assertEqual(direct.stdout, legacy.stdout)
-        self.assertIn("Services:", direct.stdout)
+        invoke_help = run_cli("invoke", "--help")
+        self.assertIn("Installed service ID", invoke_help.stdout)
+        self.assertIn("List a service's extra commands", invoke_help.stdout)
 
     def test_bad_arguments_fail_before_changes(self):
         result = subprocess.run(

@@ -7,10 +7,10 @@ setting_keys = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_TUNNEL_ID", "CLOUDFLARED_TUN
 name = "CLOUDFLARE_API_TOKEN"
 kind = "secret-user"
 required = true
-note = "Create a custom token at https://dash.cloudflare.com/profile/api-tokens with Zone:Zone:Read, Zone:DNS:Edit, and Account:Cloudflare Tunnel:Edit. Select only the account and zones OpenDock will manage. Guide: README.md#cloudflare-tunnel."
+note = "Create a custom API token (not the Global API Key). Grant Account: Cloudflare Tunnel: Edit, Zone: DNS: Edit, and Zone: Zone: Read. Select only the account and zones OpenDock will manage. Step-by-step guide: https://github.com/delta898/OpenDock#cloudflare-tunnel"
 
 [[setup.fields]]
 name = "CLOUDFLARE_TUNNEL_ID"
 kind = "required-user"
 required = true
-note = "In Cloudflare Dashboard, open Networking > Tunnels, select your remotely managed Tunnel, and copy its Tunnel ID. The connector token is separate. Guide: README.md#cloudflare-tunnel."
+note = "In Cloudflare Dashboard, open Networking > Tunnels, select your remotely managed Tunnel, and copy its Tunnel ID from Overview. This is an identifier, not the Tunnel token. Step-by-step guide: https://github.com/delta898/OpenDock#cloudflare-tunnel"

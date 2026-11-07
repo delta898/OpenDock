@@ -7,9 +7,10 @@ MariaDB root credentials and PostgreSQL administrator credentials are read from 
 Recommended image versions are tracked in `config/infra.env.default`; local
 overrides belong in `config/infra.env`.
 
-MariaDB runs with `READ-COMMITTED` transaction isolation for Nextcloud compatibility.
-
-PostgreSQL is available as the shared relational database for services that do not need app-specific PostgreSQL extensions.
+MariaDB and PostgreSQL are shared database services. Application-specific
+database objects and adapters are declared by the platform and the installed
+service package; do not remove shared database volumes as part of a single
+service's cleanup.
 
 ## Image Policy
 
@@ -27,4 +28,6 @@ POSTGRES_VERSION=18-bookworm
 REDIS_VERSION=8-alpine
 ```
 
-MariaDB uses the current LTS line as the default. PostgreSQL uses the official Debian-based image for broad extension and locale compatibility. Redis uses Alpine as a deliberate exception because it is a compact single-service runtime with a strong image size benefit and low compatibility risk for this stack.
+MariaDB uses its current LTS line as the default. PostgreSQL uses the official
+Debian-based image for broad extension and locale compatibility. Redis uses
+Alpine as a deliberate exception because it is a compact single-service runtime.

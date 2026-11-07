@@ -15,7 +15,7 @@ required for `service` and `external`, and omitted for `static`:
 
 ```sh
 ./opendock route add static docs.example.org
-./opendock route add service app.example.org n8n-v3
+./opendock route add service app.example.org <service-id>
 ./opendock route add external ai.example.org http://host.docker.internal:1234
 ```
 
@@ -43,7 +43,7 @@ This maps an additional hostname to that service; launching the hostname starts
 the service and applies its route.
 
 ```sh
-./opendock route add service app.example.org n8n-v3
+./opendock route add service app.example.org <service-id>
 ./opendock launch app.example.org
 ```
 
@@ -92,7 +92,7 @@ uses the same order as the CLI:
 
 ```text
 static docs.example.org
-service app.example.org n8n-v3
+service app.example.org <service-id>
 external ai.example.org http://host.docker.internal:1234
 ```
 
