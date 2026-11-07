@@ -1,19 +1,18 @@
 from pathlib import Path
 
+from opendock_catalog import service_names
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 GROUPS_FILE = ROOT_DIR / "services" / "groups.conf"
 
 
 def service_targets():
-    services_dir = ROOT_DIR / "services"
-    if not services_dir.is_dir():
-        return []
-    return sorted(compose.parent.name for compose in services_dir.glob("*/compose.yml"))
+    return list(service_names(ROOT_DIR))
 
 
 def is_service(target):
-    return (ROOT_DIR / "services" / target / "compose.yml").is_file()
+    return target in service_targets()
 
 
 def groups():

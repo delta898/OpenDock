@@ -16,6 +16,27 @@ spec.loader.exec_module(settings)
 
 
 class SettingsTests(unittest.TestCase):
+    def test_config_descriptor_can_reference_a_not_yet_created_local_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            config = root / "config"
+            config.mkdir()
+            (config / "core.toml").write_text(
+                'schema_version = 1\n'
+                'section_id = "core"\n'
+                'config_file = "config/core.env"\n'
+                'setting_keys = ["STACK_DOMAIN"]\n'
+                '\n[[setup.fields]]\n'
+                'name = "STACK_DOMAIN"\n'
+                'kind = "required-user"\n'
+            )
+            with mock.patch.object(settings, "ROOT", root), \
+                 mock.patch.object(settings, "CONFIG", config):
+                sections = settings._load_config_sections()
+
+        self.assertEqual(sections["core"]["config_file"], "config/core.env")
+        self.assertFalse((config / "core.env").exists())
+
     def test_key_ownership_is_explicit(self):
         self.assertEqual(settings.owner_path("STACK_DOMAIN"), Path("config/core.env"))
         self.assertEqual(settings.owner_path("POSTGRES_ADMIN_PASSWORD"), Path("config/infra.env"))
@@ -26,6 +47,7 @@ class SettingsTests(unittest.TestCase):
             settings.owner_path("MARIADB_CLIENT_VERSION"),
             Path("config/shared/database.env"),
         )
+        self.assertEqual(settings.SHARED_SETTING_GROUPS["MARIADB_CLIENT_VERSION"], "mariadb")
         self.assertEqual(
             settings.owner_path("WORDPRESS_DB_PASSWORD"),
             Path("services/wordpress/.env"),
@@ -135,12 +157,12 @@ class SettingsTests(unittest.TestCase):
             service_local.write_text("WORDPRESS_VERSION=1\n")
             paths = [
                 config / "core.env.default", config / "infra.env.default",
-                config / "shared" / "mail.env.default",
                 config / "shared" / "database.env.default",
+                config / "shared" / "mail.env.default",
                 root / "services" / "wordpress" / ".env.default",
                 config / "core.env", config / "infra.env",
-                config / "shared" / "mail.env",
                 config / "shared" / "database.env",
+                config / "shared" / "mail.env",
                 service_local,
             ]
             for path in paths:
@@ -159,10 +181,10 @@ class SettingsTests(unittest.TestCase):
             hermes = root / "services" / "hermes"
             paths = [
                 config / "core.env.default", config / "infra.env.default",
-                config / "shared" / "mail.env.default",
-                config / "shared" / "database.env.default", hermes / ".env.default",
+                config / "shared" / "database.env.default",
+                config / "shared" / "mail.env.default", hermes / ".env.default",
                 config / "core.env", config / "infra.env",
-                config / "shared" / "mail.env", config / "shared" / "database.env",
+                config / "shared" / "database.env", config / "shared" / "mail.env",
                 hermes / ".env",
             ]
             for path in paths:
@@ -179,11 +201,11 @@ class SettingsTests(unittest.TestCase):
             root = Path(temp)
             config = root / "config"
             paths = [
-                config / "core.env.default", config / "infra.env.default",
-                config / "gateway.env.default", config / "shared" / "mail.env.default",
-                config / "shared" / "database.env.default", config / "core.env",
-                config / "infra.env", config / "gateway.env",
-                config / "shared" / "mail.env", config / "shared" / "database.env",
+                config / "core.env.default", config / "gateway.env.default",
+                config / "infra.env.default", config / "shared" / "database.env.default",
+                config / "shared" / "mail.env.default", config / "core.env",
+                config / "gateway.env", config / "infra.env",
+                config / "shared" / "database.env", config / "shared" / "mail.env",
             ]
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)

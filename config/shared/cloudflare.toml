@@ -1,0 +1,15 @@
+schema_version = 1
+section_id = "cloudflare"
+config_file = "config/cloudflare.env"
+setting_keys = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_TUNNEL_ID", "CLOUDFLARED_TUNNEL_TOKEN"]
+
+[[setup.fields]]
+name = "CLOUDFLARE_API_TOKEN"
+kind = "secret-user"
+required = true
+note = "Needs Zone:Read, DNS:Edit, and Account:Cloudflare Tunnel:Edit permissions."
+
+[[setup.fields]]
+name = "CLOUDFLARE_TUNNEL_ID"
+kind = "required-user"
+required = true

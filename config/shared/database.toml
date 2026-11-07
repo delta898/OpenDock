@@ -1,0 +1,8 @@
+schema_version = 1
+section_id = "database"
+config_file = "config/shared/database.env"
+setting_keys = ["MARIADB_CLIENT_VERSION"]
+
+[[shared_settings]]
+name = "MARIADB_CLIENT_VERSION"
+shared_group = "mariadb"

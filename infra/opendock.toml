@@ -1,0 +1,45 @@
+schema_version = 1
+component_id = "infra"
+always_include_config = true
+config_file = "config/infra.env"
+setting_keys = [
+  "MARIADB_ROOT_PASSWORD",
+  "POSTGRES_ADMIN_USER",
+  "POSTGRES_ADMIN_PASSWORD",
+  "MARIADB_VERSION",
+  "POSTGRES_VERSION",
+  "REDIS_VERSION",
+]
+shared_groups = ["mariadb", "postgres"]
+
+[[shared_databases]]
+shared_group = "mariadb"
+engine = "mariadb"
+adapter = "mariadb"
+container = "mariadb"
+
+[[shared_databases]]
+shared_group = "postgres"
+engine = "postgres"
+adapter = "postgres"
+container = "postgres"
+
+[[setup.fields]]
+name = "MARIADB_ROOT_PASSWORD"
+kind = "generated-secret"
+generator = "url-safe"
+length = 36
+shared_group = "mariadb"
+
+[[setup.fields]]
+name = "POSTGRES_ADMIN_USER"
+kind = "defaulted-choice"
+default = "opendock"
+shared_group = "postgres"
+
+[[setup.fields]]
+name = "POSTGRES_ADMIN_PASSWORD"
+kind = "generated-secret"
+generator = "url-safe"
+length = 36
+shared_group = "postgres"

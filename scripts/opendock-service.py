@@ -4,49 +4,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from opendock_catalog import ServiceCatalog
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
-SERVICES_DIR = ROOT_DIR / "services"
-COMMAND_HELP = {
-    ("hermes", "onboard"): {
-        "summary": "Open Hermes' interactive first-run setup wizard.",
-        "details": (
-            "Choose Hermes' model provider and configure its credentials and default model. "
-            "A fresh 'launch hermes' runs this automatically; use this command to reopen "
-            "the wizard later. It ensures shared infrastructure is running first."
-        ),
-        "examples": ["./opendock service hermes onboard"],
-    },
-    ("wordpress", "multisite"): {
-        "summary": "Convert WordPress to subdirectory multisite mode.",
-        "details": (
-            "Uses the configured WordPress hostname and asks for confirmation before "
-            "changing WordPress configuration and database behavior. Reverting after "
-            "creating sites or content requires a migration. Set YES=1 for automation."
-        ),
-        "examples": [
-            "./opendock service wordpress multisite",
-            "YES=1 ./opendock service wordpress multisite",
-        ],
-    },
-    ("supabase", "api-keys"): {
-        "summary": "Show the Supabase URL and publishable client key.",
-        "details": "Secret keys and legacy service-role values remain hidden.",
-        "examples": ["./opendock service supabase api-keys"],
-    },
-    ("supabase", "functions-secrets"): {
-        "summary": "Review names of local Supabase Edge Function secrets.",
-        "details": (
-            "Creates services/supabase/functions.env from its example when missing, "
-            "sets restrictive file permissions, and prints configured names without values."
-        ),
-        "examples": ["./opendock service supabase functions-secrets"],
-    },
-}
 
 
 def service_dir(name):
-    return SERVICES_DIR / name
+    return ServiceCatalog(ROOT_DIR).get(name).directory
 
 
 def command_dir(name):
@@ -54,7 +19,7 @@ def command_dir(name):
 
 
 def is_service(name):
-    return (service_dir(name) / "compose.yml").is_file()
+    return name in ServiceCatalog(ROOT_DIR).names
 
 
 def command_files(name):
@@ -75,10 +40,6 @@ def print_usage():
     print("Use --help at either level:")
     print("  ./opendock service <service> --help")
     print("  ./opendock service <service> <command> --help")
-    print()
-    print("Examples:")
-    print("  ./opendock service hermes --help")
-    print("  ./opendock service hermes onboard --help")
 
 
 def print_command_help(target, command):
@@ -88,7 +49,8 @@ def print_command_help(target, command):
         list_commands(target)
         return 1
 
-    info = COMMAND_HELP.get((target, command), {})
+    definition = ServiceCatalog(ROOT_DIR).get(target)
+    info = next((item for item in definition.commands if item.get("name") == command), {})
     summary = info.get("summary", f"Run the {command} command for {target}.")
     details = info.get("details", "")
     print(f"Usage: ./opendock service {target} {command} [arguments]")
@@ -112,9 +74,11 @@ def list_commands(target):
         print(f"No service-specific commands for: {target}")
         return 0
 
+    definition = ServiceCatalog(ROOT_DIR).get(target)
+    metadata = {item["name"]: item for item in definition.commands}
     print(f"Commands for {target}:")
     for path in commands:
-        summary = COMMAND_HELP.get((target, path.name), {}).get("summary")
+        summary = metadata.get(path.name, {}).get("summary")
         print(f"  {path.name:<20} {summary or 'Service-specific command'}")
     return 0
 
@@ -167,6 +131,7 @@ def main():
     env["OPENDOCK_ROOT"] = str(ROOT_DIR)
     env["OPENDOCK_SERVICE"] = target
     env["OPENDOCK_SERVICE_COMMAND"] = command
+    env["OPENDOCK_SERVICE_DIR"] = str(service_dir(target))
 
     result = subprocess.run([str(script), *extra_args], cwd=ROOT_DIR, env=env)
     return result.returncode

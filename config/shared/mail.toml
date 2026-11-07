@@ -1,0 +1,40 @@
+schema_version = 1
+section_id = "mail"
+config_file = "config/shared/mail.env"
+setting_keys = [
+  "OPENDOCK_MAIL_SETUP_SKIPPED",
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_SECURE",
+  "SMTP_USERNAME",
+  "SMTP_PASSWORD",
+  "SMTP_FROM_ADDRESS",
+]
+optional_prompt = "Configure the shared SMTP relay now? This is only needed for email sending; choose No to continue without email and configure it later if needed."
+skip_key = "OPENDOCK_MAIL_SETUP_SKIPPED"
+
+[[setup.fields]]
+name = "SMTP_HOST"
+kind = "required-user"
+
+[[setup.fields]]
+name = "SMTP_PORT"
+kind = "defaulted-choice"
+default = "587"
+
+[[setup.fields]]
+name = "SMTP_SECURE"
+kind = "defaulted-choice"
+default = "false"
+
+[[setup.fields]]
+name = "SMTP_USERNAME"
+kind = "required-user"
+
+[[setup.fields]]
+name = "SMTP_PASSWORD"
+kind = "secret-user"
+
+[[setup.fields]]
+name = "SMTP_FROM_ADDRESS"
+kind = "required-user"

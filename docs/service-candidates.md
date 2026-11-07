@@ -292,7 +292,7 @@ Knowledge storage is a strong category for OpenDock. It maps directly to paid pr
 Possible group:
 
 ```text
-knowledge: bookstack outline linkding
+knowledge: docmost bookstack outline linkding
 ```
 
 #### BookStack

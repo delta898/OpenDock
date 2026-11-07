@@ -7,15 +7,17 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+import webbrowser
 from pathlib import Path
 
 from opendock_groups import group_services, validate_services
+from opendock_catalog import ServiceCatalog
 from opendock_settings import load_values
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
-CLOUDFLARE_ENV = ROOT_DIR / "cloudflare.env"
+CLOUDFLARE_ENV = ROOT_DIR / "config" / "cloudflare.env"
 ORIGIN_SERVICE_URL = os.environ.get("ORIGIN_SERVICE_URL", "http://localhost:80")
 API_BASE = "https://api.cloudflare.com/client/v4"
 DOMAIN_SPEC = importlib.util.spec_from_file_location(
@@ -50,33 +52,16 @@ def parse_env_file(path):
     return values
 
 
-def service_env_key(service):
-    return f"{service.replace('-', '_').upper()}_SUBDOMAIN"
-
-
-def service_subdomain(env, service):
-    return env.get(service_env_key(service)) or service
-
-
 def service_is_publishable(service):
-    return (
-        (ROOT_DIR / "services" / service / "compose.yml").is_file()
-        and (ROOT_DIR / "gateway" / "caddy" / "conf.d" / f"{service}.caddy").is_file()
-    )
+    try:
+        return bool(ServiceCatalog(ROOT_DIR).get(service).routing)
+    except ValueError:
+        return False
 
 
 def all_publishable_services():
-    services_dir = ROOT_DIR / "services"
-    if not services_dir.is_dir():
-        return []
-
-    services = []
-    for compose in services_dir.glob("*/compose.yml"):
-        service = compose.parent.name
-        if service_is_publishable(service):
-            services.append(service)
-
-    return sorted(services)
+    return [service.name for service in ServiceCatalog(ROOT_DIR).services
+            if service.routing]
 
 
 def target_services(target):
@@ -86,8 +71,8 @@ def target_services(target):
     if target in ("infra", "gateway"):
         return []
 
-    compose = ROOT_DIR / "services" / target / "compose.yml"
-    if compose.is_file():
+    known_services = ServiceCatalog(ROOT_DIR).names
+    if target in known_services:
         return [target] if service_is_publishable(target) else []
 
     group = group_services(target)
@@ -118,10 +103,10 @@ def build_routes(env, services):
         services = set(services)
         selected = [
             route for route in resolved
-            if route["type"] == "docker" and route["target"] in services
+            if route["type"] == "service" and route["target"] in services
         ]
     routes = [
-        {"service": route["target"], "type": route["type"], "hostname": route["hostname"], "origin": ORIGIN_SERVICE_URL}
+        {"target": route["target"], "type": route["type"], "hostname": route["hostname"], "origin": ORIGIN_SERVICE_URL}
         for route in selected
     ]
     return stack_domain, routes
@@ -131,8 +116,10 @@ def remove_cloudflare_route(hostname):
     """Remove only this hostname's Tunnel rule and its Tunnel CNAME, if present."""
     env = load_env()
     if not CLOUDFLARE_ENV.exists():
-        print("cloudflare.env not found; skipped Cloudflare cleanup.")
-        return
+        raise SystemExit(
+            "Cloudflare setup is required to remove public route records. "
+            "Run './opendock setup cloudflare' first."
+        )
     cf_env = dict(env)
     cf_env.update(parse_env_file(CLOUDFLARE_ENV))
     required_cloudflare_env(cf_env)
@@ -360,6 +347,29 @@ def sync_dns(client, zone_id, env, routes):
     return statuses
 
 
+def find_dns_conflicts(client, zone_id, env, routes):
+    """Preflight DNS names so known conflicts do not follow Tunnel mutations."""
+    tunnel_target = f"{env['CLOUDFLARE_TUNNEL_ID']}.cfargotunnel.com"
+    conflicts = []
+    for route in routes:
+        hostname = route["hostname"]
+        records = client.request(
+            "GET",
+            f"/zones/{zone_id}/dns_records",
+            query={"name": hostname},
+        ) or []
+        incompatible = [
+            record for record in records
+            if record.get("type") != "CNAME" or record.get("content") != tunnel_target
+        ]
+        if incompatible:
+            summary = ", ".join(
+                f"{record.get('type')} {record.get('content')}" for record in incompatible
+            )
+            conflicts.append((hostname, f"conflict ({summary})"))
+    return conflicts
+
+
 def print_statuses(title, statuses):
     print(title)
     if not statuses:
@@ -370,6 +380,66 @@ def print_statuses(title, statuses):
         print(f"  {hostname:<28} {status}")
 
 
+def has_local_browser_session():
+    """Avoid trying to open a GUI browser on a headless SSH server."""
+    if sys.platform == "darwin":
+        return not (os.environ.get("SSH_TTY") and not (
+            os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+        ))
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def print_open_links(routes):
+    """Print clickable terminal links and optionally open one in a browser."""
+    links = [(route["hostname"], f"https://{route['hostname']}") for route in routes]
+    if not links:
+        return
+
+    print("\nOpen:")
+    for hostname, url in links:
+        if sys.stdout.isatty():
+            terminal_url = f"\033]8;;{url}\033\\{url}\033]8;;\033\\"
+        else:
+            terminal_url = url
+        print(f"  {terminal_url}")
+
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return
+    if not has_local_browser_session():
+        print(
+            "Browser prompt skipped. In macOS Terminal, hold Command and double-click "
+            "the URL; other terminals may use Cmd/Ctrl-click."
+        )
+        return
+
+    if len(links) == 1:
+        answer = input("Open in browser? [y/N] ").strip().lower()
+        if answer not in {"y", "yes"}:
+            return
+        selected = links[0]
+    else:
+        answer = input(
+            f"Open a route in browser? Enter a number (1-{len(links)}), or Enter to skip: "
+        ).strip()
+        if not answer:
+            return
+        if not answer.isdecimal() or not 1 <= int(answer) <= len(links):
+            print("No browser opened; choose one of the listed route numbers next time.")
+            return
+        selected = links[int(answer) - 1]
+
+    try:
+        opened = webbrowser.open_new_tab(selected[1])
+    except (webbrowser.Error, OSError) as error:
+        print(f"Could not open a browser here: {error}")
+        print("Use the URL printed above in a browser on your device.")
+        return
+    if opened:
+        print(f"Opened {selected[0]} in the browser.")
+    else:
+        print("Could not open a browser here. Use the URL printed above on your device.")
+
+
 def main():
     if TARGET == "remove":
         if len(sys.argv) != 3:
@@ -377,18 +447,17 @@ def main():
         remove_cloudflare_route(sys.argv[2].rstrip(".").lower())
         return
     env = load_env()
-    is_hostname = any(
-        route["hostname"] == TARGET for route in DOMAINS.resolve_routes()
-    )
+    resolved_routes = DOMAINS.resolve_routes()
+    is_hostname = any(route["hostname"] == TARGET for route in resolved_routes)
     services = [] if is_hostname else target_services(TARGET)
     stack_domain, routes = build_routes(env, services)
     print_publish_plan(stack_domain, routes)
 
     if not CLOUDFLARE_ENV.exists():
-        print()
-        print("cloudflare.env not found. Skipping Cloudflare API sync.")
-        print("Copy cloudflare.env.example to cloudflare.env to enable automatic publishing.")
-        return
+        raise SystemExit(
+            "Cloudflare setup is required for OpenDock public routes. "
+            "Run './opendock setup cloudflare' first."
+        )
 
     cf_env = {}
     cf_env.update(env)
@@ -451,11 +520,11 @@ def main():
         print("Then rerun: ./opendock launch <hostname>")
         raise SystemExit(1)
 
-    print()
-    print("Open:")
-    for route in routes:
-        print(f"  https://{route['hostname']}")
+    print_open_links(routes)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
