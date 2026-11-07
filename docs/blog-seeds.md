@@ -1267,3 +1267,46 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - 글에서는 “새 major를 피해야 한다”는 일반 규칙으로 단순화하지 말고, 릴리스 채널,
     service data ownership, migration tooling, rollback 가능성을 확인해 기본값과 실험 경로를
     나누는 판단 과정을 보존한다.
+
+## OD-022. bootstrap이 개발 저장소 전체를 설치해야 할까
+
+- 상태: `seed`
+- 관련 파일: `scripts/bootstrap.sh`, `scripts/run-cloudflared.py`,
+  `config/shared/cloudflare.toml`, `config/cloudflare.env.default`, `README.md`
+- 주제: `Git 없이 시작하는 최소 설치: 저장소 checkout과 사용자 runtime을 분리하기`
+- 독자 질문: 새 Linux/macOS 서버에 GitHub 프로젝트 전체를 복제하지 않고
+  실제 실행에 필요한 파일만 안전하게 설치하려면 무엇을 기준으로 삼아야 할까?
+- 참고할 사항:
+  - 사용자가 bootstrap 결과 경로에 `.git`, `.github` 등 개발 파일이 모두 있는 것을
+    발견했다. 이전 bootstrap은 `git clone` 자체를 설치 방식으로 삼아서 Git도 필수였고,
+    사용자 runtime과 private 개발 저장소 checkout의 경계가 없었다.
+  - 현재 OpenDock CLI는 `opendock`, `pyproject.toml`, `scripts/` 런타임 모듈,
+    config descriptor/default, infra/gateway Compose와 descriptor, Caddy 기본 설정,
+    DB adapter, static root marker만 필요하다. 별도 서비스 코드는 설치 시 static catalog에서
+    받으므로 private OpenDock-Services tree를 bootstrap에 포함할 이유가 없다.
+  - bootstrap은 GitHub branch source archive를 curl로 받고 Python tar reader로 안전한
+    allowlist만 staging directory에 푼 뒤, 완성된 minimal runtime directory를 설치 경로로
+    이동한다. `.git`, `.github`, tests, docs, legacy bundled service trees를 사용자 경로에
+    복사하지 않는다. Ubuntu에서도 Git을 설치하지 않는다.
+  - 설치 방식 결정은 archive 전체를 네트워크에서 다운로드하되 target에는 필요한 파일만
+    기록하는 것이다. 현재 구현은 임시 tarball bandwidth를 줄이지는 않지만 Git metadata와
+    개발 자산을 사용자의 persistent install root에 남기지 않는다.
+  - 기존 `config/cloudflare.env`를 유일한 credential source로 두고 connector용 token-only
+    파일은 cloudflared 실행 중 권한이 제한된 임시 파일로만 만든다. cloudflared가 dotenv를
+    직접 읽지 못하는 인터페이스를 따라가되 token을 process argv 또는 영구 중복 파일에
+    넣지 않는다. 기존 cloudflared 프로세스가 발견되면 bootstrap이 종료하는 대신 그대로
+    두고 안내를 출력한다.
+- 보존할 교훈:
+  - clone 가능한 개발 저장소가 곧 제품 설치 artifact인 것은 아니다. 새 호스트에 필요한
+    runtime dependency를 확인하고, source tree와 user-owned config/state를 따로 배포한다.
+  - allowlist installer는 우연히 포함된 CI·테스트 파일을 줄이지만, 새 runtime dependency가
+    생길 때 allowlist와 clean-root smoke check도 같이 갱신해야 한다.
+  - “최소 설치”는 내려받는 바이트 수, 설치 경로에 남는 파일, 필수 host dependency를
+    구분해서 설명해야 한다. 이 구현은 Git과 개발 파일을 제거하지만 source archive 전체를
+    일시 다운로드한다.
+- 검증 상태: 현재 worktree의 allowlist로 만든 임시 minimal root에서 `./opendock help`를
+  실행했고 `.git`, `.github`, tests, docs 부재를 확인했다. synthetic archive selection,
+  bootstrap Bash syntax/help, Cloudflare setting metadata, runtime token temporary-file cleanup,
+  `git diff --check`를 확인했다. 깨끗한 Ubuntu/macOS 호스트에서 bootstrap 전체 실행, 실제
+  codeload 다운로드, Docker 설치, 기존 cloudflared daemon과의 실환경 상호작용은 검증하지
+  않았다.

@@ -19,7 +19,17 @@ not Renovate inputs.
 | Shared infrastructure | `config/infra.env.default` | `config/infra.env` |
 | Gateway | `config/gateway.env.default` | `config/gateway.env` |
 | Shared concern | `config/shared/<concern>.env.default` | `config/shared/<concern>.env` |
-| Cloudflare API integration | `config/cloudflare.env.default` | `config/cloudflare.env` |
+| Cloudflare integration | `config/cloudflare.env.default` | `config/cloudflare.env` |
+
+`config/cloudflare.env.default` and `config/cloudflare.env` keep all Cloudflare
+credentials together: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_TUNNEL_ID` are
+used by OpenDock for route publishing and DNS sync, while
+`CLOUDFLARED_TUNNEL_TOKEN` lets the `cloudflared` connector join the
+remotely-managed Tunnel. Bootstrap stores the connector token in the private
+`config/cloudflare.env`. At runtime it writes a short-lived, permission-
+restricted token-only file because `cloudflared --token-file` cannot consume a
+dotenv file; the runtime file is removed when the connector exits. The private
+`.env` file is ignored by Git and excluded from `./opendock sync`.
 
 Core owns settings such as `STACK_DOMAIN`. Infra owns shared database
 administrator credentials. Shared files are for values deliberately consumed

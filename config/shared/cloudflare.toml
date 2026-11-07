@@ -1,7 +1,7 @@
 schema_version = 1
 section_id = "cloudflare"
 config_file = "config/cloudflare.env"
-setting_keys = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_TUNNEL_ID"]
+setting_keys = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_TUNNEL_ID", "CLOUDFLARED_TUNNEL_TOKEN"]
 
 [[setup.fields]]
 name = "CLOUDFLARE_API_TOKEN"

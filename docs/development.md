@@ -28,54 +28,44 @@ This document describes the conventions used by OpenDock. It is intended for mai
   `./opendock launch <hostname>`; Cloudflare configuration is required before
   public launch.
 
-## Ubuntu Bootstrap
+## Host Bootstrap
 
-`scripts/bootstrap-ubuntu.sh` prepares a fresh Ubuntu Server host for OpenDock.
+`scripts/bootstrap.sh` is one entrypoint for Ubuntu Linux and macOS. It detects
+the host and applies the appropriate Docker/runtime steps.
 
-Supported target:
+- **Ubuntu Server 24.04 or newer:** install Python 3, curl, and CA
+  certificates from Ubuntu repositories. If Docker Engine or Compose v2 is
+  missing, install `docker.io` and `docker-compose-v2`; enable Docker with
+  systemd; add the login user to the `docker` group when needed. A new group
+  membership requires a fresh login.
+- **macOS:** require Python 3.11+ and a running Docker-compatible
+  runtime with Compose v2. If Docker Desktop is installed but stopped, open it
+  and wait for setup. The user completes Docker Desktop's first-run agreement;
+  bootstrap does not accept license terms on their behalf.
 
-```text
-Ubuntu Server 24.04 or newer
-```
+After downloading a source archive, bootstrap installs only the OpenDock
+runtime files into the chosen root; Git is not required. The installed root
+does not include `.git`, `.github`, tests, or developer documentation. Bootstrap
+then prepares the OpenDock root's
+`config/` directory and handles the optional remotely-managed Cloudflare Tunnel
+connector. It guides the user to create/select a tunnel and obtain a connector
+token. The token can be entered without echo or stored as
+`CLOUDFLARED_TUNNEL_TOKEN` in the private `config/cloudflare.env` for a later
+bootstrap rerun. That `.env` file is excluded from Git and sync. Linux runs the
+connector as a dedicated systemd service; macOS uses a user LaunchAgent when
+Homebrew is available. Neither setup prints or passes the token in a command-
+line argument. A short-lived token-only file is derived at runtime because
+`cloudflared --token-file` cannot read dotenv files; it is deleted when the
+connector exits. If another cloudflared connector is already running outside
+OpenDock, bootstrap leaves it alone, prints how to proceed, and continues its
+remaining setup and next-step output.
 
-The script intentionally uses Ubuntu packages instead of adding Docker's official apt repository. This keeps the beginner path shorter and avoids extra keyring/source-list steps. If Docker and Docker Compose are already installed, it does not replace them.
-
-Base packages:
-
-```text
-git
-python3
-curl
-ca-certificates
-```
-
-Docker packages installed only when Docker or Docker Compose is missing:
-
-```text
-docker.io
-docker-compose-v2
-```
-
-The script also:
-
-- runs `apt-get update`
-- enables and starts Docker with systemd when available
-- adds the login user to the `docker` group
-- verifies `docker --version`
-- verifies `docker compose version`
-- clones the repository to `~/OpenDock` by default
-- supports `--no-clone` for prerequisite-only setup
-- prints next steps
-
-The script intentionally does not:
-
-- run `apt upgrade`
-- initialize or edit the owner-specific files under `config/`
-- create or edit `config/cloudflare.env` (use `./opendock setup cloudflare`)
-- create a Cloudflare Tunnel
-- run `./opendock launch`
-
-This keeps system preparation separate from stack configuration and avoids hiding important security choices from the user.
+The connector token only starts `cloudflared`; the Cloudflare API token and
+Tunnel ID are used by `./opendock setup cloudflare` for route and DNS
+synchronization. All three values are stored in `config/cloudflare.env`.
+Bootstrap does not clone private OpenDock-Services or install service
+packages. `--no-install` prepares the host; rerun bootstrap with `--install`
+to install the minimal runtime later.
 
 ## Directory Conventions
 
