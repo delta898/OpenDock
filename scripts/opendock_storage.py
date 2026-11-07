@@ -26,7 +26,15 @@ def resolve_mount_source(service, mount, values):
         raise ValueError(
             f"{key} must be an absolute path or stay inside services/{service.name}/."
         )
-    return service.directory / path
+    return service.data_directory / path
+
+
+def compose_mount_environment(service, values):
+    """Return absolute interpolation values for declared Compose bind mounts."""
+    return {
+        mount["setting_key"]: str(resolve_mount_source(service, mount, values))
+        for mount in service.storage_mounts
+    }
 
 
 def symlink_component(path):
@@ -77,7 +85,7 @@ def validate_mounts(service, values):
             issues.append(f"{key} is too broad to use as a service data directory: {path}")
             continue
         try:
-            relative = resolved.relative_to(service.directory.resolve())
+            relative = resolved.relative_to(service.data_directory.resolve())
         except ValueError:
             relative = None
         if relative is not None:
@@ -122,7 +130,7 @@ def prepare_default_mounts(service, values):
 def external_paths_for_removal(service, values):
     """Return mount paths outside the service checkout that complete removal owns."""
     results = []
-    service_root = service.directory.resolve()
+    service_root = service.data_directory.resolve()
     for mount in service.storage_mounts:
         path = resolve_mount_source(service, mount, values)
         resolved = path.resolve()

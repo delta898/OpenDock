@@ -32,8 +32,18 @@ from opendock_capabilities import (
     validate_service_capabilities,
 )
 from opendock_catalog import ServiceCatalog
-from opendock_distribution import DistributionError, fetch_catalog, install as install_package, load_cached
-from opendock_storage import prepare_default_mounts, validate_mounts
+from opendock_distribution import (
+    DistributionError,
+    fetch_catalog,
+    install as install_package,
+    install_local_file,
+    load_cached,
+)
+from opendock_storage import (
+    compose_mount_environment,
+    prepare_default_mounts,
+    validate_mounts,
+)
 
 SERVICES = ROOT / "services"
 GROUPS = SERVICES / "groups.conf"
@@ -284,6 +294,8 @@ def compose(target, *args, capture=False, quiet=False):
             definition,
             docker_socket=env.get("DOCKER_SOCKET", "/var/run/docker.sock"),
         ))
+        values = settings.load_values(service=target, process_env=True)
+        env.update(compose_mount_environment(definition, values))
     return run(*command, "-f", directory / "compose.yml", "-p", target, *args,
                env=env, capture=capture, quiet=quiet)
 
@@ -869,7 +881,8 @@ def print_guide():
 
         Start here
           ./opendock search <words>                Find a service package
-          ./opendock install <service>             Install a service package
+          ./opendock install <service>             Install a catalog package
+          ./opendock install --local-file <zip>    Install a local package for testing
           ./opendock update                        Refresh the service catalog
           ./opendock list                          See installed services, runtime status, and groups
           ./opendock setup                         Configure your primary domain
@@ -958,8 +971,21 @@ def parser():
     search_cmd = sub.add_parser("search", help="Search available service packages")
     search_cmd.add_argument("terms", nargs="*", help="Words to match in service metadata")
     search_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
-    install_cmd = sub.add_parser("install", help="Install a service package from the catalog")
-    install_cmd.add_argument("service", help="Service ID from the catalog")
+    install_cmd = sub.add_parser(
+        "install",
+        help="Install a service package from the catalog or a local test ZIP",
+        description="Install a catalog release, or a locally built ZIP for development testing.",
+        epilog=(
+            "Local package example (does not publish or read from R2):\n"
+            "  ./dev_opendock install --local-file /tmp/wordpress.zip"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    install_cmd.add_argument("service", nargs="?", help="Service ID from the catalog")
+    install_cmd.add_argument(
+        "--local-file", type=Path,
+        help="Install a locally built package ZIP for development testing",
+    )
     install_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
     sub.add_parser("help", help="Show the getting-started guide",
                    description="Show the common OpenDock workflows and examples.")
@@ -1159,9 +1185,22 @@ def main(argv=None):
             if not matches:
                 print("No matching services.")
         elif command == "install":
-            catalog = load_cached(args.environment)
-            destination = install_package(args.environment, args.service, catalog, ROOT)
-            print(f"Installed {args.service} package at {destination.relative_to(ROOT)}.")
+            if args.local_file is not None:
+                if args.service is not None:
+                    raise CLIError("Use either a catalog service ID or --local-file, not both.")
+                if args.environment != "dev":
+                    raise CLIError(
+                        "Local package installs are for development testing; "
+                        "use './dev_opendock install --local-file <zip>'."
+                    )
+                destination = install_local_file(args.local_file, ROOT)
+                print(f"Installed local package at {destination.relative_to(ROOT)}.")
+            else:
+                if args.service is None:
+                    raise CLIError("Choose a catalog service ID or pass --local-file <zip>.")
+                catalog = load_cached(args.environment)
+                destination = install_package(args.environment, args.service, catalog, ROOT)
+                print(f"Installed {args.service} package at {destination.relative_to(ROOT)}.")
         elif command == "list":
             list_targets(args.kind)
         elif command == "info":

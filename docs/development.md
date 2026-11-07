@@ -82,17 +82,21 @@ Bundled service definitions live under:
 services/bundles/<service-id>/compose.yml
 ```
 
-Optional package source lives in the sibling OpenDock-Services repository at
-`services/extensions/<service-id>/`. Installed package releases are registered
-under OpenDock's `services/extensions/` directory after installation. Previous
-service directories are kept only in a local, gitignored `archive/` folder;
-the catalog and sync workflow ignore that archive.
+Service ideas and development source live in the sibling OpenDock-Services
+repository. `services/candidates/` holds idea notes,
+`services/experiments/<service-id>/` holds active work and local verification,
+and `services/extensions/<service-id>/` is reserved for package source that is
+ready for dev-catalog testing. Installed package releases are registered under
+OpenDock's own `services/extensions/` directory after installation. Previous
+legacy service directories are kept only in a local, gitignored `archive/`
+folder; the catalog and sync workflow ignore that archive.
 
 Examples:
 
 ```text
-OpenDock-Services/services/extensions/wordpress/compose.yml
-OpenDock-Services/services/extensions/n8n/compose.yml
+OpenDock-Services/services/experiments/<service-id>/compose.yml
+OpenDock-Services/services/extensions/uptime-kuma/compose.yml
+OpenDock-Services/services/extensions/n8n-v3/compose.yml
 ```
 
 ## CLI Target Discovery
@@ -100,8 +104,9 @@ OpenDock-Services/services/extensions/n8n/compose.yml
 The common CLI and service-owned behavior boundary is documented in
 [Command and Service Ownership](command-architecture.md). When adding a command
 capability, use that contract to decide whether it belongs in the common
-workflow or under `OpenDock-Services/services/extensions/<name>/`; do not add
-service-specific branches to the central dispatcher.
+workflow or under `OpenDock-Services/services/experiments/<name>/` while in
+development and `services/extensions/<name>/` when accepted for publication;
+do not add service-specific branches to the central dispatcher.
 
 The active service catalog discovers only installed package releases listed in:
 
@@ -115,6 +120,27 @@ OpenDock-Services and becomes visible after package installation registers its
 release.
 
 This is why new services do not need CLI dispatcher changes.
+
+### Test an experiment before pushing
+
+An experiment is intentionally invisible to OpenDock's service catalog and CI.
+Build a local ZIP, then install that file into the OpenDock checkout used for
+testing. This path uses the same safe extraction and descriptor validation as a
+catalog package, but it does not fetch or publish anything to R2:
+
+```sh
+# From the OpenDock-Services checkout; OpenDock is expected at ../OpenDock
+./scripts/test-service.sh wordpress
+```
+
+The wrapper chooses the source, generates a unique prerelease, builds and
+installs the ZIP into the OpenDock development checkout, then calls the normal
+`launch` flow. Set `OPENDOCK_ROOT` if the OpenDock checkout is elsewhere. The
+local install does not contact R2. Use a disposable OpenDock checkout because
+launch can create containers, routes, data, and private config. `launch` still
+follows normal public route requirements, including Cloudflare configuration.
+After local acceptance, move the source to `services/extensions/<service-id>/`
+in OpenDock-Services so dev CI can publish it.
 
 Shared platform components such as `infra/` and `gateway/` have a separate
 catalog and descriptor. `infra/opendock.toml` owns the shared setting keys,

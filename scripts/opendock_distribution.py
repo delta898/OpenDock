@@ -228,6 +228,9 @@ def _safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         with archive.open(member) as source, target.open("xb") as output:
             shutil.copyfileobj(source, output)
+        # Preserve declared executable commands, but normalize all other
+        # permissions instead of trusting arbitrary archive mode bits.
+        os.chmod(target, 0o755 if mode & 0o111 else 0o644)
 
 
 def install(environment: str, service_id: str, catalog: dict, root: Path) -> Path:
@@ -266,6 +269,73 @@ def install(environment: str, service_id: str, catalog: dict, root: Path) -> Pat
         raise DistributionError("Downloaded package size does not match the catalog.")
     if hashlib.sha256(payload).hexdigest() != release["sha256"]:
         raise DistributionError("Package SHA-256 does not match the catalog.")
+
+    return _install_package_payload(
+        service_id, release, payload, root, descriptor_range, capability_range
+    )
+
+
+def install_local_file(package_path: Path, root: Path) -> Path:
+    """Install a locally built ZIP for development without using a catalog."""
+    package_path = Path(package_path)
+    if package_path.is_symlink() or not package_path.is_file():
+        raise DistributionError(f"Local package is not a regular file: {package_path}")
+    try:
+        with package_path.open("rb") as package_file:
+            payload = package_file.read(MAX_PACKAGE_BYTES + 1)
+    except OSError as exc:
+        raise DistributionError(f"Could not read local package: {exc}") from exc
+    if not payload or len(payload) > MAX_PACKAGE_BYTES:
+        raise DistributionError("Local package is empty or exceeds the 128 MiB size limit.")
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+            descriptors = [item for item in archive.infolist() if item.filename == "opendock.toml"]
+            if len(descriptors) != 1 or descriptors[0].file_size > 1024 * 1024:
+                raise DistributionError("Local package must contain one small root opendock.toml.")
+            mode = descriptors[0].external_attr >> 16
+            if mode & 0o170000 == 0o120000:
+                raise DistributionError("Local package descriptor cannot be a symlink.")
+            import tomllib
+            metadata = tomllib.loads(archive.read(descriptors[0]).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError, zipfile.BadZipFile) as exc:
+        raise DistributionError(f"Local package descriptor is invalid: {exc}") from exc
+
+    service_id = metadata.get("service_id")
+    version = metadata.get("version")
+    if not isinstance(service_id, str) or not ID_RE.fullmatch(service_id):
+        raise DistributionError("Local package descriptor has an invalid service_id.")
+    if not isinstance(version, str) or not VERSION_RE.fullmatch(version):
+        raise DistributionError("Local package descriptor has an invalid version.")
+    from opendock_catalog import ServiceCatalog
+    descriptor_version = ServiceCatalog.DESCRIPTOR_VERSION
+    capability_version = ServiceCatalog.CAPABILITY_API_VERSION
+    release = {
+        "version": version,
+        "sha256": hashlib.sha256(payload).hexdigest(),
+        "size_bytes": len(payload),
+        "descriptor_schema": {"min": descriptor_version, "max": descriptor_version},
+        "capability_api": {"min": capability_version, "max": capability_version},
+    }
+    return _install_package_payload(
+        service_id,
+        release,
+        payload,
+        root,
+        (descriptor_version, descriptor_version),
+        (capability_version, capability_version),
+    )
+
+
+def _install_package_payload(
+    service_id: str,
+    release: dict,
+    payload: bytes,
+    root: Path,
+    descriptor_range: tuple[object, object],
+    capability_range: tuple[object, object],
+) -> Path:
+    """Validate and atomically activate a catalog or local package payload."""
 
     registry = root / "services" / "extensions" / "installed.toml"
     entries = []
@@ -330,8 +400,14 @@ def install(environment: str, service_id: str, catalog: dict, root: Path) -> Pat
                 for component in validator.platform.components
                 for group in component.shared_groups
             )
+            if service_id in {component.name for component in validator.platform.components}:
+                raise DistributionError(
+                    f"Service ID {service_id!r} conflicts with a platform component."
+                )
             metadata = validator._load_descriptor(descriptor, service_id)
         except (OSError, ValueError, CatalogError) as exc:
+            if isinstance(exc, DistributionError):
+                raise
             raise DistributionError(f"Package descriptor is invalid: {exc}") from exc
         if metadata.get("service_id") != service_id:
             raise DistributionError("Package descriptor service_id does not match catalog.")

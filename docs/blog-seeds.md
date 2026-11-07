@@ -1215,6 +1215,18 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     Cloudflare publish는 설정된 origin을 기준으로 managed hostname 규칙을
     갱신한다. 사용자의 별도 Tunnel connector 구성을 자동으로 추론하거나 보존하는 기능은
     넣지 않았다. 알려진 DNS 충돌은 Tunnel 설정 변경 전에 확인한다.
+  - 후속 정리에서 사용자는 서비스 readiness 영역을 세 단계로 나눴다:
+    `services/candidates/`는 아이디어 기록, `services/experiments/<service-id>/`는
+    구현과 로컬 검증, `services/extensions/<service-id>/`는 dev R2 게시 대상이다.
+    기존 CI는 extensions만 감시하므로, 후보 아이디어나 실험이 catalog release를 만들지
+    않도록 OpenDock-Services README/AGENTS와 OpenDock distribution 문서에 경계를 적고
+    release-target unit test에 candidates/experiments 경로 사례를 추가했다. Production은
+    dev 검증 이후 별도 release 단계로 남아 있으며 production workflow는 아직 없다.
+  - 사용자는 실제 배포 source에는 Uptime Kuma와 n8n-v2/v3만 남기기로 했다.
+    Docmost, Hermes, Immich, Jellyfin, Mastodon, Mattermost, Nextcloud, Supabase,
+    WordPress source를 `services/experiments/`로 옮겼다. 이 경로는 선택된 작업만
+    진행하는 workbench/holding area이며, 디렉터리가 있다고 모든 서비스를 병렬 개발하는
+    뜻은 아니다.
 - 보존할 교훈:
   - 개발 저장소 접근 제어와 제품 entitlement는 같은 문제로 취급하지 않는다.
     소스 저장소를 private으로 만드는 것만으로 고객 설치·업데이트 경험이 완성되지 않는다.
@@ -1232,9 +1244,34 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   domain별 instance lifecycle, 깨끗한 호스트, production publish, macOS 호스트 bootstrap 및
   WSL2 지원은 검증되지 않았다. 이번 후속 개선은 Python 정적 컴파일과 diff whitespace
   검토만 했으며 실 Cloudflare/API, package 재설치, `launch all` route migration은 실행하지
-  않았다. 현재 구현은 catalog의 `supported_hosts` 값을 구조적으로 검증하지만, 그 값으로
+  않았다. readiness-stage 후속 구현에서는 CI가 catalog membership을 현재
+  `services/extensions/` source 집합과 맞추도록 했다. 기존 catalog에는 있지만 source가
+  빠진 서비스는 다음 성공한 CI에서 catalog에서 제외하고 ZIP 객체는 자동 삭제하지 않는다.
+  catalog에 아직 없는 accepted source는 변경 감지 marker보다 오래된 변경이어도 게시한다.
+  OpenDock-Services release-pipeline unit test 8개와 `git diff --check`를 통과했고, 이동한
+  아홉 서비스 모두 새 경로에서 ZIP package build와 descriptor ID 검사를 통과했다.
+  사용자는 이번에 수작업으로 Mastodon과 Supabase도 dev에서 내리기로 했다. 현재 R2 catalog와
+  package prefix를 확인하고, catalog 및 두 ZIP의 비공개 백업 후 catalog 항목과
+  `packages/mastodon/0.1.0/opendock-service.zip`,
+  `packages/supabase/0.1.0/opendock-service.zip`을 삭제했다. 이후 `./dev_opendock update`가
+  3개 서비스를 받아왔고 `search`는 n8n-v2, n8n-v3, Uptime Kuma만 출력했다. Production은
+  변경하지 않았다.
+  현재 구현은 catalog의 `supported_hosts` 값을 구조적으로 검증하지만, 그 값으로
   현재 호스트의 설치 가능 여부를 차단하지 않는다. Uptime Kuma의 macOS 지원 여부는 공식
   자료를 확인하지 않았으므로 미확정이며, 이 기록은 지원 제한으로 해석하면 안 된다.
+  WordPress 통합에서는 experiments source를 dev CI에 보내기 전에 검증할 수 있도록
+  OpenDock에 `install --local-file <zip>` 개발 경로와 OpenDock-Services의
+  `scripts/test-service.sh <service-id>` wrapper를 추가했다. wrapper가 source directory와
+  local prerelease version을 고르고 package build → local registry install → launch를 이어간다.
+  이 과정은 R2를 조회하거나 게시하지 않는다. WordPress는 PHP 8.5 공식 이미지 태그가
+  확인되어 `7-php8.5-apache`를 선택했으며, patch 고정보다 최신 stable 7.x를 따라간다.
+  Package build, 임시 registry discovery, Compose config는 통과했고 source는 dev integration
+  대상인 extensions로 옮겼다. 사용자의 wrapper 실행에서 shared infra는 healthy가 됐지만,
+  WordPress bind mount의 상대 경로가 stable service data root가 아니라 immutable
+  `releases/<version>` project directory 기준으로 해석되어 container creation이 실패했다.
+  공통 Compose 호출과 purge가 descriptor storage setting을 절대 경로 환경변수로 전달하도록
+  수정하고 회귀 테스트를 추가했다. 이 수정 후 실제 WordPress container launch는 아직
+  재검증되지 않았다.
 
 ## OD-021. n8n 3.x early access를 기본 self-hosted 서비스에 바로 채택하지 않기
 

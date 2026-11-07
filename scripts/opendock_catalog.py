@@ -32,6 +32,17 @@ class ServiceDefinition:
     descriptor: Mapping[str, object]
 
     @property
+    def data_directory(self) -> Path:
+        """Return the stable writable service root outside an installed release."""
+        if (
+            self.directory.parent.name == "releases"
+            and len(self.directory.parents) > 2
+            and self.directory.parents[2].name == "extensions"
+        ):
+            return self.directory.parent.parent
+        return self.directory
+
+    @property
     def capabilities(self) -> tuple[str, ...]:
         return tuple(self.descriptor.get("capabilities", ()))
 
