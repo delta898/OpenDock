@@ -199,10 +199,11 @@ size and SHA-256, reject unsafe ZIP members, and stage package activation. The
 local install registry records the digest without a publisher-key field.
 Catalog origins are owned by the platform configuration interface. Register
 `OPENDOCK_DEV_CATALOG_BASE_URL` and `OPENDOCK_PROD_CATALOG_BASE_URL` in
-`config/core.toml`; local values belong in `config/core.env`, and stable public
-defaults belong in `config/core.env.default`. The URL is public metadata, not a
-credential. Set the dev URL in `config/core.env`, then use the development
-wrapper for distribution commands:
+`config/core.toml`; stable public defaults belong in `config/core.env.default`,
+and optional local overrides belong in `config/core.env`. The defaults point
+to the dev and production package domains respectively. They are public
+metadata, not credentials, so bootstrap supplies them automatically. Use the
+development wrapper for dev distribution commands:
 
 ```sh
 ./dev_opendock update
@@ -213,6 +214,10 @@ wrapper for distribution commands:
 The wrapper adds `--environment dev` to `update`, `search`, and `install` and
 rejects an explicit environment override. Use `./opendock update
 --environment prod` to refresh the production catalog.
+
+Both catalog origins use their R2 buckets' Cloudflare custom domains. The
+development and production buckets use separate hostnames so package contents
+and catalog membership cannot be confused.
 
 The dev R2 bucket and CI publisher are connected. The Uptime Kuma `0.1.0`
 release was published by tag-triggered GitHub Actions. From a local OpenDock
@@ -240,6 +245,6 @@ proof of a full service lifecycle.
 ## Remaining implementation work
 
 - Automatic catalog refresh policy and behavior when the catalog is offline.
-- Production URL and dev-to-prod promotion workflow.
+- Dev-to-prod promotion policy and catalog rollback behavior.
 - Whether future signatures cover the catalog, artifact, or both, and how
   trusted keys would be distributed.

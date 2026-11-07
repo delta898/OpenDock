@@ -5,6 +5,8 @@ REPO_URL="https://github.com/delta898/OpenDock"
 INSTALL_DIR="${HOME}/OpenDock"
 INSTALL_DIR_SET=0
 BRANCH="main"
+BRANCH_SET=0
+REPO_URL_SET=0
 INSTALL_OPENDOCK=1
 HOST_PLATFORM=""
 DOCKER_GROUP_ADDED=0
@@ -72,11 +74,13 @@ while [ "$#" -gt 0 ]; do
 		--repo)
 			[ "$#" -ge 2 ] || die "--repo requires a URL"
 			REPO_URL="$2"
+			REPO_URL_SET=1
 			shift 2
 			;;
 		--branch)
 			[ "$#" -ge 2 ] || die "--branch requires a branch name"
 			BRANCH="$2"
+			BRANCH_SET=1
 			shift 2
 			;;
 		--no-cloudflared)
@@ -237,44 +241,78 @@ prepare_host() {
 }
 
 install_platform_runtime() {
+	local runtime_mode="install"
 	if [ "$INSTALL_OPENDOCK" -ne 1 ]; then
 		return
 	fi
+	if [ -L "$INSTALL_DIR" ]; then
+		die "OpenDock root is a symbolic link: ${INSTALL_DIR}. Choose its real directory with --dir."
+	fi
 	if [ -e "$INSTALL_DIR" ]; then
-		if [ -x "$INSTALL_DIR/opendock" ] && [ -f "$INSTALL_DIR/.opendock-install" ]; then
-			warn "${INSTALL_DIR} already contains a minimal OpenDock installation. Skipping file installation."
+		if [ -f "$INSTALL_DIR/opendock" ] && [ -e "$INSTALL_DIR/.git" ]; then
+			log "Recognized a Git checkout at ${INSTALL_DIR}; leaving repository files untouched."
 			return
+		elif [ -f "$INSTALL_DIR/opendock" ] && [ -f "$INSTALL_DIR/.opendock-install" ]; then
+			log "Recognized the existing minimal OpenDock installation at ${INSTALL_DIR}"
+			runtime_mode="refresh"
+		elif [ -f "$INSTALL_DIR/opendock" ] \
+			&& [ -d "$INSTALL_DIR/config" ] \
+			&& [ -d "$INSTALL_DIR/scripts" ] \
+			&& [ -d "$INSTALL_DIR/infra" ] \
+			&& [ -d "$INSTALL_DIR/gateway" ]; then
+			log "Recognized the existing OpenDock runtime at ${INSTALL_DIR}"
+			runtime_mode="refresh"
+		elif [ -d "$INSTALL_DIR" ] && [ -z "$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+			log "Using the existing empty directory at ${INSTALL_DIR} for the OpenDock runtime."
+		else
+			die "${INSTALL_DIR} exists but is not a recognizable OpenDock directory. Nothing was changed there. Use --dir for an empty path or an existing OpenDock root."
 		fi
-		if [ -x "$INSTALL_DIR/opendock" ] && [ -f "$INSTALL_DIR/scripts/opendock_catalog.py" ]; then
-			warn "${INSTALL_DIR} already contains an OpenDock checkout. Leaving its files untouched."
-			return
+	fi
+	local repository archive_url archive_file="" extract_root install_stage install_parent
+	local local_source_root="" script_path script_root source_kind source_path
+	if [ "$REPO_URL_SET" -eq 0 ] && [ "$BRANCH_SET" -eq 0 ] && [ -f "${BASH_SOURCE[0]}" ]; then
+		script_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+		script_root="$(cd "$(dirname "$script_path")/.." && pwd)"
+		if [ -f "$script_root/opendock" ] && [ -f "$script_root/config/core.toml" ] && [ -d "$script_root/scripts" ]; then
+			local_source_root="$script_root"
 		fi
-		die "${INSTALL_DIR} already exists and is not a managed minimal OpenDock installation. Choose another path with --dir."
 	fi
-	need_command curl || die "curl is required to download the OpenDock runtime."
-	local repository archive_url archive_file extract_root install_stage install_parent
-	repository="${REPO_URL#https://github.com/}"
-	repository="${repository%.git}"
-	if [ "$repository" = "$REPO_URL" ] || [[ "$repository" == */*/* ]]; then
-		die "--repo must be an HTTPS GitHub repository URL such as https://github.com/delta898/OpenDock."
+	if [ -n "$local_source_root" ]; then
+		source_kind="directory"
+		source_path="$local_source_root"
+		log "Preparing the runtime from the local OpenDock source tree"
+	else
+		need_command curl || die "curl is required to download the OpenDock runtime."
+		repository="${REPO_URL#https://github.com/}"
+		repository="${repository%.git}"
+		if [ "$repository" = "$REPO_URL" ] || [[ "$repository" == */*/* ]]; then
+			die "--repo must be an HTTPS GitHub repository URL such as https://github.com/delta898/OpenDock."
+		fi
+		archive_url="https://codeload.github.com/${repository}/tar.gz/refs/heads/${BRANCH}"
+		archive_file="$(mktemp)"
+		source_kind="archive"
+		source_path="$archive_file"
 	fi
-	archive_url="https://codeload.github.com/${repository}/tar.gz/refs/heads/${BRANCH}"
-	archive_file="$(mktemp)"
 	install_parent="$(dirname "$INSTALL_DIR")"
 	mkdir -p "$install_parent"
 	extract_root="$(mktemp -d "$install_parent/.opendock-bootstrap.XXXXXX")"
 	install_stage="$extract_root/runtime"
 	mkdir -p "$install_stage"
-	trap 'rm -f "${archive_file:-}"; rm -rf "${extract_root:-}"' EXIT
-	log "Downloading the OpenDock runtime source archive (Git is not required)"
-	curl -fsSL "$archive_url" -o "$archive_file"
-	python3 - "$archive_file" "$install_stage" <<'PY'
+	trap 'if [ -n "${archive_file:-}" ]; then rm -f "$archive_file"; fi; rm -rf "${extract_root:-}"' EXIT
+	if [ "$source_kind" = "archive" ]; then
+		log "Downloading the OpenDock runtime source archive (Git is not required)"
+		curl -fsSL "$archive_url" -o "$archive_file"
+	fi
+	python3 - "$source_kind" "$source_path" "$install_stage" <<'PY'
 import sys
 import tarfile
 from pathlib import Path, PurePosixPath
+import shutil
+import stat
 
-archive, destination = sys.argv[1:]
+source_kind, source_path, destination = sys.argv[1:]
 destination = Path(destination)
+source_path = Path(source_path)
 exact = {"opendock", "pyproject.toml", "services/groups.conf", "static-sites/README.md"}
 
 def include(path: PurePosixPath) -> bool:
@@ -295,50 +333,127 @@ def include(path: PurePosixPath) -> bool:
         )
     return False
 
-with tarfile.open(archive, "r:gz") as bundle:
-    members = bundle.getmembers()
-    if not members:
-        raise SystemExit("The OpenDock source archive is empty.")
-    prefix = members[0].name.split("/", 1)[0]
-    copied = 0
-    for member in members:
-        raw = PurePosixPath(member.name)
-        if len(raw.parts) < 2 or raw.parts[0] != prefix:
+def copy_file(source: Path, relative: PurePosixPath, mode: int) -> None:
+    target = destination.joinpath(*relative.parts)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, target)
+    target.chmod(mode & 0o755 or 0o644)
+
+copied = 0
+if source_kind == "directory":
+    for source in source_path.rglob("*"):
+        if source.is_symlink() or not source.is_file():
             continue
-        relative = PurePosixPath(*raw.parts[1:])
-        if relative.is_absolute() or ".." in relative.parts or not include(relative):
-            continue
-        if not member.isfile():
-            continue
-        target = destination.joinpath(*relative.parts)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        source = bundle.extractfile(member)
-        if source is None:
-            continue
-        with source, target.open("wb") as output:
-            output.write(source.read())
-        target.chmod(member.mode & 0o755 or 0o644)
-        copied += 1
-    if copied < 10:
-        raise SystemExit("The archive did not contain the expected OpenDock runtime files.")
+        relative = PurePosixPath(source.relative_to(source_path).as_posix())
+        if include(relative):
+            copy_file(source, relative, stat.S_IMODE(source.stat().st_mode))
+            copied += 1
+elif source_kind == "archive":
+    with tarfile.open(source_path, "r:gz") as bundle:
+        members = bundle.getmembers()
+        if not members:
+            raise SystemExit("The OpenDock source archive is empty.")
+        prefix = members[0].name.split("/", 1)[0]
+        for member in members:
+            raw = PurePosixPath(member.name)
+            if len(raw.parts) < 2 or raw.parts[0] != prefix:
+                continue
+            relative = PurePosixPath(*raw.parts[1:])
+            if relative.is_absolute() or ".." in relative.parts or not include(relative):
+                continue
+            if not member.isfile():
+                continue
+            source = bundle.extractfile(member)
+            if source is None:
+                continue
+            target = destination.joinpath(*relative.parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with source, target.open("wb") as output:
+                shutil.copyfileobj(source, output)
+            target.chmod(member.mode & 0o755 or 0o644)
+            copied += 1
+else:
+    raise SystemExit("Unsupported OpenDock runtime source.")
+
+if copied < 10:
+    raise SystemExit("The source did not contain the expected OpenDock runtime files.")
 PY
 	chmod 700 "$install_stage/opendock"
 	: > "$install_stage/.opendock-install"
 	chmod 600 "$install_stage/.opendock-install"
 	mkdir -p "$install_stage/services/extensions"
-	if [ -e "$INSTALL_DIR" ]; then
-		die "${INSTALL_DIR} appeared during installation. No files were copied there."
+	if [ "$runtime_mode" = "refresh" ]; then
+		log "Refreshing runtime files while preserving local configuration and installed services"
+		python3 - "$install_stage" "$INSTALL_DIR" "${SUDO_USER:-}" <<'PY'
+import os
+from pathlib import Path
+import pwd
+import shutil
+import sys
+
+source_root = Path(sys.argv[1])
+target_root = Path(sys.argv[2])
+sudo_user = sys.argv[3]
+owner = pwd.getpwnam(sudo_user) if sudo_user and os.geteuid() == 0 else None
+items = sorted(source_root.rglob("*"))
+
+# Validate destinations before writing. Runtime refresh must not follow an
+# existing symlink out of the selected OpenDock root.
+for source in items:
+    target = target_root / source.relative_to(source_root)
+    current = target
+    while current != target_root:
+        if current.is_symlink():
+            raise SystemExit(f"Refusing to refresh through a symbolic link: {current}")
+        current = current.parent
+    if target.exists():
+        if source.is_dir() and not target.is_dir():
+            raise SystemExit(f"Runtime directory conflicts with an existing file: {target}")
+        if source.is_file() and not target.is_file():
+            raise SystemExit(f"Runtime file conflicts with an existing non-file: {target}")
+
+for source in items:
+    target = target_root / source.relative_to(source_root)
+    if source.is_dir():
+        created = not target.exists()
+        target.mkdir(parents=True, exist_ok=True)
+        if created and owner:
+            os.chown(target, owner.pw_uid, owner.pw_gid)
+        continue
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, target)
+    if owner:
+        os.chown(target, owner.pw_uid, owner.pw_gid)
+PY
+		[ -x "$INSTALL_DIR/opendock" ] || chmod 700 "$INSTALL_DIR/opendock"
+		chmod 600 "$INSTALL_DIR/.opendock-install"
+		log "OpenDock runtime files refreshed; local configuration and installed services were preserved"
+	else
+		if [ -d "$INSTALL_DIR" ]; then
+			if [ -n "$(find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+				die "${INSTALL_DIR} changed during installation and is no longer empty. No files were copied there."
+			fi
+			rmdir "$INSTALL_DIR" || die "Could not prepare the empty OpenDock root at ${INSTALL_DIR}. No files were copied there."
+		elif [ -L "$INSTALL_DIR" ]; then
+			die "${INSTALL_DIR} appeared as a symbolic link during installation. No files were copied there."
+		fi
+		mv "$install_stage" "$INSTALL_DIR"
+		if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
+			local owner_group
+			owner_group="$(id -gn "$SUDO_USER")"
+			chown -R "$SUDO_USER:$owner_group" "$INSTALL_DIR"
+		fi
 	fi
-	mv "$install_stage" "$INSTALL_DIR"
-	if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
-		local owner_group
-		owner_group="$(id -gn "$SUDO_USER")"
-		chown -R "$SUDO_USER:$owner_group" "$INSTALL_DIR"
+	if [ -n "$archive_file" ]; then
+		rm -f "$archive_file"
 	fi
-	rm -f "$archive_file"
 	rm -rf "$extract_root"
 	trap - EXIT
-	log "Installed the minimal OpenDock runtime without Git metadata, CI files, tests, or developer docs"
+	if [ "$runtime_mode" = "refresh" ]; then
+		log "OpenDock runtime refresh complete"
+	else
+		log "Installed the minimal OpenDock runtime without Git metadata, CI files, tests, or developer docs"
+	fi
 }
 
 ensure_cloudflare_env_file() {

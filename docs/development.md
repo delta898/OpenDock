@@ -43,8 +43,8 @@ the host and applies the appropriate Docker/runtime steps.
   and wait for setup. The user completes Docker Desktop's first-run agreement;
   bootstrap does not accept license terms on their behalf.
 
-After downloading a source archive, bootstrap installs only the OpenDock
-runtime files into the chosen root; Git is not required. The installed root
+Bootstrap stages only the OpenDock runtime files from its local source tree or
+downloaded archive into the chosen root; Git is not required. The installed root
 does not include `.git`, `.github`, tests, or developer documentation. Bootstrap
 then prepares the OpenDock root's
 `config/` directory and handles the optional remotely-managed Cloudflare Tunnel
@@ -59,6 +59,12 @@ line argument. A short-lived token-only file is derived at runtime because
 connector exits. If another cloudflared connector is already running outside
 OpenDock, bootstrap leaves it alone, prints how to proceed, and continues its
 remaining setup and next-step output.
+
+On a rerun, bootstrap refreshes allowlisted runtime files and tracked defaults
+in managed minimal installs and complete OpenDock runtime directories. It
+preserves private configuration and installed service packages, and leaves Git
+checkouts untouched. It can also install into an existing empty target
+directory. It stops before writing to any other non-empty directory.
 
 The connector token only starts `cloudflared`; the Cloudflare API token and
 Tunnel ID are used by `./opendock setup cloudflare` for route and DNS

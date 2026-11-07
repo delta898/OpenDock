@@ -55,6 +55,12 @@ Bootstrap prepares Docker, then installs the OpenDock runtime under
 `~/OpenDock`. It installs only the files needed to run OpenDock; it does not
 copy Git metadata, CI files, tests, or developer documentation. Service
 packages are downloaded separately when you install or launch a service.
+If `~/OpenDock` already contains a managed OpenDock runtime, bootstrap refreshes
+its runtime files and defaults while preserving private configuration and
+installed services. It leaves a Git checkout untouched. An existing empty
+directory can be used as the install target. For any other non-empty directory,
+choose a different path with `--dir`; bootstrap will not merge files into an
+unrelated directory.
 
 On Ubuntu, bootstrap installs Python 3 and, when needed, Docker Engine and
 Compose v2. If it adds your account to the `docker` group, log out and back in
@@ -139,8 +145,7 @@ You can also inspect the [bootstrap script](scripts/bootstrap.sh).
 
 ## Development package flow
 
-Set the public catalog base URL in private `config/core.env` as
-`OPENDOCK_DEV_CATALOG_BASE_URL`, then use the development wrapper:
+Use the development wrapper to select the dev catalog automatically:
 
 ```sh
 ./dev_opendock update

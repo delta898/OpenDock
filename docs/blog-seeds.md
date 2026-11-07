@@ -1361,6 +1361,20 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     오인됐다. 실제 도움말에는 flag가 있었고, `set -o pipefail` 아래의 `grep -q`가 먼저
     닫힌 pipe 때문에 SIGPIPE를 내며 검사만 실패했다. 전체 도움말을 변수에 받은 뒤
     문자열을 검사하도록 바꿨다.
+  - Ubuntu 호스트에서 bootstrap을 다시 실행하자 Docker 확인 후 기존 OpenDock 경로가
+    관리형 최소 설치 marker와 당시의 좁은 checkout 파일 조건에 맞지 않아 중단됐다.
+    사용자는 설치 경로가 이미 있어도 bootstrap 후 `./opendock update`가 바로 되어야
+    한다고 짚었다. 기존 runtime은 allowlist 파일과 tracked defaults를 갱신하고, private
+    설정 및 설치된 서비스 패키지는 보존하도록 흐름을 확장했다. Git checkout은 개발 파일을
+    덮지 않도록 별도로 남겨둔다.
+  - 이 과정에서 production catalog URL이 빈 tracked default로 남아 새 설치 직후 `update`
+    가 실패하는 문제도 드러났다. URL은 credential이 아니므로 bootstrap runtime archive의
+    allowlist가 설치하는 `config/core.env.default`에 개발 및 production catalog의 Custom
+    Domain을 각각 지정했다. 이전 local `r2.dev` override는 private 설정을 백업한 뒤 제거해
+    새 tracked default가 적용되게 했다.
+  - bootstrap을 local source checkout에서 실행하면 해당 source tree의 allowlist 파일을 staging하고,
+    `curl | bash` 설치는 공개 branch archive를 staging한다. 기존 runtime refresh도 같은
+    allowlist만 덮어쓰므로 private `.env`와 설치된 extension package는 건드리지 않는다.
 - 보존할 교훈:
   - clone 가능한 개발 저장소가 곧 제품 설치 artifact인 것은 아니다. 새 호스트에 필요한
     runtime dependency를 확인하고, source tree와 user-owned config/state를 따로 배포한다.
@@ -1375,8 +1389,9 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   `git diff --check`를 확인했다. 추가로 사용자가 겪은 macOS Homebrew 설치 후 지원 검사
   오류를 재현해, 설치된 `cloudflared 2026.10.7`의 실제 help와 수정된 Bash 검사를 확인했다.
   Tunnel connector의 실제 시작 및 기존 cloudflared daemon과의 실환경 상호작용은 검증하지
-  않았다. 깨끗한 Ubuntu/macOS bootstrap 전체 실행과 실제 codeload 다운로드도 아직 검증하지
-  않았다.
+  않았다. 이번 rerun refresh 경로, 기존 사용자 설정·서비스 데이터 보존, production catalog
+  URL 기본값이 설치본의 `./opendock update`에서 적용되는지는 아직 실행 검증하지 않았다.
+  깨끗한 Ubuntu/macOS bootstrap 전체 실행과 실제 codeload 다운로드도 아직 검증하지 않았다.
 
 ## OD-023. package 버전과 Docker 이미지 tag를 사용자에게 구분해 보여주기
 
