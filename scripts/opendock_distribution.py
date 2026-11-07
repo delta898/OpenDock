@@ -149,6 +149,14 @@ def validate_catalog(raw: bytes) -> dict:
         seen.add(sid)
         if not isinstance(service.get("display_name"), str):
             raise DistributionError(f"Catalog service {sid!r} has no display_name.")
+        primary_image = service.get("primary_image")
+        if primary_image is not None and (
+            not isinstance(primary_image, str)
+            or not re.fullmatch(
+                r"[A-Za-z0-9_.-]+:[A-Za-z0-9_][A-Za-z0-9_.-]*", primary_image
+            )
+        ):
+            raise DistributionError(f"Catalog service {sid!r} has invalid primary_image metadata.")
         releases = service.get("releases")
         if not isinstance(releases, list):
             raise DistributionError(f"Catalog service {sid!r} has invalid releases.")
@@ -350,8 +358,12 @@ def _install_package_payload(
                 or not isinstance(current.get("extensions"), list)
                 or any(
                     not isinstance(entry, dict)
-                    or set(entry) != {
+                    or not {
                         "service_id", "version", "release_path", "sha256", "installed_at"
+                    } <= set(entry)
+                    or not set(entry) <= {
+                        "service_id", "version", "release_path", "sha256", "installed_at",
+                        "setup_completed_at",
                     }
                     or not isinstance(entry.get("service_id"), str)
                     or not ID_RE.fullmatch(entry.get("service_id", ""))
@@ -365,6 +377,13 @@ def _install_package_payload(
                     or not re.fullmatch(r"[a-f0-9]{64}", entry.get("sha256", ""))
                     or not isinstance(entry.get("installed_at"), str)
                     or not entry.get("installed_at")
+                    or (
+                        "setup_completed_at" in entry
+                        and (
+                            not isinstance(entry.get("setup_completed_at"), str)
+                            or not entry.get("setup_completed_at")
+                        )
+                    )
                     for entry in current["extensions"]
                 )):
             raise DistributionError("Installed package registry has invalid entries.")
@@ -427,19 +446,30 @@ def _install_package_payload(
         ):
             raise DistributionError("Package capability API is outside the catalog compatibility range.")
 
+        previous = next(
+            (entry for entry in entries if entry.get("service_id") == service_id), None
+        )
         entries = [entry for entry in entries if entry.get("service_id") != service_id]
-        entries.append({
+        installed_entry = {
             "service_id": service_id,
             "version": release["version"],
             "release_path": f"services/extensions/{service_id}/releases/{release['version']}",
             "sha256": release["sha256"],
             "installed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
+        }
+        if previous and previous.get("setup_completed_at"):
+            installed_entry["setup_completed_at"] = previous["setup_completed_at"]
+        entries.append(installed_entry)
         registry.parent.mkdir(parents=True, exist_ok=True)
         body = ["schema_version = 1", ""]
         for entry in sorted(entries, key=lambda value: value["service_id"]):
             body.extend(("[[extensions]]",))
-            for key in ("service_id", "version", "release_path", "sha256", "installed_at"):
+            for key in (
+                "service_id", "version", "release_path", "sha256", "installed_at",
+                "setup_completed_at",
+            ):
+                if key not in entry:
+                    continue
                 body.append(f"{key} = {json.dumps(entry[key])}")
             body.append("")
         temp_registry = registry.with_suffix(".toml.tmp")
@@ -455,3 +485,54 @@ def _install_package_payload(
             temp_registry.unlink(missing_ok=True)
             raise DistributionError(f"Could not activate installed package: {exc}") from exc
     return target
+
+
+def mark_setup_complete(root: Path, service_ids: list[str]) -> None:
+    """Persist completion of first-time setup for installed service packages."""
+    if not service_ids:
+        return
+    registry = Path(root) / "services" / "extensions" / "installed.toml"
+    import tomllib
+    try:
+        current = tomllib.loads(registry.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise DistributionError(f"Installed package registry is invalid: {exc}") from exc
+    entries = current.get("extensions")
+    if current.get("schema_version") != 1 or not isinstance(entries, list):
+        raise DistributionError("Installed package registry has invalid entries.")
+    wanted = set(service_ids)
+    found = set()
+    changed = False
+    completed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("service_id") not in wanted:
+            continue
+        found.add(entry["service_id"])
+        if not entry.get("setup_completed_at"):
+            entry["setup_completed_at"] = completed_at
+            changed = True
+    if found != wanted:
+        missing = ", ".join(sorted(wanted - found))
+        raise DistributionError(
+            f"Cannot record setup completion for unregistered service(s): {missing}."
+        )
+    if not changed:
+        return
+    body = ["schema_version = 1", ""]
+    for entry in sorted(entries, key=lambda value: value["service_id"]):
+        body.append("[[extensions]]")
+        for key in (
+            "service_id", "version", "release_path", "sha256", "installed_at",
+            "setup_completed_at",
+        ):
+            if key in entry:
+                body.append(f"{key} = {json.dumps(entry[key])}")
+        body.append("")
+    temporary = registry.with_suffix(".toml.tmp")
+    try:
+        temporary.write_text("\n".join(body), encoding="utf-8")
+        temporary.chmod(0o600)
+        os.replace(temporary, registry)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise DistributionError(f"Could not record service setup completion: {exc}") from exc

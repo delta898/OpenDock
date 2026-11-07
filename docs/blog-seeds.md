@@ -195,9 +195,16 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     secret은 생성한다. 첫 로그인용 credential은 생성하되 사용자가 찾을 수
     있게 안내한다. subdomain 같은 값은 안전한 기본값을 제공한다.
   - `make setup [target]`은 대화형으로 사용자의 의도를 받고 기존 값에서
-    Enter를 누르면 유지한다. `make secrets [target]`과 `make launch`는
-    비대화형이며 누락된 generated secret만 채운다. launch가 질문을 시작하지
-    않게 해 원격 자동화와 재실행 가능성을 보존했다.
+    Enter를 누르면 유지한다. `make secrets [target]`은 명시적인 복구 경로다.
+    서비스 package의 launch는 첫 service setup 완료 여부를 별도 상태로
+    추적한다. 설정값과 generated secret이 이미 유효해도 setup 미완료면
+    최초 launch에서 service setup을 수행하고, 이후 interactive launch는
+    현재 설정값을 Secret 비노출 상태로 보여주고 변경 여부를 묻는다.
+    non-interactive launch는 유효한 기존 설정을 유지한다.
+  - WordPress 첫 실행에서 storage 위치만 묻고 곧바로 infra를 시작한
+    사용자 로그가 문제를 드러냈다. 공통 설정 검증은 통과했지만 service
+    setup 완료 상태가 없어, 설정의 유효성과 서비스 setup의 완료를 같은
+    것으로 취급한 것이 원인이었다.
   - 기존 실값은 덮어쓰지 않고 placeholder나 빈 값만 교체하며, 수정 전
     `common.env`를 timestamp backup한다. Supabase JWT secret처럼 서로 연동된
     값은 일부만 갱신하지 않고 bundle 단위로 다시 만든다.
@@ -209,7 +216,10 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   - interactive setup과 non-interactive launch의 경계를 섞으면 자동화가
     예측 불가능해진다.
 - 검증 상태: setup, Secret 보존·생성, backup과 check-config 흐름이 저장소의
-  공통 운영 경로로 사용되고 있다.
+  공통 운영 경로로 사용되고 있다. 설치 후 첫 launch에서 setup을 빠뜨리지
+  않도록 package registry에 완료 상태를 남기고, 반복 launch에서 설정을
+  안전하게 검토하는 흐름은 단위 테스트로 검증했다. WordPress를 포함한
+  실제 Docker launch에서의 새 프롬프트 동작은 아직 검증하지 않았다.
 
 ## OD-007. Cloudflare Tunnel과 Caddy 사이에서 HTTPS 책임을 나눈 경험
 
@@ -1353,3 +1363,39 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   Tunnel connector의 실제 시작 및 기존 cloudflared daemon과의 실환경 상호작용은 검증하지
   않았다. 깨끗한 Ubuntu/macOS bootstrap 전체 실행과 실제 codeload 다운로드도 아직 검증하지
   않았다.
+
+## OD-023. package 버전과 Docker 이미지 tag를 사용자에게 구분해 보여주기
+
+- 상태: `seed`
+- 관련 파일: `OpenDock/opendock`, `scripts/opendock_distribution.py`,
+  `OpenDock-Services/scripts/update-catalog.py`, 각 extension의 `opendock.toml`,
+  `compose.yml`, `.env.default`
+- 주제: `검색 결과의 0.1.1은 앱 버전이 아니었다—서비스 catalog의 버전 UX`
+- 독자 질문: 플랫폼 내부 package release와 사용자가 실제 배포할 upstream
+  Docker image tag 중 무엇을 기본 검색 결과로 보여줘야 할까?
+- 참고할 사항:
+  - 사용자는 `search`에서 `0.1.1` 같은 OpenDock package version만 보며 실제 앱
+    버전을 알 수 없었다. 두 숫자가 모두 “서비스 버전”처럼 보이는 혼동을
+    발견했다.
+  - 검색 기본 출력은 package version을 감추고 대표 애플리케이션 image의
+    마지막 경로 요소인 `name:tag`만 보여주도록 했다. 예를 들어
+    `docker.n8n.io/n8nio/n8n:2.46.6`은 `n8n:2.46.6`이다. Registry와
+    namespace는 검색에서 생략하고, OpenDock 내부 release version은 설치·배포
+    메타데이터로 계속 유지한다.
+  - 여러 Compose image 중 어떤 것이 서비스 앱인지 추측하지 않도록 descriptor의
+    `[catalog].primary_image_service`에 주 service를 선언한다. CI catalog builder가
+    해당 Compose image와 패키지 `.env.default`를 결합해 tag를 산출한다. 따라서
+    tag를 descriptor에 중복 입력하지 않고 이미지 기본값이 바뀌면 catalog 출력도
+    함께 바뀐다.
+  - `uptime-kuma:2`처럼 upstream이 major tag를 쓰면 catalog도 `:2` 그대로
+    표시한다. 이는 정확한 pull 결과 patch를 뜻하지 않는다. `info`는 설치된
+    Compose 설정의 전체 image 참조를 보여주는 상세 경로다.
+- 보존할 교훈:
+  - 시스템 내부 배포 버전과 실제 앱 runtime 버전은 이름만 “version”으로
+    합치지 말고 각자의 목적에 맞는 화면에 둔다.
+  - 이미지 선택은 이름 기반 휴리스틱보다 서비스 descriptor의 명시적 역할
+    선언으로 연결하고, 실제 Compose/default input으로 표시값을 생성한다.
+- 검증 상태: 네 서비스의 local package를 만들어 catalog generator에 넣고
+  `n8n:2.46.6`, `n8n:3.1.0`, `uptime-kuma:2`,
+  `wordpress:7-php8.5-apache` 출력을 확인했다. OpenDock와 OpenDock-Services의
+  관련 unit test를 통과했다. 해당 변경은 아직 dev R2에 publish되지 않았다.

@@ -30,6 +30,7 @@ class ServiceDefinition:
     compose_file: Path
     descriptor_file: Path
     descriptor: Mapping[str, object]
+    setup_completed_at: str | None = None
 
     @property
     def data_directory(self) -> Path:
@@ -58,6 +59,11 @@ class ServiceDefinition:
     def setup_fields(self) -> tuple[Mapping[str, object], ...]:
         setup = self.descriptor.get("setup", {})
         return tuple(setup.get("fields", ()))
+
+    @property
+    def setup_complete(self) -> bool:
+        """Whether the installed package has completed its first service setup."""
+        return self.setup_completed_at is not None
 
     @property
     def setup_dependencies(self) -> tuple[str, ...]:
@@ -465,13 +471,18 @@ class ServiceCatalog:
         extension_root = (self.services_dir / "extensions").resolve()
         platform_names = {component.name for component in self.platform.components}
         for entry in entries:
-            if not isinstance(entry, dict) or set(entry) != {"service_id", "version", "release_path", "sha256", "installed_at"}:
+            required_entry_keys = {
+                "service_id", "version", "release_path", "sha256", "installed_at"
+            }
+            allowed_entry_keys = required_entry_keys | {"setup_completed_at"}
+            if not isinstance(entry, dict) or not required_entry_keys <= set(entry) or not set(entry) <= allowed_entry_keys:
                 raise CatalogError(f"Invalid entry in extension registry {registry_path}.")
             service_id = entry["service_id"]
             version = entry["version"]
             relative = entry["release_path"]
             digest = entry["sha256"]
             installed_at = entry["installed_at"]
+            setup_completed_at = entry.get("setup_completed_at")
             if (not isinstance(service_id, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", service_id)
                     or service_id in seen):
                 raise CatalogError(f"Invalid or duplicate service_id in extension registry: {service_id!r}.")
@@ -489,6 +500,10 @@ class ServiceCatalog:
                 raise CatalogError(f"Invalid package digest for extension {service_id!r}.")
             if not isinstance(installed_at, str) or not installed_at:
                 raise CatalogError(f"Invalid package installation metadata for {service_id!r}.")
+            if setup_completed_at is not None and (
+                not isinstance(setup_completed_at, str) or not setup_completed_at
+            ):
+                raise CatalogError(f"Invalid service setup metadata for {service_id!r}.")
             relative_path = PurePosixPath(relative)
             expected_path = (
                 PurePosixPath("services/extensions") / service_id / "releases" / version
@@ -516,6 +531,7 @@ class ServiceCatalog:
             found.append(ServiceDefinition(
                 name=service_id, directory=directory, compose_file=compose_file,
                 descriptor_file=descriptor_file, descriptor=MappingProxyType(descriptor),
+                setup_completed_at=setup_completed_at,
             ))
             seen.add(service_id)
         return found
@@ -562,7 +578,7 @@ class ServiceCatalog:
             set(descriptor) - {
                 "schema_version", "service_id", "version", "display_name", "capability_api_version",
                 "capabilities", "dependencies", "commands", "setup", "routing", "removal",
-                "storage", "lifecycle",
+                "storage", "lifecycle", "catalog",
             }
         )
         if unknown_descriptor_fields:
@@ -570,6 +586,21 @@ class ServiceCatalog:
                 f"Service descriptor {path} has unsupported fields: "
                 + ", ".join(unknown_descriptor_fields)
             )
+
+        catalog = descriptor.get("catalog", {})
+        if not isinstance(catalog, dict):
+            raise CatalogError(f"Service descriptor {path} has invalid [catalog] metadata.")
+        unknown_catalog_fields = sorted(set(catalog) - {"primary_image_service"})
+        if unknown_catalog_fields:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported catalog fields: "
+                + ", ".join(unknown_catalog_fields)
+            )
+        if "primary_image_service" in catalog and (
+            not isinstance(catalog["primary_image_service"], str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]+", catalog["primary_image_service"])
+        ):
+            raise CatalogError(f"Service descriptor {path} has an invalid catalog.primary_image_service.")
 
         version = descriptor.get("schema_version")
         if type(version) is not int or version != self.DESCRIPTOR_VERSION:

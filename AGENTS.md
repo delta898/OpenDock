@@ -82,6 +82,13 @@ service-specific setup commands.
 - `./opendock setup <service>` is the detailed path for reviewing configuration
   and completing first-run service setup. It should cover the same required
   preparation as launch, so users do not need an extra hidden command.
+- Track first-time setup completion per installed service package explicitly.
+  A successful `setup <service>` records completion; if it has not been
+  recorded, the first `launch <service>` must run the service setup flow before
+  starting the application. Do not infer completion merely because defaults,
+  generated secrets, or required config values already exist. On later
+  interactive launches, show current service settings with secrets redacted and
+  offer to edit them; accepting the current values must continue to launch.
 - Do not re-run a completed interactive first-run wizard just because a user
   asks to review OpenDock-managed settings. If the upstream service provides a
   useful repeatable configuration flow, expose it as an explicit

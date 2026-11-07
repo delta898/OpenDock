@@ -69,6 +69,7 @@ Illustrative shape (field spelling remains open):
     {
       "service_id": "wordpress",
       "display_name": "WordPress",
+      "primary_image": "wordpress:7-php8.5-apache",
       "summary": "Publish and manage a website",
       "tags": ["website", "cms"],
       "releases": [
@@ -88,6 +89,12 @@ Illustrative shape (field spelling remains open):
   ]
 }
 ```
+
+`primary_image` is the compact `name:tag` of the service's declared primary
+Compose image. CI derives it from the descriptor's primary Compose service and
+the package's `.env.default`; it omits registry and namespace path components.
+`search` displays this upstream image tag and omits OpenDock package release
+versions, which remain in `releases` for install and update selection.
 
 The client validates schema, IDs, versions, artifact key, digest shape,
 compatibility ranges, supported-host metadata, and size before using an entry. Artifact keys are resolved
@@ -144,7 +151,8 @@ versioned trust feature.
 2. Validate descriptor, capability declarations, compatibility, and allowlist.
 3. Build the single-service archive and calculate SHA-256.
 4. Upload to an immutable versioned R2 key and verify the object.
-5. Generate the environment catalog from accepted releases.
+5. Generate the environment catalog from accepted releases, including the
+   primary image tag used for search display.
 6. Publish catalog last.
 
 CI must not upload local configuration or customer data. Dev and prod use
