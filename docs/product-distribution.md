@@ -32,8 +32,9 @@ Within OpenDock-Services, `services/candidates/` is an idea backlog and
 `services/experiments/<service-id>/` is the active development and local test
 area. Only integrations promoted to `services/extensions/<service-id>/` are
 package publication inputs. The `dev` branch publishes those packages to the
-dev R2 catalog for OpenDock integration testing. Production promotion is a
-separate release step and is not enabled yet. These source stages belong to
+dev R2 catalog for OpenDock integration testing. Production promotion uses a
+separate workflow on `release/*` branches, with a protected GitHub Environment
+approval before CI receives prod R2 credentials. These source stages belong to
 OpenDock-Services; OpenDock does not scan or special-case them.
 
 ## User and operating model
@@ -251,8 +252,10 @@ the public first-run database page loaded after correcting the Tunnel origin
 on the separate connector host. Kuma's database choice and setup are
 intentionally user-owned; OpenDock does not create its schema or account. The
 database wizard and post-setup app readiness remain unverified. Uptime Kuma has
-no declared Compose healthcheck or application readiness hook. Upgrades, purge, domain-scoped
-instances, multi-domain isolation, and production publishing remain
-unimplemented or unverified. Legacy service files remain in the OpenDock
-checkout during the migration and are not the product model for new service
-work.
+no declared Compose healthcheck or application readiness hook. Upgrades,
+purge, domain-scoped instances, and multi-domain isolation remain
+unimplemented or unverified. Production workflow code and GitHub Environment
+setup are maintained in OpenDock-Services; do not treat production publishing
+as active until its `opendock-prod` credentials and reviewer protection are
+configured there. Legacy service files remain in the OpenDock checkout during
+the migration and are not the product model for new service work.
