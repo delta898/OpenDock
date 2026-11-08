@@ -1480,9 +1480,16 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     기록하고 이전 포맷의 유효한 root는 resolve 후 검증한다.
   - 호스트 Docker socket을 mount하는 서비스는 기본 test runner가 거부한다.
     Compose namespace만 분리해도 Docker daemon 권한은 격리되지 않기 때문이다.
-    OpenHands 실험은 이 제한에 걸리며, 별도 Docker daemon 지원과 현재 빠진
-    service Caddy handler descriptor를 해결하기 전까지 이 공통 경로에서
-    완전 테스트할 수 없다.
+    OpenHands 실험은 명시적인 `--allow-host-docker-socket` opt-in을 추가해
+    disposable Docker host에서만 실행하도록 했다. 이 옵션은 daemon 권한을
+    sandbox하지 않는다. OpenHands package는 Caddy handler descriptor와
+    `/projects` workspace mount를 선언한다.
+  - OpenHands 첫 실행에서는 local-test가 hostname route를 resolver에 이미
+    합성하고 있는데도 `route add`를 다시 호출해 중복 route 오류가 났다.
+    격리 환경에서는 route를 별도 저장하지 않고 session hostname과 service ID로
+    계산하므로, 런처의 중복 등록을 제거했다. 또 service descriptor의 이미지
+    기본값이 `.env.default`와 달랐던 점을 발견해 같은 Agent Canvas 버전으로
+    정렬했다.
 - 보존할 교훈:
   - local integration은 컨테이너가 `running`인지만 보는 검사가 아니다. package
     extraction, service setup, dependency order, Caddy 설정 유효성, hostname을
@@ -1496,9 +1503,16 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   실행했다. 첫 실행은 HTTP timeout과 macOS manifest 경로 검증 오류를 드러냈다.
   수정 뒤 사용자가 재실행한 결과 Caddy 설정 `Valid configuration`, Caddy 경유
   HTTP 302, service/gateway/infra 컨테이너 종료, project별 volume과 network 제거,
-  임시 checkout 삭제 및 `RESULT: PASS`를 확인했다. 로컬에서는 Python 문법,
+  임시 checkout 삭제 및 `RESULT: PASS`를 확인했다. 후속 OpenHands 실행은 route
+  중복 등록 오류를 드러냈고 이를 제거한 뒤, 사용자가
+  `./scripts/test-service.sh openhands --allow-host-docker-socket`에서 Caddy 경유
+  HTTP 308, service/gateway/infra 종료, project volume/network 제거, 임시 checkout
+  삭제와 `RESULT: PASS`를 확인했다. 이 검증은 사용자의 Docker host에서 이뤄졌다.
+  308의 redirect 목적지, 브라우저 UI, 로그인, agent conversation/sandbox 생성과
+  해당 동적 container의 정리는 검증하지 않았다. Docker socket opt-in은 host daemon
+  전체에 권한을 부여하므로 disposable/trusted Docker host에서만 써야 한다.
+  Cloudflare/R2 배포 경로도 아직 검증되지 않았다. 로컬에서는 Python 문법,
   Bash syntax/help, `git diff --check`와 CLI/distribution/lifecycle 관련 테스트
   39개가 통과했다. 전체 66개 테스트 중 12개는 legacy service config path와
   Hermes registry를 기대해 실패했다. 전체 suite가 현행 product contract에 맞게
-  정리됐는지는 별도 과제다. Docker socket을 요구하는 OpenHands와 Cloudflare/R2
-  배포 경로는 검증되지 않았다.
+  정리됐는지는 별도 과제다.

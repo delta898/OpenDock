@@ -7,22 +7,32 @@ SERVICES_ROOT="${OPENDOCK_SERVICES_ROOT:-${OPEN_DOCK_ROOT}/../OpenDock-Services}
 
 usage() {
 	cat <<'EOF'
-Usage: ./scripts/test-service.sh <service-id>
+Usage: ./scripts/test-service.sh <service-id> [--allow-host-docker-socket]
 
 Build a local package from OpenDock-Services, install it in a disposable
 OpenDock checkout, verify its HTTP route through isolated Caddy, and clean up.
 
+The Docker socket option grants the test service control over the selected host
+Docker daemon. Use it only on a disposable Docker host.
 Set OPENDOCK_SERVICES_ROOT if OpenDock-Services is not next to this checkout.
 EOF
 }
 
-if [[ $# -ne 1 || "$1" == "-h" || "$1" == "--help" ]]; then
+if [[ $# -lt 1 || $# -gt 2 || "$1" == "-h" || "$1" == "--help" ]]; then
 	usage
 	[[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]] && exit 0
 	exit 2
 fi
 
 SERVICE_ID="$1"
+ALLOW_HOST_DOCKER_SOCKET=0
+if [[ $# -eq 2 ]]; then
+	if [[ "$2" != "--allow-host-docker-socket" ]]; then
+		printf 'Unknown option: %s\n' "$2" >&2
+		exit 2
+	fi
+	ALLOW_HOST_DOCKER_SOCKET=1
+fi
 if [[ ! "$SERVICE_ID" =~ ^[a-z][a-z0-9-]*$ ]]; then
 	printf 'Invalid service ID: %s\n' "$SERVICE_ID" >&2
 	exit 2
@@ -109,8 +119,13 @@ python3 "$PACKAGE_SCRIPT" "$SERVICE_SOURCE" "$LOCAL_VERSION" "$PACKAGE_PATH"
 
 printf '\n==> %s: start isolated OpenDock + Caddy test\n' "$SERVICE_ID"
 set +e
-"${OPEN_DOCK_ROOT}/opendock" local-test start "$PACKAGE_PATH" \
-	--domain "${SERVICE_ID}.local.test" 2>&1 | tee "$START_LOG"
+if [[ $ALLOW_HOST_DOCKER_SOCKET -eq 1 ]]; then
+	"${OPEN_DOCK_ROOT}/opendock" local-test start "$PACKAGE_PATH" \
+		--domain "${SERVICE_ID}.local.test" --allow-host-docker-socket 2>&1 | tee "$START_LOG"
+else
+	"${OPEN_DOCK_ROOT}/opendock" local-test start "$PACKAGE_PATH" \
+		--domain "${SERVICE_ID}.local.test" 2>&1 | tee "$START_LOG"
+fi
 start_status=${PIPESTATUS[0]}
 set -e
 if [[ $start_status -ne 0 ]]; then

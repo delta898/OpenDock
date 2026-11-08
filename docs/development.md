@@ -89,11 +89,13 @@ The lower-level runner can also be used directly when inspecting a package:
 their project labels, removes the exact test network, and deletes the
 disposable checkout. It does not run a service purge against the main host.
 Packages that request `/var/run/docker.sock` are refused because they can
-control the host Docker daemon outside those Compose namespaces. They need a
-separately isolated Docker daemon for a contained test. The wrapper verifies
-local ZIP installation, setup, service start, and an HTTP response through
-Caddy. It does not verify application-specific workflows, CI publication, or
-Cloudflare DNS/Tunnel behavior.
+control the host Docker daemon outside those Compose namespaces. For an
+explicitly trusted service on a disposable Docker host, the wrapper accepts
+`--allow-host-docker-socket`; this grants the service access to that host daemon
+and does not sandbox it. The wrapper verifies local ZIP installation, setup,
+service start, and an HTTP response through Caddy. It does not verify
+application-specific workflows, CI publication, or Cloudflare DNS/Tunnel
+behavior.
 
 Before proposing a validation result, distinguish automated checks run in the
 repository from behavior verified on a real host. A passing package or CLI
