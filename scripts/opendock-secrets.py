@@ -11,6 +11,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Mapping
 
+from opendock_root import resolve_root
 from opendock_capabilities import (
     SecretGenerationContext,
     SecretPlanningContext,
@@ -23,7 +24,7 @@ from opendock_groups import group_services, validate_services
 import opendock_settings as SETTINGS
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = resolve_root(__file__)
 
 
 @dataclass(frozen=True)

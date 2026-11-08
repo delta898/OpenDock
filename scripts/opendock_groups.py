@@ -1,9 +1,10 @@
 from pathlib import Path
 
+from opendock_root import resolve_root
 from opendock_catalog import service_names
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = resolve_root(__file__)
 GROUPS_FILE = ROOT_DIR / "services" / "groups.conf"
 
 

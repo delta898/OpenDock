@@ -12,6 +12,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from opendock_root import compose_project, local_test_enabled, resolve_root
 from opendock_catalog import ServiceCatalog
 from opendock_settings import (
     CONFIG, LEGACY_ENV, compose_env_files, initialize, load_values,
@@ -23,7 +24,7 @@ from opendock_storage import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = resolve_root(__file__)
 
 
 class RemovalError(Exception):
@@ -31,12 +32,16 @@ class RemovalError(Exception):
 
 
 def run_command(args, *, capture=False, check=True, input_text=None, env=None):
+    child_env = os.environ.copy()
+    if env:
+        child_env.update(env)
+    child_env["OPENDOCK_ROOT"] = str(ROOT)
     try:
         result = subprocess.run(
             [str(arg) for arg in args], cwd=ROOT, text=True,
             stdout=subprocess.PIPE if capture else None,
             stderr=subprocess.PIPE if capture else None, input=input_text, check=False,
-            env=env,
+            env=child_env,
         )
     except FileNotFoundError as exc:
         raise RemovalError(f"Required command not found: {exc.filename}") from exc
@@ -72,7 +77,7 @@ def compose_prefix(service):
     command = ["docker", "compose", "--project-directory", directory]
     for env_file in compose_env_files(service):
         command += ["--env-file", env_file]
-    return command + ["-f", directory / "compose.yml", "-p", service]
+    return command + ["-f", directory / "compose.yml", "-p", compose_project(service)]
 
 
 def compose_environment(service):
@@ -89,7 +94,7 @@ def infra_compose_prefix():
     command = ["docker", "compose", "--project-directory", directory]
     for env_file in compose_env_files("infra"):
         command += ["--env-file", env_file]
-    return command + ["-f", directory / "compose.yml", "-p", "infra"]
+    return command + ["-f", directory / "compose.yml", "-p", compose_project("infra")]
 
 
 def database_removal_request(adapter_file, adapter, container, database, role):
@@ -532,8 +537,9 @@ def remove_routes(service, plan):
     if not current_routes:
         return
     for route in current_routes:
-        run_command([sys.executable, ROOT / "scripts" / "publish-cloudflare.py",
-                     "remove", route["hostname"]])
+        if not local_test_enabled():
+            run_command([sys.executable, ROOT / "scripts" / "publish-cloudflare.py",
+                         "remove", route["hostname"]])
     remaining = [route for route in current if not (
         route.get("type") == "service" and route.get("target") == service)]
     domains.save_routes(remaining)
@@ -655,6 +661,13 @@ def main(argv=None):
         print("Usage: ./opendock purge <service> [--dry-run]", file=sys.stderr)
         return 2
     service = args[0]
+    if local_test_enabled():
+        print(
+            "OpenDock remove: service purge is disabled in local test mode; "
+            "use 'opendock local-test clean <runtime-root>' to remove the isolated test stack.",
+            file=sys.stderr,
+        )
+        return 1
     try:
         plan = build_plan(service)
         print_plan(plan)

@@ -9,11 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from opendock_root import resolve_root
 from opendock_settings import load_values
 from opendock_catalog import ServiceCatalog
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = resolve_root(__file__)
 DOMAINS_FILE = ROOT / "domains.conf"
 GENERATED_ROUTES = ROOT / "gateway" / "caddy" / "conf.d" / "zz-opendock-routes.caddy"
 GENERATED_HANDLERS = ROOT / "gateway" / "caddy" / "conf.d" / "yy-opendock-service-handlers.caddy"
@@ -107,6 +108,19 @@ def parse_domains_file():
 def resolve_routes():
     env = load_values(process_env=False)
     routes = parse_domains_file() if DOMAINS_FILE.exists() else service_routes(env)
+    local_hostname = os.environ.get("OPENDOCK_LOCAL_TEST_HOSTNAME", "").strip().lower()
+    if os.environ.get("OPENDOCK_LOCAL_TEST") == "1" and local_hostname:
+        routes = [route for route in routes if route["hostname"] != local_hostname]
+        service_id = os.environ.get("OPENDOCK_LOCAL_TEST_SERVICE", "").strip()
+        if not service_id:
+            session_file = ROOT / "config" / "local-test" / "session.json"
+            try:
+                import json
+                service_id = json.loads(session_file.read_text()).get("service_id", "")
+            except (OSError, ValueError):
+                service_id = ""
+        if service_id:
+            routes.append({"hostname": local_hostname, "type": "service", "target": service_id})
     validate_routes(routes)
     return routes
 
@@ -158,6 +172,10 @@ def default_routes():
 
 
 def save_routes(routes):
+    if os.environ.get("OPENDOCK_LOCAL_TEST") == "1" and any(
+        route["type"] == "external" for route in routes
+    ):
+        raise SystemExit("External routes are not allowed in local test mode.")
     if DOMAINS_FILE.exists():
         backup_dir = ROOT / "backups" / "domain-routes"
         backup_dir.mkdir(parents=True, exist_ok=True)

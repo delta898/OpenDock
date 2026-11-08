@@ -5,6 +5,7 @@ import re
 import sys
 from pathlib import Path
 
+from opendock_root import resolve_root
 from opendock_groups import group_services, validate_services
 from opendock_catalog import ServiceCatalog, service_names
 from opendock_capabilities import ValidationContext, runtime_environment, validate_config
@@ -14,7 +15,7 @@ from opendock_settings import (
 from opendock_storage import validate_mounts
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = resolve_root(__file__)
 DOMAIN_SPEC = importlib.util.spec_from_file_location(
     "opendock_domains", ROOT_DIR / "scripts" / "opendock-domains.py"
 )

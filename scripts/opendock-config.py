@@ -8,12 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from opendock_root import resolve_root
 from opendock_groups import group_services, validate_services
 from opendock_catalog import ServiceCatalog, service_names
 import opendock_settings as SETTINGS
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = resolve_root(__file__)
 SECRETS_SCRIPT = ROOT_DIR / "scripts" / "opendock-secrets.py"
 
 

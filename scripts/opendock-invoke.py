@@ -4,10 +4,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from opendock_root import resolve_root
 from opendock_catalog import ServiceCatalog
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = resolve_root(__file__)
 
 
 def service_dir(name):

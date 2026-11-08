@@ -1440,3 +1440,65 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   `n8n:2.46.6`, `n8n:3.1.0`, `uptime-kuma:2`,
   `wordpress:7-php8.5-apache` 출력을 확인했다. OpenDock와 OpenDock-Services의
   관련 unit test를 통과했다. 해당 변경은 아직 dev R2에 publish되지 않았다.
+
+## OD-024. push 전에 서비스 ZIP부터 Caddy 응답과 정리까지 로컬에서 검증하기
+
+- 상태: `seed`
+- 관련 파일: `scripts/test-service.sh`, `scripts/opendock_local_test.py`,
+  `scripts/opendock_root.py`, `scripts/opendock-domains.py`, `opendock`,
+  `docs/development.md`
+- 주제: `Compose up만으로는 통합 테스트가 아니다—서비스별 disposable OpenDock와 Caddy 경로`
+- 독자 질문: R2나 Cloudflare에 push하기 전에 로컬 서비스 package가 설치되고,
+  실제 hostname으로 Caddy를 통과하며, 테스트 자원까지 안전하게 회수되는지
+  한 명령으로 어떻게 확인할까?
+- 참고할 사항:
+  - 처음에는 OpenHands sandbox 추가를 위해 서비스 통합이 필요했지만,
+    push 전 로컬 검증 경로 자체가 없다는 점이 먼저 드러났다. 기존 wrapper는
+    개발 OpenDock checkout에 package를 설치해 정상 운영 설정·route·data와
+    섞일 수 있었다. 목표를 `scripts/test-service.sh <service-id>` 하나로
+    실험/extension source 선택, local ZIP 생성, 격리 설치·기동, Caddy 응답,
+    정리까지 잇는 것으로 좁혔다.
+  - OpenDock-Services의 `services/experiments/<id>` 또는
+    `services/extensions/<id>`에서 고유 prerelease ZIP을 만들고, OpenDock은
+    gitignored/private 설정이 복사되지 않는 tracked-code-only 임시 checkout을
+    생성한다. 각 테스트는 Compose project, shared network, named volume을
+    고유 suffix로 격리하고 Caddy HTTP를 loopback 포트에만 publish한다.
+    hostname은 `.test`를 사용하므로 R2 catalog, Cloudflare DNS/Tunnel 변경,
+    `/etc/hosts` 수정이 필요 없다.
+  - 첫 실제 Uptime Kuma 실행은 Compose start까지 갔지만 HTTP 요청을 받지 못했고,
+    cleanup도 `Invalid local test session manifest`로 중단됐다. macOS가
+    `/var/folders/...` 임시 경로를 `/private/var/folders/...`로 정규화하는데
+    manifest는 문자열을 그대로 비교했다. 동시에 local Caddy handler 경로가
+    설치 release의 `releases/<version>/routing`을 생략했다. manifest 경로를
+    canonical path로 비교하고 extension의 active release 경로를 사용하도록
+    고쳤다. Caddy `validate`를 launch 단계에 추가해 다음 실행에서 routing
+    설정 오류를 HTTP retry 전에 드러내도록 했다.
+  - `clean`은 기록된 프로젝트만 compose down하고 해당 project label이 붙은
+    named volume과 정확한 테스트 network만 제거한 뒤 임시 checkout을 지운다.
+    `purge`로 서비스 이름을 추정해 지우지 않는다. cleanup 실패 시 임시 root를
+    보존하고 복구 경로를 안내한다. 세션 manifest도 macOS의 canonical root를
+    기록하고 이전 포맷의 유효한 root는 resolve 후 검증한다.
+  - 호스트 Docker socket을 mount하는 서비스는 기본 test runner가 거부한다.
+    Compose namespace만 분리해도 Docker daemon 권한은 격리되지 않기 때문이다.
+    OpenHands 실험은 이 제한에 걸리며, 별도 Docker daemon 지원과 현재 빠진
+    service Caddy handler descriptor를 해결하기 전까지 이 공통 경로에서
+    완전 테스트할 수 없다.
+- 보존할 교훈:
+  - local integration은 컨테이너가 `running`인지만 보는 검사가 아니다. package
+    extraction, service setup, dependency order, Caddy 설정 유효성, hostname을
+    통한 HTTP 응답, failure cleanup까지 하나의 검증 경계로 묶어야 한다.
+  - disposable은 단순히 임시 폴더라는 뜻이 아니다. Compose project/network/volume,
+    host port와 mount 경로가 각각 범위가 한정되고 정리 소유권이 명시되어야 한다.
+  - 테스트 harness의 성공 문구는 검증 범위를 말해야 한다. HTTP 302는 Caddy와
+    upstream을 통한 응답을 확인하지만 로그인, 데이터 보존, 앱 내부 workflow,
+    외부 Cloudflare 공개까지 증명하지 않는다.
+- 검증 상태: 사용자가 자신의 Docker 환경에서 `./scripts/test-service.sh uptime-kuma`를
+  실행했다. 첫 실행은 HTTP timeout과 macOS manifest 경로 검증 오류를 드러냈다.
+  수정 뒤 사용자가 재실행한 결과 Caddy 설정 `Valid configuration`, Caddy 경유
+  HTTP 302, service/gateway/infra 컨테이너 종료, project별 volume과 network 제거,
+  임시 checkout 삭제 및 `RESULT: PASS`를 확인했다. 로컬에서는 Python 문법,
+  Bash syntax/help, `git diff --check`와 CLI/distribution/lifecycle 관련 테스트
+  39개가 통과했다. 전체 66개 테스트 중 12개는 legacy service config path와
+  Hermes registry를 기대해 실패했다. 전체 suite가 현행 product contract에 맞게
+  정리됐는지는 별도 과제다. Docker socket을 요구하는 OpenHands와 Cloudflare/R2
+  배포 경로는 검증되지 않았다.

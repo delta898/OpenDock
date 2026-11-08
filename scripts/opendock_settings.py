@@ -16,10 +16,11 @@ except ModuleNotFoundError:  # OpenDock requires Python 3.11+
     tomllib = None
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from opendock_root import resolve_root
 from opendock_catalog import ServiceCatalog
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = resolve_root(__file__)
 CONFIG = ROOT / "config"
 LEGACY_ENV = ROOT / "common.env"
 BACKUPS = ROOT / "backups" / "config"

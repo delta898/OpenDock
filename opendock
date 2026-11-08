@@ -20,8 +20,9 @@ except ModuleNotFoundError:  # Python < 3.11 can use the rest of the CLI, but no
     tomllib = None
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.environ.get("OPENDOCK_ROOT", Path(__file__).resolve().parent)).expanduser().resolve()
 sys.path.insert(0, str(ROOT / "scripts"))
+from opendock_root import compose_project, local_test_enabled, local_test_mount
 from opendock_capabilities import (
     ComposeOperations,
     ServiceContext,
@@ -129,10 +130,14 @@ class CLIError(Exception):
 
 
 def run(*args, env=None, capture=False, quiet=False, input_data=None):
+    child_env = os.environ.copy()
+    if env:
+        child_env.update(env)
+    child_env["OPENDOCK_ROOT"] = str(ROOT)
     try:
         result = subprocess.run(
-            [str(arg) for arg in args], cwd=ROOT, env=env,
-            input=input_data, text=not isinstance(input_data, bytes),
+            [str(arg) for arg in args], cwd=ROOT,
+            input=input_data, text=not isinstance(input_data, bytes), env=child_env,
             stdout=subprocess.PIPE if capture else (subprocess.DEVNULL if quiet else None),
             stderr=subprocess.DEVNULL if quiet else None, check=False,
         )
@@ -283,7 +288,7 @@ def compose(target, *args, capture=False, quiet=False):
         raise CLIError(f"Unknown target or missing compose.yml: {target}")
     settings = settings_module()
     settings.initialize()
-    if target == "gateway" and args[0] in ("up", "start", "restart"):
+    if target == "gateway" and args and args[0] in ("up", "start", "restart"):
         script("opendock-domains.py", "render")
     command = ["docker", "compose", "--project-directory", str(directory)]
     for env_file in settings.compose_env_files(target):
@@ -297,7 +302,69 @@ def compose(target, *args, capture=False, quiet=False):
         ))
         values = settings.load_values(service=target, process_env=True)
         env.update(compose_mount_environment(definition, values))
-    return run(*command, "-f", directory / "compose.yml", "-p", target, *args,
+    project = compose_project(target)
+    compose_files = [directory / "compose.yml"]
+    if local_test_enabled():
+        rendered = run(
+            *command, "-f", directory / "compose.yml", "-p", project,
+            "config", "--format", "json", env=env, capture=True,
+        )
+        model = json.loads(rendered)
+        for service in model.get("services", {}).values():
+            service.pop("container_name", None)
+            for mount in service.get("volumes", []):
+                if mount.get("type") == "bind":
+                    socket_mount = (
+                        mount.get("target") == "/var/run/docker.sock"
+                        and os.environ.get("OPENDOCK_ALLOW_HOST_DOCKER_SOCKET") == "1"
+                    )
+                    if socket_mount:
+                        source = Path(mount["source"]).resolve()
+                        if not source.name.endswith("docker.sock"):
+                            raise CLIError("Host Docker socket override must point to a docker.sock file.")
+                    else:
+                        local_test_mount(mount["source"], ROOT)
+        test_network = f"od-{os.environ['OPENDOCK_COMPOSE_SUFFIX']}-shared-net"
+        for name, network in model.get("networks", {}).items():
+            if name == "shared-net":
+                network["name"] = test_network
+                if target == "infra":
+                    network.pop("external", None)
+                else:
+                    network["external"] = True
+            else:
+                network.pop("external", None)
+                network.pop("name", None)
+        for volume in model.get("volumes", {}).values():
+            volume.pop("external", None)
+            volume.pop("name", None)
+        if target == "gateway":
+            settings_values = settings.load_values(process_env=True)
+            port_value = settings_values.get("HTTP_PORT", "0")
+            if ":" not in port_value or not port_value.rsplit(":", 1)[-1].isdigit():
+                raise CLIError("Local test HTTP_PORT must end with a numeric port.")
+            local_port = int(port_value.rsplit(":", 1)[-1])
+            if not 1 <= local_port <= 65535:
+                raise CLIError("Local test HTTP_PORT must be between 1 and 65535.")
+            for service in model.get("services", {}).values():
+                service["ports"] = [
+                    {
+                        "host_ip": "127.0.0.1",
+                        "target": port["target"],
+                        "published": local_port,
+                        "protocol": port.get("protocol", "tcp"),
+                    }
+                    for port in service.get("ports", [])
+                    if int(port.get("target", 0)) == 80
+                ]
+        override_dir = ROOT / "config" / "local-test" / "compose"
+        override_dir.mkdir(parents=True, exist_ok=True)
+        override = override_dir / f"{target}.json"
+        override.write_text(json.dumps(model, indent=2) + "\n")
+        compose_files = [override]
+    for compose_file in compose_files:
+        command += ["-f", compose_file]
+    return run(*command, "-p", project, *args,
                env=env, capture=capture, quiet=quiet)
 
 
@@ -423,6 +490,8 @@ def install_package_for_launch(service):
 
 
 def ensure_cloudflare_configuration():
+    if local_test_enabled():
+        return
     try:
         check_config("cloudflare", quiet=True)
     except CLIError:
@@ -440,6 +509,9 @@ def prepare_service_storage(service):
     settings = settings_module()
     values = settings.load_values(service=service, process_env=True)
     definition = ServiceCatalog(ROOT).get(service)
+    if local_test_enabled():
+        for path in compose_mount_environment(definition, values).values():
+            local_test_mount(path, ROOT)
     issues = validate_mounts(definition, values)
     if issues:
         raise CLIError("Storage configuration is not ready:\n  " + "\n  ".join(issues))
@@ -561,6 +633,22 @@ def reload_gateway():
     if not (ROOT / "gateway/compose.yml").is_file():
         return
     script("opendock-domains.py", "render")
+    if local_test_enabled():
+        running = compose("gateway", "ps", "--status", "running", "-q", "caddy", capture=True)
+        if running:
+            print("==> gateway: reload isolated Caddy", flush=True)
+            compose(
+                "gateway", "exec", "-T", "caddy", "caddy", "reload",
+                "--config", "/etc/caddy/Caddyfile",
+            )
+        else:
+            print("==> gateway: start isolated Caddy", flush=True)
+            lifecycle("up", "gateway", wait=True)
+        compose(
+            "gateway", "exec", "-T", "caddy", "caddy", "validate",
+            "--config", "/etc/caddy/Caddyfile",
+        )
+        return
     try:
         status = run(
             "docker", "inspect", "--format", "{{.State.Status}}", "caddy",
@@ -577,16 +665,22 @@ def reload_gateway():
 
 
 def publish(target):
+    if local_test_enabled():
+        raise CLIError("Cloudflare publication is disabled in local test mode.")
     check_config("cloudflare", quiet=True)
     run(ROOT / "scripts/publish-cloudflare.sh", target)
 
 
 def ensure_gateway_network():
+    network = (
+        f"od-{os.environ['OPENDOCK_COMPOSE_SUFFIX']}-shared-net"
+        if local_test_enabled() else "shared-net"
+    )
     try:
-        run("docker", "network", "inspect", "shared-net", quiet=True)
+        run("docker", "network", "inspect", network, quiet=True)
     except CLIError:
-        print("==> network: create shared-net", flush=True)
-        run("docker", "network", "create", "shared-net", quiet=True)
+        print(f"==> network: create {network}", flush=True)
+        run("docker", "network", "create", network, quiet=True)
 
 
 def launch(target):
@@ -603,17 +697,20 @@ def launch(target):
         ensure_gateway_network()
         lifecycle("up", "gateway", wait=True)
         reload_gateway()
-        publish(target)
+        if not local_test_enabled():
+            publish(target)
         return
     if route and route["type"] == "external":
         ensure_cloudflare_configuration()
         ensure_gateway_network()
         reload_gateway()
-        publish(target)
+        if not local_test_enabled():
+            publish(target)
         return
     if route and route["type"] == "service":
         service = route["target"]
-        ensure_cloudflare_configuration()
+        if not local_test_enabled():
+            ensure_cloudflare_configuration()
         already_started = launch_service_set([service])
         show_lifecycle_messages([service], "pre_start")
         lifecycle("up", service, already_started=already_started, wait=True)
@@ -621,7 +718,8 @@ def launch(target):
         show_lifecycle_messages([service], "post_start")
         show_lifecycle_messages([service], "pre_launch")
         reload_gateway()
-        publish(target)
+        if not local_test_enabled():
+            publish(target)
         show_lifecycle_messages([service], "post_launch")
         return
     if "." in target:
@@ -642,7 +740,7 @@ def launch(target):
         raise CLIError(
             f"Service '{target}' is not installed. Install its OpenDock package first."
         )
-    if target != "infra":
+    if target != "infra" and not local_test_enabled():
         ensure_cloudflare_configuration()
     already_started = launch_service_set(selected_services)
     if selected_services:
@@ -653,7 +751,7 @@ def launch(target):
     lifecycle("up", target, already_started=already_started, wait=True)
     run_post_start_actions(target)
     show_lifecycle_messages(selected_services, "post_start")
-    if target != "infra":
+    if target != "infra" and not local_test_enabled():
         show_lifecycle_messages(selected_services, "pre_launch")
         reload_gateway()
         publish(target)
@@ -673,9 +771,16 @@ def route(command, route_type=None, hostname=None, target=None):
         domains = domains_module()
         if not any(r["hostname"] == hostname.lower().rstrip(".") for r in domains.resolve_routes()):
             raise CLIError(f"No route is configured for hostname: {hostname}")
-        script("publish-cloudflare.py", "remove", hostname)
+        if not local_test_enabled():
+            script("publish-cloudflare.py", "remove", hostname)
         script("opendock-domains.py", "remove", hostname)
         script("opendock-domains.py", "render")
+        if local_test_enabled():
+            running = compose("gateway", "ps", "--status", "running", "-q", "caddy", capture=True)
+            if running:
+                compose("gateway", "exec", "-T", "caddy", "caddy", "reload",
+                        "--config", "/etc/caddy/Caddyfile")
+            return
         try:
             names = run("docker", "ps", "--format", "{{.Names}}", capture=True)
         except CLIError:
@@ -1012,6 +1117,23 @@ def parser():
         help="Install a locally built package ZIP for development testing",
     )
     install_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
+    local_test = sub.add_parser(
+        "local-test", help="Run a service package in an isolated local OpenDock checkout",
+        description="Install a local ZIP, run it behind an isolated Caddy gateway, and skip R2/Cloudflare publication.",
+        epilog=("Examples:\n"
+                "  ./opendock local-test start /tmp/service.zip --domain app.local.test\n"
+                "  ./opendock local-test status /tmp/opendock-local-tests/<id>\n"
+                "  ./opendock local-test stop /tmp/opendock-local-tests/<id>\n"
+                "  ./opendock local-test clean /tmp/opendock-local-tests/<id>"),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    local_test.add_argument("action", choices=("start", "status", "stop", "clean"))
+    local_test.add_argument("value", help="Package ZIP for start; disposable runtime root otherwise")
+    local_test.add_argument("--domain", help="Local .test hostname for start")
+    local_test.add_argument(
+        "--allow-host-docker-socket", action="store_true",
+        help="Allow a package to control the host Docker daemon (only on a disposable host)",
+    )
     sub.add_parser("help", help="Show the getting-started guide",
                    description="Show the common OpenDock workflows and examples.")
     l = sub.add_parser(
@@ -1185,7 +1307,26 @@ def main(argv=None):
     args = p.parse_args(argv)
     try:
         command = args.command
-        if command == "help":
+        if command == "local-test":
+            if args.action == "start":
+                if not args.domain:
+                    raise CLIError("local-test start requires --domain <service>.test.")
+                result = subprocess.run(
+                    [sys.executable, ROOT / "scripts" / "opendock_local_test.py",
+                     "start", args.value, "--domain", args.domain,
+                     *( ["--allow-host-docker-socket"] if args.allow_host_docker_socket else [] )],
+                    cwd=ROOT, env={**os.environ, "OPENDOCK_ROOT": str(ROOT)}, check=False,
+                )
+            else:
+                if args.domain or args.allow_host_docker_socket:
+                    raise CLIError("--domain and --allow-host-docker-socket are valid only with local-test start.")
+                result = subprocess.run(
+                    [sys.executable, ROOT / "scripts" / "opendock_local_test.py",
+                     args.action, args.value],
+                    cwd=ROOT, env={**os.environ, "OPENDOCK_ROOT": str(ROOT)}, check=False,
+                )
+            return result.returncode
+        elif command == "help":
             print_guide()
         elif command == "update":
             catalog, path = fetch_catalog(args.environment)

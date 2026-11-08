@@ -10,12 +10,13 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
+from opendock_root import local_test_enabled, resolve_root
 from opendock_groups import group_services, validate_services
 from opendock_catalog import ServiceCatalog
 from opendock_settings import load_values
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = resolve_root(__file__)
 TARGET = sys.argv[1] if len(sys.argv) > 1 else "all"
 CLOUDFLARE_ENV = ROOT_DIR / "config" / "cloudflare.env"
 ORIGIN_SERVICE_URL = os.environ.get("ORIGIN_SERVICE_URL", "http://localhost:80")
@@ -441,6 +442,8 @@ def print_open_links(routes):
 
 
 def main():
+    if local_test_enabled():
+        raise SystemExit("Cloudflare API operations are disabled in local test mode.")
     if TARGET == "remove":
         if len(sys.argv) != 3:
             raise SystemExit("Usage: publish-cloudflare.py remove <hostname>")
