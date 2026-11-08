@@ -1490,6 +1490,15 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     계산하므로, 런처의 중복 등록을 제거했다. 또 service descriptor의 이미지
     기본값이 `.env.default`와 달랐던 점을 발견해 같은 Agent Canvas 버전으로
     정렬했다.
+  - `services/experiments/openhands/`를 `services/extensions/openhands/`로
+    승격해 dev publication workflow를 실행했다. 첫 workflow는 ZIP 생성 뒤
+    `[catalog].primary_image_service` 누락으로 실패했다. 필드를 추가하고 재실행하자
+    첫 시도의 ZIP이 R2 immutable key `0.1.0`에 이미 업로드되어 바이트 충돌이
+    났다. 기존 객체를 덮어쓰지 않고 descriptor seed를 `0.1.1`로 올려 다시
+    발행했다. CI 성공 뒤 `./dev_opendock search openhands`에 이미지가 나타났고,
+    별도 임시 OpenDock checkout에서 실제 dev artifact를 다운로드·checksum 검증·
+    설치해 `0.1.1`을 확인했다. 실패한 `0.1.0` 객체는 catalog가 참조하지 않는
+    orphan으로 R2에 남아 있다.
 - 보존할 교훈:
   - local integration은 컨테이너가 `running`인지만 보는 검사가 아니다. package
     extraction, service setup, dependency order, Caddy 설정 유효성, hostname을
@@ -1511,7 +1520,11 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   308의 redirect 목적지, 브라우저 UI, 로그인, agent conversation/sandbox 생성과
   해당 동적 container의 정리는 검증하지 않았다. Docker socket opt-in은 host daemon
   전체에 권한을 부여하므로 disposable/trusted Docker host에서만 써야 한다.
-  Cloudflare/R2 배포 경로도 아직 검증되지 않았다. 로컬에서는 Python 문법,
+  이후 OpenHands dev publication은 descriptor 누락과 immutable key 충돌로 두 차례
+  실패한 뒤 `0.1.1`로 성공했다. `dev_opendock search openhands`와 임시 checkout의
+  실제 dev artifact 설치/checksum 확인도 통과했다. 이로써 dev R2 카탈로그와 ZIP
+  경로는 확인했지만 Cloudflare 공개 route, remote sandbox ingress, agent conversation,
+  sandbox container 소유·정리는 여전히 검증되지 않았다. 로컬에서는 Python 문법,
   Bash syntax/help, `git diff --check`와 CLI/distribution/lifecycle 관련 테스트
   39개가 통과했다. 전체 66개 테스트 중 12개는 legacy service config path와
   Hermes registry를 기대해 실패했다. 전체 suite가 현행 product contract에 맞게
