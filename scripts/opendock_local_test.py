@@ -159,16 +159,6 @@ def start(package: Path, hostname: str, *, allow_host_docker_socket=False):
         raise RuntimeError("Local test hostname must end in .test, for example app.local.test.")
     if tomllib is None:
         raise RuntimeError("Python 3.11 or newer is required to read the package descriptor.")
-    docker = subprocess.run(
-        ["docker", "info"], stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE, check=False, text=True,
-    )
-    if docker.returncode:
-        detail = (docker.stderr or "").strip()
-        raise RuntimeError(
-            "Docker daemon is unavailable; no disposable test environment was created."
-            + (f" {detail}" if detail else "")
-        )
     try:
         with zipfile.ZipFile(package) as archive:
             descriptors = [item for item in archive.infolist()
@@ -192,6 +182,16 @@ def start(package: Path, hostname: str, *, allow_host_docker_socket=False):
             "This package requests the host Docker socket. It can control Docker resources "
             "outside the test namespace. Rerun with --allow-host-docker-socket only on a "
             "disposable Docker host, or test without this capability."
+        )
+    docker = subprocess.run(
+        ["docker", "info"], stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, check=False, text=True,
+    )
+    if docker.returncode:
+        detail = (docker.stderr or "").strip()
+        raise RuntimeError(
+            "Docker daemon is unavailable; no disposable test environment was created."
+            + (f" {detail}" if detail else "")
         )
     suffix = secrets.token_hex(5)
     if socket_requested and allow_host_docker_socket:
@@ -223,12 +223,15 @@ def start(package: Path, hostname: str, *, allow_host_docker_socket=False):
         })
         if socket_requested:
             env["OPENDOCK_ALLOW_HOST_DOCKER_SOCKET"] = "1"
+        print("==> local-test: install service package", flush=True)
         _run([root / "opendock", "install", "--local-file", package,
               "--environment", "dev"],
              root=root, env=env)
-        _run([root / "opendock", "route", "add", "service", hostname, service],
-             root=root, env=env)
+        # Route resolution injects this session's hostname and service ID. A
+        # separate route add would see that synthetic route as a duplicate.
+        print("==> local-test: configure service", flush=True)
         _run([root / "opendock", "setup", service], root=root, env=env)
+        print("==> local-test: launch service through gateway", flush=True)
         _run([root / "opendock", "launch", hostname], root=root, env=env)
         print("Local integration test is running.")
         print(f"Service: {service}")
