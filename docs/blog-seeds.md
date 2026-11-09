@@ -1306,8 +1306,23 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   WordPress bind mount의 상대 경로가 stable service data root가 아니라 immutable
   `releases/<version>` project directory 기준으로 해석되어 container creation이 실패했다.
   공통 Compose 호출과 purge가 descriptor storage setting을 절대 경로 환경변수로 전달하도록
-  수정하고 회귀 테스트를 추가했다. 이 수정 후 실제 WordPress container launch는 아직
-  재검증되지 않았다.
+  수정하고 회귀 테스트를 추가했다. 이후 사용자의 별도 Linux 머신에서 기존 OpenDock
+  런타임을 정리하고 새 `~/OpenDock` checkout으로 WordPress를 다시 구성했다. 전체
+  webroot와 단일 DB dump를 별도 백업으로 보존했고, rsync checksum dry-run에서 파일 내용
+  차이가 없음을 확인했다. 기존 webroot의 `wp-config.php`는 DB 설정을 환경변수로 읽고
+  있어 새 인스턴스의 private 설정과 함께 사용할 수 있었으며, 파일 안의 자격 증명은
+  수정하지 않았다. 새 checkout에 이미 생성돼 있던 webroot 파일도 복원 전에 백업 위치로
+  옮겨 보존했다.
+  사용자가 테스트용 Docker 자원 전체(컨테이너 28개, 볼륨 47개, 이미지 39개)를 제거한
+  뒤, 새 OpenDock에서 WordPress와 공유 인프라를 시작했다. DB import의 첫 시도는
+  `docker exec` 프로세스에 MariaDB root 비밀번호가 전달되지 않아 인증 실패했지만,
+  private infra env 파일을 해당 명령에 전달한 재시도는 성공했다. DB에 36개 테이블과
+  multisite network row 한 개가 확인됐고, 사용자는 하위 사이트가 없었던 구성이 맞다고
+  확인했다. WordPress 컨테이너는 실행 중이고 Caddy 내부 및 외부 요청은 HTTP 200을
+  반환했으며 외부 응답 본문은 약 153 KB였다. 이는 실제 사용자 환경에서의 검증이다.
+  브라우저에서 기존 콘텐츠와 관리자 로그인, 플러그인·테마 호환성을 확인하는 단계는
+  아직 남았다. 특히 새 `wordpress:7-php8.5-apache` 환경에서의 전체 동작은 이 HTTP
+  확인만으로 검증된 것으로 간주하지 않는다.
 
 ## OD-021. n8n 3.x early access를 기본 self-hosted 서비스에 바로 채택하지 않기
 
