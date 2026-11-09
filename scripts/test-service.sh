@@ -165,6 +165,28 @@ if [[ -z "$response" ]]; then
 	if [[ -s "${TEMP_DIR}/curl.err" ]]; then
 		tail -n 3 "${TEMP_DIR}/curl.err" >&2
 	fi
+	COMPOSE_SUFFIX="$(python3 - "${RUNTIME_ROOT}/config/local-test/session.json" <<'PYSESSION'
+import json
+import sys
+with open(sys.argv[1]) as source:
+    print(json.load(source)["compose_suffix"])
+PYSESSION
+)"
+	for target in "$SERVICE_ID:$SERVICE_ID" gateway:caddy; do
+		project_target="${target%%:*}"
+		compose_service="${target#*:}"
+		project="od-${COMPOSE_SUFFIX}-${project_target}"
+		container="$(docker ps -aq \
+			--filter "label=com.docker.compose.project=${project}" \
+			--filter "label=com.docker.compose.service=${compose_service}" | head -n 1)"
+		if [[ -n "$container" ]]; then
+			printf '\n--- %s container logs (last 120 lines) ---\n' "$compose_service" >&2
+			docker logs --tail 120 "$container" >&2 || true
+		else
+			printf '\nNo container found for Compose service %s in project %s.\n' \
+				"$compose_service" "$project" >&2
+		fi
+	done
 	exit 1
 fi
 printf 'Caddy returned HTTP %s for %s.\n' "$response" "$URL"
