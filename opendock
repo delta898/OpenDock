@@ -290,7 +290,12 @@ def compose(target, *args, capture=False, quiet=False):
     settings.initialize()
     if target == "gateway" and args and args[0] in ("up", "start", "restart"):
         script("opendock-domains.py", "render")
-    command = ["docker", "compose", "--project-directory", str(directory)]
+    command = ["docker", "compose"]
+    if local_test_enabled():
+        # test-service.sh pipes output through tee; force Compose's redrawable
+        # progress renderer instead of emitting one status line per layer update.
+        command += ["--progress", "tty"]
+    command += ["--project-directory", str(directory)]
     for env_file in settings.compose_env_files(target):
         command += ["--env-file", str(env_file)]
     env = os.environ.copy()

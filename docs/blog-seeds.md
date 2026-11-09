@@ -1505,6 +1505,24 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     계산하므로, 런처의 중복 등록을 제거했다. 또 service descriptor의 이미지
     기본값이 `.env.default`와 달랐던 점을 발견해 같은 Agent Canvas 버전으로
     정렬했다.
+  - Paperclip을 experiment에서 extension으로 옮기기 전에 공식 Docker 문서와
+    CLI 요구사항을 확인했다. 처음에는 `authenticated + public`과 embedded
+    PostgreSQL을 함께 사용했지만, Paperclip 로그가 public 모드에서 embedded DB
+    fallback을 명시적으로 거부했다. 해결은 public mode를 약화하는 것이 아니라
+    OpenDock shared PostgreSQL에 전용 database와 role을 만들고, descriptor의
+    setup dependency와 `removal.shared_database`로 같은 소유 범위를 선언하는
+    것이었다. setup 중 비대화형 테스트가 `STACK_DOMAIN` prompt에서 EOF를 낸 것은
+    서비스 오류가 아니라 TTY가 필요한 common setup review였으며, PTY에서 기존
+    값과 기본값을 받아 테스트를 진행했다.
+  - Paperclip extension은 package build/descriptor 검사를 통과했고, pinned image
+    `2026.1106.0`을 사용해 격리 OpenDock 환경에서 shared PostgreSQL bootstrap,
+    Paperclip healthy, Caddy 경유 HTTP 200, disposable Compose cleanup까지
+    통과했다. 이 테스트는 첫 사용자 claim, agent 실행, 백업·복원, 업그레이드,
+    실제 공개 도메인 및 service `purge`를 검증하지 않았다. Paperclip의 앞선
+    직접 CLI 설치에서는 관리형 npm 설치 후 macOS embedded Postgres의 symlink
+    hydration 누락을 발견했고 upstream 패키지의 공식 hydration script 실행으로
+    로컬 인스턴스를 시작했다. CLI 설치와 OpenDock Docker extension 통합은 서로
+    다른 실행/저장소 경로임을 구분한다.
   - `services/experiments/openhands/`를 `services/extensions/openhands/`로
     승격해 dev publication workflow를 실행했다. 첫 workflow는 ZIP 생성 뒤
     `[catalog].primary_image_service` 누락으로 실패했다. 필드를 추가하고 재실행하자
@@ -1531,7 +1549,15 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   중복 등록 오류를 드러냈고 이를 제거한 뒤, 사용자가
   `./scripts/test-service.sh openhands --allow-host-docker-socket`에서 Caddy 경유
   HTTP 308, service/gateway/infra 종료, project volume/network 제거, 임시 checkout
-  삭제와 `RESULT: PASS`를 확인했다. 이 검증은 사용자의 Docker host에서 이뤄졌다.
+  삭제와 `RESULT: PASS`를 확인했다. 이후 Paperclip을
+  `services/experiments/paperclip/`에서 `services/extensions/paperclip/`로
+  승격하고, package build와 OpenDock descriptor/Compose YAML 검사를 통과했다.
+  사용자의 macOS Docker host에서 TTY를 연결해 setup 기본값을 수락한 뒤,
+  `./scripts/test-service.sh paperclip`의 공유 PostgreSQL 초기화, Paperclip healthy,
+  Caddy 경유 HTTP 200, service/gateway/infra 종료, project volume/network 제거,
+  임시 checkout 정리 및 `RESULT: PASS`를 확인했다. Paperclip의 separate local
+  managed CLI도 실행해 `/api/health`의 `status: ok`와 DB migration 완료를
+  확인했으며, 종료 후 port 3100이 닫힌 것을 확인했다.
   308의 redirect 목적지, 브라우저 UI, 로그인, agent conversation/sandbox 생성과
   해당 동적 container의 정리는 검증하지 않았다. Docker socket opt-in은 host daemon
   전체에 권한을 부여하므로 disposable/trusted Docker host에서만 써야 한다.
