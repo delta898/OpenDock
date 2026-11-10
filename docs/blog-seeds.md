@@ -1532,6 +1532,18 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
     별도 임시 OpenDock checkout에서 실제 dev artifact를 다운로드·checksum 검증·
     설치해 `0.1.1`을 확인했다. 실패한 `0.1.0` 객체는 catalog가 참조하지 않는
     orphan으로 R2에 남아 있다.
+  - Hermes Agent를 `services/experiments/hermes/`에서 `services/extensions/hermes/`로
+    승격할 때 첫 로컬 설치는 descriptor의 `[routing].handler_file` 누락을 잡아
+    launch 전에 멈췄다. 이를 추가한 뒤 package build와 `update-catalog.py` 검증이
+    통과했다. Catalog의 `primary_image_service = "hermes"`는 Compose의 해당 서비스에서
+    이미지 참조를 읽어 `hermes-agent:v0.22.5`를 catalog에 기록하게 한다. Dev push는
+    성공했지만 GitHub Actions/R2 publish 완료 여부는 아직 확인하지 않았다.
+  - `scripts/test-service.sh`의 실제 범위를 코드에서 확인했다. 이 wrapper는 local ZIP
+    build, package install, launch를 수행하지만 `remove`나 이미지 삭제는 하지 않는다.
+    사용자가 Herd에서 공유한 로그에는 Hermes 이미지 다운로드가 보였고, 그 뒤 로컬
+    read-only 상태 조회에서는 agent image만 확인됐다. Hermes 컨테이너나 volume은 없었고
+    OpenDock은 서비스를 `installed · stopped`로 표시했다. 앱 onboarding, route 응답,
+    purge와 테스트 자원 회수는 아직 검증되지 않았다.
 - 보존할 교훈:
   - local integration은 컨테이너가 `running`인지만 보는 검사가 아니다. package
     extraction, service setup, dependency order, Caddy 설정 유효성, hostname을
