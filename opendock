@@ -35,6 +35,7 @@ from opendock_capabilities import (
 from opendock_catalog import ServiceCatalog
 from opendock_distribution import (
     DistributionError,
+    _catalog_terminal_text,
     fetch_catalog,
     install as install_package,
     install_local_file,
@@ -1101,8 +1102,8 @@ def parser():
     update_cmd = sub.add_parser("update", help="Refresh the service catalog")
     update_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
     search_cmd = sub.add_parser(
-        "search", help="Search service packages by name or description",
-        description="Search available services. Results show the primary Docker image name and tag; OpenDock package versions are omitted.",
+        "search", help="Search service packages by name, category, description, or tag",
+        description="Search available services by name, category, description, or tag. Results show catalog metadata and the primary image; OpenDock package versions are omitted.",
     )
     search_cmd.add_argument("terms", nargs="*", help="Words to match in service metadata")
     search_cmd.add_argument("--environment", choices=("dev", "prod"), default="prod")
@@ -1344,14 +1345,26 @@ def main(argv=None):
             for service in catalog["services"]:
                 haystack = " ".join([
                     service["service_id"], service["display_name"],
+                    str(service.get("category", "")),
                     str(service.get("summary", "")),
                     " ".join(service.get("tags", [])),
                 ]).casefold()
                 if all(term in haystack for term in terms):
                     matches.append(service)
+            if matches:
+                print("SERVICE\tNAME\tCATEGORY\tPRIMARY IMAGE")
             for service in matches:
                 image = service.get("primary_image", "image tag unavailable")
-                print(f"{service['service_id']}\t{service['display_name']}\t{image}")
+                service_id = _catalog_terminal_text(service["service_id"])
+                display_name = _catalog_terminal_text(service["display_name"])
+                category = _catalog_terminal_text(service.get("category", "Other"))
+                print(f"{service_id}\t{display_name}\t{category}\t{_catalog_terminal_text(image)}")
+                summary = service.get("summary")
+                if summary:
+                    print(f"  {_catalog_terminal_text(summary)}")
+                tags = service.get("tags", [])
+                if tags:
+                    print("  Tags: " + ", ".join(_catalog_terminal_text(tag) for tag in tags))
             if not matches:
                 print("No matching services.")
         elif command == "install":

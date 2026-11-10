@@ -59,7 +59,11 @@ The initial catalog is one UTF-8 JSON document. `search` runs locally over its
 metadata, avoiding a search service while the catalog is small. Catalog schema
 version is independent of service descriptor and capability API versions.
 
-Illustrative shape (field spelling remains open):
+Each service's descriptor owns its display name, category, summary, and tags.
+The publisher copies those fields into the catalog; they are search and display
+metadata, while package objects remain under the stable
+`packages/<service-id>/<version>/` prefix. Categories are broad display groups;
+tags handle cross-cutting topics and can match multiple categories.
 
 ```json
 {
@@ -69,6 +73,7 @@ Illustrative shape (field spelling remains open):
     {
       "service_id": "wordpress",
       "display_name": "WordPress",
+      "category": "Web & CMS",
       "primary_image": "wordpress:7-php8.5-apache",
       "summary": "Publish and manage a website",
       "tags": ["website", "cms"],
@@ -93,8 +98,10 @@ Illustrative shape (field spelling remains open):
 `primary_image` is the compact `name:tag` of the service's declared primary
 Compose image. CI derives it from the descriptor's primary Compose service and
 the package's `.env.default`; it omits registry and namespace path components.
-`search` displays this upstream image tag and omits OpenDock package release
-versions, which remain in `releases` for install and update selection.
+`search` displays the category, summary, tags, and upstream image tag; it omits
+OpenDock package release versions, which remain in `releases` for install and
+update selection. Searches match category and tags as well as service ID,
+display name, and summary.
 
 The client validates schema, IDs, versions, artifact key, digest shape,
 compatibility ranges, supported-host metadata, and size before using an entry. Artifact keys are resolved
