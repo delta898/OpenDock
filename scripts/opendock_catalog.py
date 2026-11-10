@@ -590,7 +590,9 @@ class ServiceCatalog:
         catalog = descriptor.get("catalog", {})
         if not isinstance(catalog, dict):
             raise CatalogError(f"Service descriptor {path} has invalid [catalog] metadata.")
-        unknown_catalog_fields = sorted(set(catalog) - {"primary_image_service"})
+        unknown_catalog_fields = sorted(
+            set(catalog) - {"primary_image_service", "category", "summary", "tags"}
+        )
         if unknown_catalog_fields:
             raise CatalogError(
                 f"Service descriptor {path} has unsupported catalog fields: "
@@ -601,6 +603,27 @@ class ServiceCatalog:
             or not re.fullmatch(r"[A-Za-z0-9_-]+", catalog["primary_image_service"])
         ):
             raise CatalogError(f"Service descriptor {path} has an invalid catalog.primary_image_service.")
+        category = catalog.get("category")
+        if "category" in catalog and (
+            not isinstance(category, str) or not category.strip() or len(category) > 48
+        ):
+            raise CatalogError(f"Service descriptor {path} has an invalid catalog.category.")
+        summary = catalog.get("summary")
+        if "summary" in catalog and (
+            not isinstance(summary, str) or not summary.strip() or len(summary) > 240
+        ):
+            raise CatalogError(f"Service descriptor {path} has an invalid catalog.summary.")
+        tags = catalog.get("tags", [])
+        if (
+            not isinstance(tags, list)
+            or any(
+                not isinstance(tag, str)
+                or not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", tag)
+                for tag in tags
+            )
+            or len(tags) != len(set(tags))
+        ):
+            raise CatalogError(f"Service descriptor {path} has invalid catalog.tags.")
 
         version = descriptor.get("schema_version")
         if type(version) is not int or version != self.DESCRIPTOR_VERSION:

@@ -33,6 +33,12 @@ SEMVER_RE = re.compile(
     r"(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?\Z"
 )
 HOSTS = frozenset({"linux", "macos", "windows-wsl2"})
+CATALOG_TAG_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,31}\Z")
+
+
+def _catalog_terminal_text(value: object) -> str:
+    """Keep untrusted catalog metadata from injecting terminal control codes."""
+    return re.sub(r"[\x00-\x1f\x7f-\x9f]", " ", str(value)).strip()
 
 
 def _validate_compatibility_range(
@@ -149,6 +155,22 @@ def validate_catalog(raw: bytes) -> dict:
         seen.add(sid)
         if not isinstance(service.get("display_name"), str):
             raise DistributionError(f"Catalog service {sid!r} has no display_name.")
+        for field, limit in (("category", 48), ("summary", 240)):
+            value = service.get(field)
+            if field in service and (
+                not isinstance(value, str) or not value.strip() or len(value) > limit
+            ):
+                raise DistributionError(f"Catalog service {sid!r} has invalid {field} metadata.")
+        tags = service.get("tags", [])
+        if (
+            not isinstance(tags, list)
+            or any(
+                not isinstance(tag, str) or not CATALOG_TAG_RE.fullmatch(tag)
+                for tag in tags
+            )
+            or len(tags) != len(set(tags))
+        ):
+            raise DistributionError(f"Catalog service {sid!r} has invalid tags metadata.")
         primary_image = service.get("primary_image")
         if primary_image is not None and (
             not isinstance(primary_image, str)

@@ -68,8 +68,9 @@ opendock domain remove <domain>
 (`running`, `stopped`, `partial`, `starting`, or `unknown` when Docker is
 unavailable); it does not include catalog packages that are not installed.
 `list services` shows the same service rows without core targets and groups.
-`site list` shows configured instances. `search` searches the catalog. `info`
-shows package metadata and installed version. A no-target `launch` does not
+`site list` shows configured instances. `search` searches the catalog by service
+ID, name, category, description, or tag and displays those catalog details.
+`info` shows package metadata and installed version. A no-target `launch` does not
 mean “launch everything”; it requires a service and an instance.
 
 ## Verb meanings
