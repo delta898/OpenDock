@@ -91,10 +91,13 @@ class SettingsTests(unittest.TestCase):
             Path("config/shared/database.env"),
         )
         self.assertEqual(settings.SHARED_SETTING_GROUPS["MARIADB_CLIENT_VERSION"], "mariadb")
-        self.assertEqual(
-            settings.owner_path("WORDPRESS_DB_PASSWORD"),
-            Path("config/extensions/wordpress.env"),
-        )
+        with mock.patch.dict(settings.SERVICE_SETTING_OWNERS, {
+            "WORDPRESS_DB_PASSWORD": Path("config/extensions/wordpress.env"),
+        }):
+            self.assertEqual(
+                settings.owner_path("WORDPRESS_DB_PASSWORD"),
+                Path("config/extensions/wordpress.env"),
+            )
         with self.assertRaises(ValueError):
             settings.owner_path("HERMES_VERSION")
         with self.assertRaises(ValueError):

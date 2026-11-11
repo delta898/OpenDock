@@ -680,9 +680,9 @@ class ServiceCatalog:
                 match = re.match(r"^\s*([A-Z][A-Z0-9_]*)\s*=", line)
                 if match and not line.lstrip().startswith("#"):
                     default_keys.append(match.group(1))
-            if len(default_keys) != len(set(default_keys)) or set(default_keys) != set(setting_keys):
+            if len(default_keys) != len(set(default_keys)) or not set(default_keys).issubset(setting_keys):
                 raise CatalogError(
-                    f"Service descriptor {path} settings.setting_keys must exactly match .env.default."
+                    f"Service descriptor {path} settings.setting_keys must include every .env.default key."
                 )
 
         version = descriptor.get("schema_version")
@@ -916,9 +916,9 @@ class ServiceCatalog:
                 )
             name = field.get("name")
             kind = field.get("kind")
-            if not isinstance(name, str) or not name.startswith(prefix):
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", name):
                 raise CatalogError(
-                    f"Setup fields in {path} must use the {prefix} key prefix."
+                    f"Setup field in {path} must declare a valid uppercase setting key."
                 )
             if name in seen_fields:
                 raise CatalogError(f"Service descriptor {path} repeats setup field {name!r}.")

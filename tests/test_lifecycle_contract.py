@@ -130,7 +130,7 @@ class LifecycleContractTests(unittest.TestCase):
         with self.assertRaisesRegex(CatalogError, "unsupported capabilities: post_launch"):
             ServiceCatalog(root)
 
-    def test_service_settings_owner_must_match_default_keys(self):
+    def test_service_settings_must_include_default_keys(self):
         temporary, root = self.catalog_with_descriptor(
             'schema_version = 1\n'
             'service_id = "example-service"\n'
@@ -144,8 +144,31 @@ class LifecycleContractTests(unittest.TestCase):
         )
         self.addCleanup(temporary.cleanup)
 
-        with self.assertRaisesRegex(CatalogError, "must exactly match .env.default"):
+        with self.assertRaisesRegex(CatalogError, "must include every .env.default key"):
             ServiceCatalog(root)
+
+    def test_service_settings_can_own_setup_keys_without_defaults(self):
+        temporary, root = self.catalog_with_descriptor(
+            'schema_version = 1\n'
+            'service_id = "example-service"\n'
+            'version = "1.0.0"\n'
+            'capability_api_version = 1\n'
+            'capabilities = []\n'
+            'dependencies = []\n\n'
+            '[settings]\n'
+            'config_file = "config/extensions/example-service.env"\n'
+            'setting_keys = ["EXAMPLE_VERSION", "APP_SIGNING_SECRET"]\n\n'
+            '[[setup.fields]]\n'
+            'name = "APP_SIGNING_SECRET"\n'
+            'kind = "generated-secret"\n'
+            'generator = "hex"\n'
+            'length = 32\n'
+        )
+        self.addCleanup(temporary.cleanup)
+
+        service = ServiceCatalog(root).get("example-service")
+
+        self.assertEqual(set(service.setting_keys), {"EXAMPLE_VERSION", "APP_SIGNING_SECRET"})
 
     def test_lifecycle_messages_reject_unknown_stages_and_control_codes(self):
         for message_table in (
