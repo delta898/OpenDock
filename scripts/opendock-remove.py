@@ -16,6 +16,7 @@ from opendock_root import compose_project, local_test_enabled, resolve_root
 from opendock_catalog import ServiceCatalog
 from opendock_settings import (
     CONFIG, LEGACY_ENV, compose_env_files, initialize, load_values,
+    service_config_path, service_setting_keys,
 )
 from opendock_storage import (
     compose_mount_environment,
@@ -276,10 +277,7 @@ def build_plan(service):
         )
     service_dir = definition.directory
     extension_service = service_dir.is_relative_to(ROOT / "services" / "extensions")
-    service_config = (
-        CONFIG / "extensions" / f"{service}.env"
-        if extension_service else service_dir / ".env"
-    )
+    service_config = ROOT / service_config_path(service, catalog)
     legacy_service_config = CONFIG / "services" / f"{service}.env"
     domains = domains_module()
     if CONFIG.is_symlink() or service_dir.is_symlink():
@@ -336,13 +334,13 @@ def build_plan(service):
     images.extend(removal.get("extra_images", ()))
     images = list(dict.fromkeys(images))
 
-    prefix = service.replace("-", "_").upper() + "_"
+    service_keys = service_setting_keys(service, catalog)
     service_values = parse_env(service_config)
     old_values = parse_env(legacy_service_config)
     legacy_values = parse_env(LEGACY_ENV)
     configured_keys = sorted(
         key for source in (service_values, old_values, legacy_values)
-        for key in source if key.startswith(prefix)
+        for key in source if key in service_keys
     )
     configured_keys = sorted(set(configured_keys))
     settings = load_values(service=service, process_env=False)
@@ -444,11 +442,7 @@ def print_plan(plan):
         for relative in plan["config_files"]:
             print(f"    {service_path}/{relative}")
         print("    A permission-restricted backup will be retained.")
-    settings_location = (
-        f"config/extensions/{definition.name}.env"
-        if service_path.startswith("services/extensions/")
-        else f"{service_path}/.env"
-    )
+    settings_location = service_config_path(definition.name).as_posix()
     print(f"  Remove {definition.display_name} settings from {settings_location}:")
     for key in plan["configured_keys"] or ["(none configured)"]:
         print(f"    {key}")
@@ -500,11 +494,9 @@ def backup_service_config(service, service_config):
 
 
 def remove_service_config(service):
-    definition = ServiceCatalog(ROOT).get(service)
-    if definition.directory.is_relative_to(ROOT / "services" / "extensions"):
-        service_config = CONFIG / "extensions" / f"{service}.env"
-    else:
-        service_config = definition.directory / ".env"
+    catalog = ServiceCatalog(ROOT)
+    catalog.get(service)
+    service_config = ROOT / service_config_path(service, catalog)
     if not service_config.is_file():
         return
     if service_config.is_symlink():

@@ -50,6 +50,7 @@ class LifecycleContractTests(unittest.TestCase):
         service = root / "services/extensions/example-service/releases/1.0.0"
         service.mkdir(parents=True)
         (service / "compose.yml").write_text("services: {}\n")
+        (service / ".env.default").write_text("EXAMPLE_VERSION=1\n")
         (service / "opendock.toml").write_text(descriptor)
         registry = root / "services/extensions/installed.toml"
         registry.write_text(
@@ -127,6 +128,23 @@ class LifecycleContractTests(unittest.TestCase):
         )
         self.addCleanup(temporary.cleanup)
         with self.assertRaisesRegex(CatalogError, "unsupported capabilities: post_launch"):
+            ServiceCatalog(root)
+
+    def test_service_settings_owner_must_match_default_keys(self):
+        temporary, root = self.catalog_with_descriptor(
+            'schema_version = 1\n'
+            'service_id = "example-service"\n'
+            'version = "1.0.0"\n'
+            'capability_api_version = 1\n'
+            'capabilities = []\n'
+            'dependencies = []\n\n'
+            '[settings]\n'
+            'config_file = "config/extensions/example-service.env"\n'
+            'setting_keys = ["OTHER_KEY"]\n'
+        )
+        self.addCleanup(temporary.cleanup)
+
+        with self.assertRaisesRegex(CatalogError, "must exactly match .env.default"):
             ServiceCatalog(root)
 
     def test_lifecycle_messages_reject_unknown_stages_and_control_codes(self):

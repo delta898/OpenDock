@@ -109,8 +109,8 @@ def selected_secrets(target):
 
 
 def _service_settings(service: ServiceDefinition, values: Mapping[str, str]) -> dict[str, str]:
-    prefix = service.name.replace("-", "_").upper() + "_"
-    return {key: value for key, value in values.items() if key.startswith(prefix)}
+    setting_keys = SETTINGS.service_setting_keys(service.name)
+    return {key: value for key, value in values.items() if key in setting_keys}
 
 
 def _docker_capture(image, *command, input_text=None):
@@ -202,7 +202,7 @@ def generate_values(needed, existing, target="all", *, selected=None, services=N
         settings = _service_settings(definition, existing)
         settings.update({
             key: value for key, value in generated.items()
-            if key.startswith(service_name.replace("-", "_").upper() + "_")
+            if key in SETTINGS.service_setting_keys(service_name)
         })
         quiet = os.environ.get("OPEN_DOCK_QUIET_SECRETS") == "1"
         context = SecretGenerationContext(

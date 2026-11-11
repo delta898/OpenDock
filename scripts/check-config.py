@@ -11,6 +11,7 @@ from opendock_catalog import ServiceCatalog, service_names
 from opendock_capabilities import ValidationContext, runtime_environment, validate_config
 from opendock_settings import (
     CONFIG_SECTIONS, CORE_PLACEHOLDERS, CORE_REQUIRED_KEYS, load_values,
+    service_setting_keys,
 )
 from opendock_storage import validate_mounts
 
@@ -163,13 +164,12 @@ def check_target(target, common_values, example_values):
     )
     invalid = []
     if definition:
-        prefix = target.replace("-", "_").upper() + "_"
+        setting_keys = service_setting_keys(target)
         service_settings = {
-            name: value for name, value in env.items() if name.startswith(prefix)
+            name: value for name, value in env.items() if name in setting_keys
         }
         service_examples = {
-            name: value for name, value in example_values.items()
-            if name.startswith(prefix)
+            name: value for name, value in example_values.items() if name in setting_keys
         }
         try:
             invalid.extend(validate_config(ValidationContext(

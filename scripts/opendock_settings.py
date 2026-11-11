@@ -29,10 +29,7 @@ SERVICE_DEFAULT_MIGRATION_MARKER = CONFIG / ".service-default-migration-v1"
 
 SERVICE_CATALOG = ServiceCatalog(ROOT)
 SERVICE_NAMES = SERVICE_CATALOG.names
-SERVICE_PREFIXES = {
-    service: service.replace("-", "_").upper() + "_"
-    for service in SERVICE_NAMES
-}
+SERVICE_NAME_SET = frozenset(SERVICE_NAMES)
 CONFIG_FIELD_KINDS = frozenset({
     "required-user", "defaulted-choice", "initial-credential",
     "secret-user", "generated-secret",
@@ -220,6 +217,50 @@ for component in sorted(
         if key in CONFIG_SETTING_OWNERS or key in PLATFORM_SETTING_OWNERS:
             raise ValueError(f"Configuration setting has multiple owners: {key}")
         PLATFORM_SETTING_OWNERS[key] = Path(component.config_file)
+
+
+def service_setting_keys(service, catalog=None):
+    """Return the exact settings keys declared for one installed service."""
+    catalog = catalog or SERVICE_CATALOG
+    return frozenset(catalog.get(service).setting_keys)
+
+
+def _service_config_path(service, catalog=None):
+    catalog = catalog or SERVICE_CATALOG
+    definition = catalog.get(service)
+    declared = definition.settings.get("config_file")
+    if declared:
+        return Path(declared)
+    # Compatibility for previously installed package descriptors. New packages
+    # declare this owner path explicitly in their [settings] table.
+    if catalog.is_extension(service):
+        return Path("config") / "extensions" / f"{service}.env"
+    return definition.directory.relative_to(ROOT) / ".env"
+
+
+def service_config_path(service, catalog=None):
+    """Return the private effective config path declared by a service."""
+    return _service_config_path(service, catalog)
+
+
+def build_service_setting_owners(catalog=None):
+    catalog = catalog or SERVICE_CATALOG
+    owners = {}
+    for definition in catalog.services:
+        path = _service_config_path(definition.name, catalog)
+        for key in definition.setting_keys:
+            if key in CONFIG_SETTING_OWNERS or key in PLATFORM_SETTING_OWNERS:
+                raise ValueError(f"Configuration setting has multiple owners: {key}")
+            previous = owners.get(key)
+            if previous and previous != path:
+                raise ValueError(f"Configuration setting has multiple service owners: {key}")
+            owners[key] = path
+    return owners
+
+
+SERVICE_SETTING_OWNERS = build_service_setting_owners()
+
+
 def parse_env(path):
     values = {}
     if not path.is_file():
@@ -238,17 +279,9 @@ def owner_path(key):
         return CONFIG_SETTING_OWNERS[key]
     if key in PLATFORM_SETTING_OWNERS:
         return PLATFORM_SETTING_OWNERS[key]
-    for service, prefix in SERVICE_PREFIXES.items():
-        if key.startswith(prefix):
-            return _service_config_path(service)
+    if key in SERVICE_SETTING_OWNERS:
+        return SERVICE_SETTING_OWNERS[key]
     raise ValueError(f"No configuration owner is registered for key: {key}")
-
-
-def _service_config_path(service):
-    definition = SERVICE_CATALOG.get(service)
-    if SERVICE_CATALOG.is_extension(service):
-        return Path("config") / "extensions" / f"{service}.env"
-    return definition.directory.relative_to(ROOT) / ".env"
 
 
 def config_paths(service=None, examples=False):
@@ -269,7 +302,7 @@ def config_paths(service=None, examples=False):
         paths = layer_files
     selected = SERVICE_NAMES if service is None else (service,)
     for name in selected:
-        if name not in SERVICE_PREFIXES or not examples:
+        if name not in SERVICE_NAME_SET or not examples:
             continue
         definition = SERVICE_CATALOG.get(name)
         paths.append(definition.directory / ".env.default")
@@ -289,14 +322,14 @@ def load_values(service=None, *, examples=False, process_env=False, legacy=True)
         for component in SERVICE_CATALOG.platform.components:
             if service in (None, component.name):
                 values.update(parse_env(component.directory / ".env"))
-    if service in SERVICE_PREFIXES:
+    if service in SERVICE_NAME_SET:
         values.update(parse_env(ROOT / _service_config_path(service)))
     elif service is None:
         for name in SERVICE_NAMES:
             values.update(parse_env(ROOT / _service_config_path(name)))
     for path in config_paths(service):
         values.update(parse_env(path))
-    if service in SERVICE_PREFIXES:
+    if service in SERVICE_NAME_SET:
         if not SERVICE_CATALOG.is_extension(service):
             values.update(parse_env(SERVICE_CATALOG.get(service).directory / ".env"))
     elif service is None:
@@ -311,7 +344,7 @@ def load_values(service=None, *, examples=False, process_env=False, legacy=True)
 
 def load_local_values(service):
     """Load private values owned by one service, without tracked defaults."""
-    if service not in SERVICE_PREFIXES:
+    if service not in SERVICE_NAME_SET:
         raise ValueError(f"Unknown service configuration owner: {service}")
     values = parse_env(ROOT / _service_config_path(service))
     if not SERVICE_CATALOG.is_extension(service):
@@ -488,8 +521,6 @@ def migrate_legacy_service_configs():
     incoming = {}
     origin = {}
     for service in SERVICE_NAMES:
-        if SERVICE_CATALOG.is_extension(service):
-            continue
         source = legacy_dir / f"{service}.env"
         if not source.is_file():
             continue
@@ -498,8 +529,7 @@ def migrate_legacy_service_configs():
         sources.append(source)
         for key, value in parse_env(source).items():
             relative = owner_path(key)
-            service_relative = SERVICE_CATALOG.get(service).directory.relative_to(ROOT)
-            if relative.parts[:len(service_relative.parts)] == service_relative.parts:
+            if key in service_setting_keys(service):
                 pass
             elif (
                 SHARED_SETTING_GROUPS.get(key)
@@ -561,11 +591,9 @@ def migrate_legacy_service_defaults():
     legacy_defaults = json.loads(migration_file.read_text()) if migration_file.is_file() else {}
     cleaned = []
     for service in SERVICE_NAMES:
-        if SERVICE_CATALOG.is_extension(service):
-            continue
-        service_directory = SERVICE_CATALOG.get(service).directory
-        local = service_directory / ".env"
-        defaults = service_directory / ".env.default"
+        service_definition = SERVICE_CATALOG.get(service)
+        local = ROOT / _service_config_path(service)
+        defaults = service_definition.directory / ".env.default"
         if local.is_symlink():
             raise ValueError(f"Refusing to migrate service config through a symlink: {local}")
         if not local.is_file() or not defaults.is_file():
@@ -608,7 +636,8 @@ def migrate_legacy_service_defaults():
     marker.chmod(0o600)
     for service, count in cleaned:
         print(
-            f"Moved {count} unchanged default value(s) from services/{service}/.env "
+            f"Removed {count} unchanged default value(s) from "
+            f"{(ROOT / _service_config_path(service)).relative_to(ROOT)} "
             f"back to its tracked .env.default."
         )
     if cleaned:

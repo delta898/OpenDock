@@ -47,6 +47,18 @@ companion `OpenDock-Services` repository. Fetching remote state for a requested
 Git operation is allowed; publishing local changes requires a separate,
 explicit user request.
 
+## Local verification before push
+
+Before every push, run the applicable local verification after the final edits
+and before publishing. Identify the CI workflows triggered by the changed paths
+and run their test, lint, build, package, and static-validation commands locally
+where available. For changes spanning repositories, verify each repository
+separately. Documentation-only changes still require `git diff --check` and any
+applicable documentation validation. Do not rely on results from before the
+latest edits. If a required check fails or cannot run, stop before pushing and
+report the failing check or blocker; an explicit push request does not waive
+this requirement. Report the commands and results with the push outcome.
+
 ### `[cmd]` shorthand
 
 When the user says `[cmd]`, treat it as an instruction to complete the local

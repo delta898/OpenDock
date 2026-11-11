@@ -61,6 +61,16 @@ class ServiceDefinition:
         return tuple(setup.get("fields", ()))
 
     @property
+    def settings(self) -> Mapping[str, object]:
+        return self.descriptor.get("settings", {})
+
+    @property
+    def setting_keys(self) -> tuple[str, ...]:
+        declared = self.settings.get("setting_keys", ())
+        setup_keys = tuple(field["name"] for field in self.setup_fields)
+        return tuple(dict.fromkeys((*declared, *setup_keys)))
+
+    @property
     def setup_complete(self) -> bool:
         """Whether the installed package has completed its first service setup."""
         return self.setup_completed_at is not None
@@ -578,7 +588,7 @@ class ServiceCatalog:
             set(descriptor) - {
                 "schema_version", "service_id", "version", "display_name", "capability_api_version",
                 "capabilities", "dependencies", "commands", "setup", "routing", "removal",
-                "storage", "lifecycle", "catalog",
+                "storage", "lifecycle", "catalog", "settings",
             }
         )
         if unknown_descriptor_fields:
@@ -624,6 +634,56 @@ class ServiceCatalog:
             or len(tags) != len(set(tags))
         ):
             raise CatalogError(f"Service descriptor {path} has invalid catalog.tags.")
+
+        settings = descriptor.get("settings", {})
+        if not isinstance(settings, dict):
+            raise CatalogError(f"Service descriptor {path} has invalid [settings] metadata.")
+        unknown_settings = sorted(set(settings) - {"config_file", "setting_keys"})
+        if unknown_settings:
+            raise CatalogError(
+                f"Service descriptor {path} has unsupported settings fields: "
+                + ", ".join(unknown_settings)
+            )
+        setting_keys = settings.get("setting_keys", [])
+        if (
+            not isinstance(setting_keys, list)
+            or any(
+                not isinstance(key, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key)
+                for key in setting_keys
+            )
+            or len(setting_keys) != len(set(setting_keys))
+        ):
+            raise CatalogError(f"Service descriptor {path} has invalid settings.setting_keys.")
+        config_file = settings.get("config_file")
+        if settings and not isinstance(config_file, str):
+            raise CatalogError(f"Service descriptor {path} settings must declare config_file.")
+        if config_file is not None:
+            config_path = Path(config_file)
+            if (
+                config_path.is_absolute()
+                or ".." in config_path.parts
+                or config_path.parts[:2] != ("config", "extensions")
+                or config_path.suffix != ".env"
+                or config_path.as_posix() != f"config/extensions/{service_id}.env"
+            ):
+                raise CatalogError(
+                    f"Service descriptor {path} has an unsafe settings.config_file."
+                )
+        if settings:
+            defaults_path = path.parent / ".env.default"
+            if not defaults_path.is_file():
+                raise CatalogError(
+                    f"Service descriptor {path} declares settings but has no .env.default."
+                )
+            default_keys = []
+            for line in defaults_path.read_text().splitlines():
+                match = re.match(r"^\s*([A-Z][A-Z0-9_]*)\s*=", line)
+                if match and not line.lstrip().startswith("#"):
+                    default_keys.append(match.group(1))
+            if len(default_keys) != len(set(default_keys)) or set(default_keys) != set(setting_keys):
+                raise CatalogError(
+                    f"Service descriptor {path} settings.setting_keys must exactly match .env.default."
+                )
 
         version = descriptor.get("schema_version")
         if type(version) is not int or version != self.DESCRIPTOR_VERSION:
@@ -902,6 +962,15 @@ class ServiceCatalog:
                 raise CatalogError(
                     f"Setup field {name!r} in {path} has an invalid generator length."
                 )
+
+        undeclared_setup_keys = sorted(
+            {field["name"] for field in setup_fields} - set(setting_keys)
+        ) if settings else []
+        if undeclared_setup_keys:
+            raise CatalogError(
+                f"Service descriptor {path} setup fields are missing from settings.setting_keys: "
+                + ", ".join(undeclared_setup_keys)
+            )
 
         if routing and routing["subdomain_key"] not in seen_fields:
             raise CatalogError(

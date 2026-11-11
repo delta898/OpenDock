@@ -113,15 +113,24 @@ class RemoveTests(unittest.TestCase):
     def test_service_config_removal_keeps_restricted_backup(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            service_config = root / "services" / "example" / ".env"
+            service_config = root / "config" / "extensions" / "example.env"
             service_config.parent.mkdir(parents=True)
             service_config.write_text("EXAMPLE_PASSWORD=private-value\n")
-            with mock.patch.object(remove, "ROOT", root):
+            service_dir = root / "services" / "extensions" / "example" / "releases" / "1.0.0"
+            service_dir.mkdir(parents=True)
+            definition = SimpleNamespace(
+                name="example",
+                directory=service_dir,
+                settings={"config_file": "config/extensions/example.env", "setting_keys": ["EXAMPLE_PASSWORD"]},
+            )
+            catalog = SimpleNamespace(get=lambda _service: definition, is_extension=lambda _service: True)
+            with mock.patch.object(remove, "ROOT", root), \
+                 mock.patch.object(remove, "ServiceCatalog", return_value=catalog):
                 remove.remove_service_config("example")
 
             self.assertFalse(service_config.exists())
             backups = list(
-                (root / "backups" / "config" / "services" / "example").glob(".env.*.bak")
+                (root / "backups" / "config" / "services" / "example").glob("example.env.*.bak")
             )
             self.assertEqual(len(backups), 1)
             self.assertEqual(backups[0].read_text(), "EXAMPLE_PASSWORD=private-value\n")

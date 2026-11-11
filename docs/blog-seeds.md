@@ -1582,3 +1582,42 @@ OpenDock에서 실제로 겪은 문제, 판단 근거, 실패와 검증 결과�
   39개가 통과했다. 전체 66개 테스트 중 12개는 legacy service config path와
   Hermes registry를 기대해 실패했다. 전체 suite가 현행 product contract에 맞게
   정리됐는지는 별도 과제다.
+
+## OD-025. 부분 테스트가 CI의 초록불을 만들 때
+
+- 상태: `seed`
+- 관련 파일: `tests/test_settings.py`, `tests/test_remove.py`,
+  `tests/test_lifecycle_contract.py`, `.github/workflows/cli.yml`,
+  `.github/workflows/release.yml`, `scripts/opendock_settings.py`,
+  `scripts/opendock_catalog.py`
+- 주제: `CI가 놓친 12개 실패—전체 테스트 탐색과 설정 소유권 계약`
+- 독자 질문: 일부 테스트만 실행하는 CI가 어떻게 저장소 전체의 검증 실패를
+  초록불로 감추며, 설정 이동 후 테스트와 코드가 함께 따라오게 하려면 무엇을
+  선언해야 하는가?
+- 참고할 사항:
+  - 이전 CI는 `test_cli.py`만 실행했다. 따라서 나머지 테스트에서 발견된
+    11개의 settings 실패와 1개의 remove 실패가 CI 결과에 나타나지 않았다.
+    원인은 서비스 private 설정이 `services/<id>/.env`에서
+    `config/extensions/<id>.env`로 이동한 뒤 테스트 픽스처가 구 경로를
+    계속 전제한 계약 불일치였다.
+  - 단순히 기대 경로만 바꾸면 설정 키를 서비스 ID prefix로 소유시키는 추정도
+    그대로 남는다. `n8n`, `n8n-v2`, `n8n-v3`처럼 prefix가 겹치는 ID는
+    더 구체적인 서비스의 값까지 짧은 ID가 가져갈 수 있다. 해결은 descriptor의
+    `[settings]`에 config path와 정확한 key 목록을 선언하고, 공통 로더,
+    validator, secret 처리, purge가 같은 소유 목록을 읽도록 한 것이다.
+  - OpenDock catalog parser는 새 선언이 `.env.default`의 키들과 정확히 맞는지
+    검사하며, OpenDock-Services package builder도 accepted extension이 이 계약을
+    빼먹거나 불일치하게 작성하지 못하도록 검사한다. 과거 설치본은 선언 부재 시
+    기존 extension config 위치를 해석해 이행 호환성을 유지한다.
+  - CI workflow의 unittest discovery를 `test_*.py` 전체로 바꿨다. Catalog
+    freshness 문서도 코드의 24시간 stale cache refresh 동작에 맞추고, refresh
+    실패 때 stale cache를 재사용하지 않는 동작을 적었다.
+- 보존할 교훈:
+  - 검증 명령은 로컬에서 실제로 통과하는 전체 계약을 실행해야 한다. “CI가
+    통과했다”는 사실은 workflow가 실행한 범위까지만 보증한다.
+  - 소유권을 이름 패턴으로 추정하지 말고, 충돌 검사 가능한 데이터로 선언한다.
+    테스트는 정상 예뿐 아니라 prefix가 겹치는 서비스 ID도 포함해야 한다.
+- 검증 상태: OpenDock에서 전체 unittest discovery 68건이 통과했고,
+  OpenDock-Services에서 전체 11건이 통과했다. 양쪽 저장소의 `git diff --check`도
+  통과했다. 실제 GitHub Actions 재실행은 아직 하지 않았고, 새 extension
+  settings metadata는 로컬 변경 상태다.

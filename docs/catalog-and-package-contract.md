@@ -171,10 +171,11 @@ separate credentials and workflows.
   atomically replaces the local cache. It does not change installed packages.
 - The current client caches each environment separately in the user's cache
   directory. `update` always fetches a fresh catalog. `search` and `install`
-  use the cache and fetch only when it is missing; they do not yet refresh an
-  old cache automatically or use HTTP validators.
-- If no cache exists, `search` and `install` fetch the catalog once before
-  continuing. The current client does not report cache age.
+  use a cache younger than 24 hours and fetch a replacement when it is missing,
+  invalid, or older than 24 hours. A failed refresh fails the command and
+  leaves the previous cache unchanged; that invocation does not fall back to
+  the stale cache. The client does not yet use HTTP validators or report cache
+  age.
 - Current `install <service>` selects the newest stable release whose declared
   host, descriptor-schema, and capability-API ranges include this client,
   downloads it, verifies checksum, validates the descriptor through the common
@@ -194,8 +195,8 @@ separate credentials and workflows.
 - Catalog/download failure does not damage the current cache, installed code,
   or instance state. Catalog refresh never executes package hooks.
 
-Automatic cache age policy, HTTP conditional requests, and stale-cache status
-display are follow-up work; they are not part of the current client behavior.
+HTTP conditional requests, stale-cache fallback after a refresh failure, and
+cache-age status display remain follow-up work.
 
 ## First implementation slice
 
@@ -244,14 +245,15 @@ provisioning are deliberately left to the user: Kuma supports SQLite,
 embedded MariaDB, and external MariaDB/MySQL. OpenDock does not create a Kuma
 database or account. Wizard completion and post-setup application readiness
 remain unverified. Uptime Kuma declares neither a Compose healthcheck nor an
-application readiness hook. The CLI still lacks the proposed 24-hour refresh
-policy and `upgrade`; purge, domain-scoped instances, and multi-domain
+application readiness hook. The CLI still lacks `upgrade`; purge,
+domain-scoped instances, and multi-domain
 isolation are not implemented or verified. Do not treat the first-run page as
 proof of a full service lifecycle.
 
 ## Remaining implementation work
 
-- Automatic catalog refresh policy and behavior when the catalog is offline.
+- Whether to use the stale catalog after a refresh failure, HTTP conditional
+  requests, and cache-age status display.
 - Dev-to-prod promotion policy and catalog rollback behavior.
 - Whether future signatures cover the catalog, artifact, or both, and how
   trusted keys would be distributed.

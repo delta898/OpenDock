@@ -3,7 +3,9 @@
 import importlib.util
 import tempfile
 import unittest
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 
@@ -13,6 +15,47 @@ spec = importlib.util.spec_from_file_location(
 )
 settings = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(settings)
+
+
+@contextmanager
+def service_catalog(root, specifications):
+    definitions = {}
+    for name, setting_keys in specifications.items():
+        directory = root / "services" / "extensions" / name / "releases" / "1.0.0"
+        directory.mkdir(parents=True, exist_ok=True)
+        config_file = f"config/extensions/{name}.env"
+        descriptor = {
+            "settings": {"config_file": config_file, "setting_keys": list(setting_keys)},
+            "setup": {"fields": []},
+        }
+        definitions[name] = SimpleNamespace(
+            name=name,
+            directory=directory,
+            descriptor=descriptor,
+            settings=descriptor["settings"],
+            setting_keys=tuple(setting_keys),
+            setup_fields=(),
+            setup_dependencies=(),
+            optional_setup_configs=(),
+            storage_mounts=(),
+            removal={},
+        )
+    original_platform = settings.SERVICE_CATALOG.platform
+    catalog = SimpleNamespace(
+        names=tuple(definitions),
+        services=tuple(definitions.values()),
+        platform=original_platform,
+        get=lambda name: definitions[name],
+        is_extension=lambda _name: True,
+    )
+    with ExitStack() as stack:
+        stack.enter_context(mock.patch.object(settings, "SERVICE_CATALOG", catalog))
+        stack.enter_context(mock.patch.object(settings, "SERVICE_NAMES", catalog.names))
+        stack.enter_context(mock.patch.object(settings, "SERVICE_NAME_SET", frozenset(catalog.names)))
+        stack.enter_context(mock.patch.object(
+            settings, "SERVICE_SETTING_OWNERS", settings.build_service_setting_owners(catalog)
+        ))
+        yield catalog
 
 
 class SettingsTests(unittest.TestCase):
@@ -50,22 +93,39 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings.SHARED_SETTING_GROUPS["MARIADB_CLIENT_VERSION"], "mariadb")
         self.assertEqual(
             settings.owner_path("WORDPRESS_DB_PASSWORD"),
-            Path("services/wordpress/.env"),
+            Path("config/extensions/wordpress.env"),
         )
-        self.assertEqual(settings.owner_path("HERMES_VERSION"), Path("services/hermes/.env"))
+        with self.assertRaises(ValueError):
+            settings.owner_path("HERMES_VERSION")
         with self.assertRaises(ValueError):
             settings.owner_path("UNREGISTERED_SETTING")
 
+    def test_service_key_ownership_uses_exact_descriptor_declarations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with service_catalog(root, {
+                "n8n": ["N8N_HOST"],
+                "n8n-v2": ["N8N_V2_VERSION", "N8N_V2_SUBDOMAIN"],
+                "n8n-v3": ["N8N_V3_VERSION", "N8N_V3_SUBDOMAIN"],
+            }) as catalog:
+                owners = settings.build_service_setting_owners(catalog)
+
+        self.assertEqual(owners["N8N_V2_VERSION"], Path("config/extensions/n8n-v2.env"))
+        self.assertEqual(owners["N8N_V3_VERSION"], Path("config/extensions/n8n-v3.env"))
+        self.assertEqual(owners["N8N_HOST"], Path("config/extensions/n8n.env"))
+        self.assertNotIn("N8N_V2_VERSION", {
+            key for key in catalog.get("n8n").setting_keys
+        })
+
     def test_every_defaults_key_matches_its_registered_owner(self):
-        examples = sorted((ROOT / "config").rglob("*.env.default"))
-        examples += sorted((ROOT / "services").glob("*/.env.default"))
-        self.assertGreater(len(examples), 10)
-        for example in examples:
-            relative = example.relative_to(ROOT).as_posix()
-            expected = relative.removesuffix(".default")
-            for key in settings.parse_env(example):
-                actual = settings.owner_path(key).as_posix()
-                self.assertEqual(actual, expected, f"{key} is in the wrong config template")
+        for section in settings.CONFIG_SECTIONS.values():
+            expected = Path(section["config_file"])
+            for key in section["setting_keys"]:
+                self.assertEqual(settings.owner_path(key), expected)
+        for component in settings.SERVICE_CATALOG.platform.components:
+            expected = Path(component.config_file)
+            for key in component.setting_keys:
+                self.assertEqual(settings.owner_path(key), expected)
 
     def test_legacy_file_migrates_and_is_backed_up_without_printing_values(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -87,7 +147,11 @@ class SettingsTests(unittest.TestCase):
                 "SMTP_HOST=mail.example.test\nWORDPRESS_DB_PASSWORD=wp-secret\n"
                 "HERMES_DASHBOARD_SECRET=hermes-secret\n"
             )
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {
+                "wordpress": ["WORDPRESS_DB_PASSWORD"],
+                "hermes": ["HERMES_DASHBOARD_SECRET"],
+            }), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "LEGACY_ENV", legacy), \
                  mock.patch.object(settings, "BACKUPS", backups):
@@ -101,7 +165,7 @@ class SettingsTests(unittest.TestCase):
             self.assertEqual(merged["WORDPRESS_DB_PASSWORD"], "wp-secret")
             self.assertEqual(merged["HERMES_DASHBOARD_SECRET"], "hermes-secret")
             self.assertEqual(
-                settings.parse_env(root / "services/hermes/.env")["HERMES_DASHBOARD_SECRET"],
+                settings.parse_env(config / "extensions/hermes.env")["HERMES_DASHBOARD_SECRET"],
                 "hermes-secret",
             )
             saved = list(backups.glob("common.env.*.bak"))
@@ -133,13 +197,14 @@ class SettingsTests(unittest.TestCase):
                 config / "infra.env": "POSTGRES_ADMIN_USER=infra\n",
                 config / "shared" / "mail.env.default": "SMTP_PORT=587\n",
                 config / "shared" / "mail.env": "SMTP_PORT=2525\n",
-                root / "services" / "wordpress" / ".env.default": "WORDPRESS_SUBDOMAIN=blog\n",
-                root / "services" / "wordpress" / ".env": "WORDPRESS_SUBDOMAIN=wp\n",
+                root / "services" / "extensions" / "wordpress" / "releases" / "1.0.0" / ".env.default": "WORDPRESS_SUBDOMAIN=blog\n",
+                config / "extensions" / "wordpress.env": "WORDPRESS_SUBDOMAIN=wp\n",
             }
             for path, contents in files.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(contents)
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {"wordpress": ["WORDPRESS_SUBDOMAIN"]}), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "LEGACY_ENV", root / "missing-common.env"):
                 values = settings.load_values(service="wordpress", process_env=False)
@@ -152,14 +217,14 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             config = root / "config"
-            service_local = root / "services" / "wordpress" / ".env"
+            service_local = config / "extensions" / "wordpress.env"
             service_local.parent.mkdir(parents=True)
             service_local.write_text("WORDPRESS_VERSION=1\n")
             paths = [
                 config / "core.env.default", config / "infra.env.default",
                 config / "shared" / "database.env.default",
                 config / "shared" / "mail.env.default",
-                root / "services" / "wordpress" / ".env.default",
+                root / "services" / "extensions" / "wordpress" / "releases" / "1.0.0" / ".env.default",
                 config / "core.env", config / "infra.env",
                 config / "shared" / "database.env",
                 config / "shared" / "mail.env",
@@ -168,7 +233,8 @@ class SettingsTests(unittest.TestCase):
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {"wordpress": ["WORDPRESS_VERSION"]}), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "LEGACY_ENV", root / "missing-common.env"):
                 result = settings.compose_env_files("wordpress")
@@ -178,19 +244,20 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             config = root / "config"
-            hermes = root / "services" / "hermes"
+            hermes = root / "services" / "extensions" / "hermes" / "releases" / "1.0.0"
             paths = [
                 config / "core.env.default", config / "infra.env.default",
                 config / "shared" / "database.env.default",
                 config / "shared" / "mail.env.default", hermes / ".env.default",
                 config / "core.env", config / "infra.env",
                 config / "shared" / "database.env", config / "shared" / "mail.env",
-                hermes / ".env",
+                config / "extensions" / "hermes.env",
             ]
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {"hermes": ["HERMES_VERSION"]}), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "LEGACY_ENV", root / "missing-common.env"):
                 result = settings.compose_env_files("hermes")
@@ -268,16 +335,17 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             config = root / "config"
-            hermes = root / "services" / "hermes"
+            hermes = root / "services" / "extensions" / "hermes" / "releases" / "1.0.0"
             files = {
                 config / "core.env.default": "STACK_DOMAIN=example.com\n",
                 hermes / ".env.default": "HERMES_SUBDOMAIN=hermes\nHERMES_VERSION=v1\n",
-                hermes / ".env": "HERMES_VERSION=v2\n",
+                config / "extensions" / "hermes.env": "HERMES_VERSION=v2\n",
             }
             for path, contents in files.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(contents)
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {"hermes": ["HERMES_SUBDOMAIN", "HERMES_VERSION"]}), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "LEGACY_ENV", root / "missing-common.env"):
                 defaults = settings.load_values(service="hermes", examples=True)
@@ -296,11 +364,14 @@ class SettingsTests(unittest.TestCase):
                 "WORDPRESS_DB_PASSWORD=legacy-wp-secret\n"
                 "WORDPRESS_SUBDOMAIN=old-blog\n"
             )
-            local = root / "services" / "wordpress" / ".env"
+            local = config / "extensions" / "wordpress.env"
             local.parent.mkdir(parents=True)
             local.write_text("WORDPRESS_SUBDOMAIN=new-blog\n")
             backups = root / "backups" / "config"
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {
+                "wordpress": ["WORDPRESS_DB_PASSWORD", "WORDPRESS_SUBDOMAIN"],
+            }), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "BACKUPS", backups), \
                  mock.patch.object(settings, "LEGACY_ENV", root / "missing-common.env"):
@@ -318,20 +389,24 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             config = root / "config"
-            service = root / "services" / "wordpress"
+            service = root / "services" / "extensions" / "wordpress" / "releases" / "1.0.0"
             service.mkdir(parents=True)
             default = service / ".env.default"
             default.write_text(
                 "WORDPRESS_VERSION=7-php8.3-apache\n"
                 "WORDPRESS_CONTAINER_NAME=wordpress\n"
             )
-            local = service / ".env"
+            local = config / "extensions" / "wordpress.env"
+            local.parent.mkdir(parents=True)
             local.write_text(
                 "WORDPRESS_VERSION=7-php8.3-apache\n"
                 "WORDPRESS_CONTAINER_NAME=my-wordpress\n"
             )
             backups = root / "backups" / "config"
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {
+                "wordpress": ["WORDPRESS_VERSION", "WORDPRESS_CONTAINER_NAME"],
+            }), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "BACKUPS", backups):
                 settings.migrate_legacy_service_defaults()
@@ -352,12 +427,13 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             config = root / "config"
-            service = root / "services" / "wordpress"
+            service = root / "services" / "extensions" / "wordpress" / "releases" / "1.0.0"
             service.mkdir(parents=True)
             (service / ".env.default").write_text(
                 "WORDPRESS_VERSION=8-php8.3-apache\n"
             )
-            local = service / ".env"
+            local = config / "extensions" / "wordpress.env"
+            local.parent.mkdir(parents=True)
             local.write_text(
                 "WORDPRESS_VERSION=7-php8.3-apache\n"
                 "WORDPRESS_CONTAINER_NAME=my-wordpress\n"
@@ -367,7 +443,10 @@ class SettingsTests(unittest.TestCase):
             migration.write_text(
                 '{"wordpress":{"WORDPRESS_VERSION":"7-php8.3-apache"}}\n'
             )
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {
+                "wordpress": ["WORDPRESS_VERSION", "WORDPRESS_CONTAINER_NAME"],
+            }), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "CONFIG", config), \
                  mock.patch.object(settings, "BACKUPS", root / "backups" / "config"):
                 settings.migrate_legacy_service_defaults()
@@ -436,11 +515,12 @@ class SettingsTests(unittest.TestCase):
     def test_hermes_setup_writes_only_the_private_service_file(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            default = root / "services" / "hermes" / ".env.default"
+            default = root / "services" / "extensions" / "hermes" / "releases" / "1.0.0" / ".env.default"
             default.parent.mkdir(parents=True)
             default.write_text("HERMES_DASHBOARD_PASSWORD=change-me\n")
             backups = root / "backups" / "config"
-            with mock.patch.object(settings, "ROOT", root), \
+            with service_catalog(root, {"hermes": ["HERMES_DASHBOARD_PASSWORD"]}), \
+                 mock.patch.object(settings, "ROOT", root), \
                  mock.patch.object(settings, "BACKUPS", backups):
                 changed = settings.write_values({"HERMES_DASHBOARD_PASSWORD": "generated-secret"})
             self.assertEqual(changed, ["HERMES_DASHBOARD_PASSWORD"])
@@ -448,11 +528,11 @@ class SettingsTests(unittest.TestCase):
                 settings.parse_env(default)["HERMES_DASHBOARD_PASSWORD"], "change-me"
             )
             self.assertEqual(
-                settings.parse_env(root / "services/hermes/.env")["HERMES_DASHBOARD_PASSWORD"],
+                settings.parse_env(root / "config/extensions/hermes.env")["HERMES_DASHBOARD_PASSWORD"],
                 "generated-secret",
             )
             self.assertEqual(
-                (root / "services/hermes/.env").stat().st_mode & 0o777, 0o600
+                (root / "config/extensions/hermes.env").stat().st_mode & 0o777, 0o600
             )
 
 
