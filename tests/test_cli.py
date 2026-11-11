@@ -312,6 +312,7 @@ class CLITests(unittest.TestCase):
         catalog = {"services": [{
             "service_id": "n8n-v2",
             "display_name": "n8n 2 Stable",
+            "category": "Automation",
             "summary": "Workflow automation",
             "tags": ["automation"],
             "primary_image": "n8n:2.46.6",
@@ -322,7 +323,7 @@ class CLITests(unittest.TestCase):
              redirect_stdout(output):
             result = cli.main(["search"])
         self.assertEqual(result, 0)
-        self.assertIn("n8n-v2\tn8n 2 Stable\tn8n:2.46.6", output.getvalue())
+        self.assertIn("n8n-v2\tn8n 2 Stable\tAutomation\tn8n:2.46.6", output.getvalue())
         self.assertNotIn("0.1.1", output.getvalue())
 
     def test_help_is_available_at_each_command_level(self):
